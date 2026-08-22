@@ -30,8 +30,9 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
   temporary read/write access and records `files/bfu-rootfs.log`;
 - offers an AFU-only, checksum-pinned Debian 13 Trixie arm64 rootfs installer that uses
   a private mount namespace and publishes only a fully validated staging tree;
-- streams installer stdout/stderr to a DE-persistent log that the launcher tails
-  every second;
+- streams installer stdout/stderr to a DE-persistent log shown in a selectable,
+  console-style view; live follow pauses while selecting text or reading older
+  lines;
 - dynamically receives `USER_UNLOCKED` and hands off to the unchanged normal
   Termux boot-script scheduling path without stopping the BFU service;
 - also handles `BOOT_COMPLETED` as an AFU fallback and suppresses the unlock/boot
@@ -54,7 +55,7 @@ upstream `testkey_untrusted.jks` files:
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `3C83F938F9C716E69C8E8676E117735ADF357C6F1EF4DCC23B0261E80516D1CC` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `B999BF072A81B1BF0F73B06E3B5864286A4B343D511372CB3B6527FE04E044CB` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.

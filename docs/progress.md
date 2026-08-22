@@ -49,6 +49,10 @@
   debootstrap/keyring pins and explicit suite/version validation.
 - [x] Add a DE-persistent installer status/log and a one-second live tail in the
   Termux:Boot activity.
+- [x] Present the live installer log as a selectable console and pause follow
+  while text is selected or the operator reads older lines.
+- [x] Add the split Termux `mount-utils` prerequisite and propagate the root
+  helper's final sanitized `ERROR:` line into the visible installer status.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Implement and verify namespace/mount launcher and Debian chroot.
 - [ ] Start systemd as namespace PID 1 and verify D-Bus/systemctl.
@@ -61,7 +65,7 @@ A portable Temurin JDK 17 and checksummed Android command-line tools were placed
 the ignored `.tools` directory. After explicit user acceptance, Platform 34 and
 Build Tools 34.0.0 were installed. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `3C83F938F9C716E69C8E8676E117735ADF357C6F1EF4DCC23B0261E80516D1CC`.
+SHA-256 `B999BF072A81B1BF0F73B06E3B5864286A4B343D511372CB3B6527FE04E044CB`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. Magisk root was subsequently proven entirely during BFU; the
@@ -72,5 +76,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-3C83F938F9C716E69C8E8676E117735ADF357C6F1EF4DCC23B0261E80516D1CC  termux-boot_0.8.1_bfu_debug.apk
+B999BF072A81B1BF0F73B06E3B5864286A4B343D511372CB3B6527FE04E044CB  termux-boot_0.8.1_bfu_debug.apk
 ```

@@ -21,7 +21,7 @@ After launching the matching custom Termux APK, run while Android is unlocked:
 
 ```sh
 pkg update
-pkg install debootstrap util-linux
+pkg install debootstrap util-linux mount-utils
 ```
 
 Then open Termux:Boot and press **Request / verify Magisk root permission**.
@@ -86,11 +86,18 @@ The UI polls these Device Protected files once per second:
 <DE filesDir>/debian-install.log
 ```
 
+The log is displayed in a fixed-height, monospaced console with a contrasting
+background. Long-press it to select and copy text. Automatic refresh/follow
+pauses while a selection is active or the console is scrolled above the bottom,
+then resumes when the selection is dismissed or the view returns to the bottom.
+
 The log records download progress, both integrity checks, the selected `su`
 binary, private-mount setup, upstream debootstrap stdout/stderr, validation, and
 the final atomic promotion. It does not log environment dumps, credentials, or
-private keys. The same files survive reboot and can be read after unlock with a
-debuggable build:
+private keys. If the root helper exits unsuccessfully, its last sanitized
+`ERROR:` line is also included in the installer status instead of showing only
+the numeric exit code. The same files survive reboot and can be read after
+unlock with a debuggable build:
 
 ```sh
 adb shell run-as com.termux.boot cat \
@@ -104,7 +111,8 @@ derives the DE directory from `createDeviceProtectedStorageContext()`.
 
 ## Failure handling
 
-- `missing ...; run in Termux: pkg install debootstrap util-linux`: install the
+- `missing ...; run in Termux: pkg install debootstrap util-linux mount-utils`:
+  install the
   AFU prerequisites and press the install button again.
 - checksum or signature failure: do not bypass verification; retain the log and
   investigate the network/cache.

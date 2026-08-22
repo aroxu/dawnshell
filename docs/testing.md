@@ -97,7 +97,7 @@ post-reboot line in `files/bfu-root.log`.
 While unlocked, install Termux prerequisites, then use the in-app installer:
 
 ```sh
-pkg install debootstrap util-linux
+pkg install debootstrap util-linux mount-utils
 ```
 
 Watch **Debian installation log (live)** until the status is `SUCCEEDED`. Confirm
