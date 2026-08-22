@@ -27,6 +27,24 @@ The first proof of concept is implemented on the `bfu/direct-boot-poc` branch in
 An SSH daemon is not included yet. The current notification deliberately says
 "planned SSH port" and the code never logs `SSH daemon started`.
 
+## Built APK pair
+
+Both debug APKs were successfully built on 2026-08-22 with the byte-identical
+upstream `testkey_untrusted.jks` files:
+
+| APK | Target/ABI | SHA-256 |
+| --- | --- | --- |
+| `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `CB4FA7EFEA7A12A6B7D94A6C10EEAF456EFE956B3ABADDE2B6472906E1D014D0` |
+
+Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
+`B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
+They verify with APK signature schemes v1 and v2.
+
+The APKs in `dist/` are local ignored build artifacts, not committed binaries.
+The upstream debug key is public and must not be treated as a private production
+identity. This pair also cannot update or coexist with F-Droid-signed Termux apps.
+
 ## Upstream snapshots
 
 | Repository | Branch | Commit |
@@ -41,6 +59,7 @@ Snapshots were fetched on 2026-08-22.
 
 - JDK 17
 - Android SDK Platform 34 and Build Tools 34.0.0 for Termux:Boot
+- Android SDK Platform 36, Build Tools 35.0.0, and NDK 29.0.14206865 for Termux
 - ADB for device tests
 - one signing key shared by Termux and every installed Termux plugin
 
@@ -67,4 +86,3 @@ Before replacing an F-Droid installation:
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
 [testing](docs/testing.md), and [progress](docs/progress.md).
-
