@@ -33,8 +33,7 @@ its locked-boot runtime is independent, but the app currently uses tools from
 
 - the first Debian rootfs installation;
 - Debian systemd/OpenSSH package installation and reconfiguration;
-- convenient SSH client-key generation, localhost SSH access, and operational
-  diagnostics from the phone.
+- localhost SSH access and operational diagnostics from the phone.
 
 Prepare normal Termux after unlock with:
 
@@ -69,10 +68,12 @@ USER_UNLOCKED
 ```
 
 The launcher provides rootfs installation, system configuration, lifecycle
-controls, local password controls, selectable live logs, authorized-key editing,
-copyable Termux key-generation/localhost SSH commands, and a two-stage destructive
-control for permanently deleting exactly `/data/local/debian` after stopping and
-verifying the supervisor.
+controls, local password controls, selectable live logs, an app-generated Ed25519
+client identity, private-key export/import helpers, a copyable localhost SSH
+command, and a two-stage destructive control for permanently deleting exactly
+`/data/local/debian` after stopping and verifying the supervisor. The client
+private key is kept in this app's CE storage; only its public key enters DE and
+Debian.
 
 ## Migration from the BFU-enabled Termux:Boot build
 
@@ -86,8 +87,8 @@ both supervisors start the same rootfs.
    refuses startup while the old supervisor reports itself running.
 4. Install Termux: BFU, open it after unlock, and grant its new UID permanent
    Magisk root permission.
-5. Paste the SSH public-key line into the new app, enable BFU, and press
-   **Save and provision BFU runtime**.
+5. Open the app after unlock so it generates its own random Ed25519 client key,
+   enable BFU, and press **Save and provision BFU runtime**.
 6. Start Debian from the new app and verify SSH before rebooting.
 
 The existing `/data/local/debian` rootfs and its account password hashes remain.

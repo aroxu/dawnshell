@@ -8,8 +8,8 @@
   `~/.termux/boot` dispatch, and signing-key coupling with Termux.
 - [x] Move CE-isolation proof to the standalone app's own CE sentinel and retain
   app-owned DE settings, keys, runtime files, and logs.
-- [x] Change the Termux key helper to print/copy only the public key for manual
-  paste into the standalone app; Termux cannot write the new app's DE tree.
+- [x] Generate a random Ed25519 client identity in app CE, provision only its
+  public half into DE/Debian, and add explicit file/Termux-command export paths.
 - [x] Add a migration guard that refuses start/reconfiguration while the legacy
   `com.termux.boot` BFU setting is enabled or its supervisor is running.
 - [x] Preserve Debian 13 systemd/OpenSSH, local password controls, private-rootfs
@@ -148,9 +148,8 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 - [x] Replace the target's hanging halt-signal maintenance stop with systemd's
   container `exit` operation; verify 0.76-second stop, `wait_status=0`, and an
   unchanged Android boot ID on-device.
-- [x] Add copyable Termux CE key setup/public-key export and localhost SSH
-  commands; verify Debian UID 1000 login, idempotent key setup, and zero private
-  key material in DE.
+- [x] Add copyable Termux CE private-key import and localhost SSH commands;
+  verify Debian UID 1000 login and zero private-key material in DE.
 - [x] Add AFU-only local Debian password controls and private-rootfs-only setuid
   support for interactive `su root`, while keeping OpenSSH public-key-only.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.

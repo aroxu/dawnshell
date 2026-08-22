@@ -4,12 +4,16 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.UserManager;
 import android.graphics.Color;
@@ -18,6 +22,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
 import android.text.InputType;
 import android.util.Log;
+import android.util.Base64;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
@@ -32,6 +37,7 @@ import android.widget.Toast;
 import androidx.annotation.Nullable;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -39,10 +45,11 @@ import java.util.concurrent.Executors;
 public class BootActivity extends Activity {
 
     private static final String TAG = "TermuxBFU";
+    private static final int REQUEST_EXPORT_SSH_PRIVATE_KEY = 1001;
 
     private CheckBox enableBfu;
     private CheckBox allowCeReadableBfu;
-    private EditText authorizedKeys;
+    private TextView generatedPublicKey;
     private TextView rootProbeStatus;
     private TextView ceIsolationProbeStatus;
     private TextView rootfsProbeStatus;
@@ -121,6 +128,38 @@ public class BootActivity extends Activity {
         super.onDestroy();
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode,
+                                    @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_EXPORT_SSH_PRIVATE_KEY
+                || resultCode != RESULT_OK || data == null) return;
+        Uri destination = data.getData();
+        if (destination == null) {
+            Toast.makeText(this, R.string.bfu_private_key_export_failed,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            BfuSshClientKeyStore.Identity identity = BfuSshClientKeyStore.ensure(this);
+            try (OutputStream output = getContentResolver().openOutputStream(
+                    destination, "wt")) {
+                if (output == null) throw new IOException("document provider returned no stream");
+                output.write(identity.privateKey.getBytes(
+                        java.nio.charset.StandardCharsets.US_ASCII));
+                output.flush();
+            }
+            recordOperation("SSH_CLIENT_PRIVATE_KEY_EXPORTED destination=document_provider");
+            Toast.makeText(this, R.string.bfu_private_key_exported,
+                    Toast.LENGTH_LONG).show();
+        } catch (IOException e) {
+            recordOperation("SSH_CLIENT_PRIVATE_KEY_EXPORT_FAILED "
+                    + BfuSu.sanitize(e.getMessage()));
+            Toast.makeText(this, getString(R.string.bfu_private_key_export_failed_detail,
+                    e.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private ScrollView buildSettingsView() {
         int padding = dp(20);
         LinearLayout content = new LinearLayout(this);
@@ -153,16 +192,21 @@ public class BootActivity extends Activity {
         ceOverrideWarning.setText(R.string.bfu_allow_ce_readable_warning);
         content.addView(ceOverrideWarning, matchWrap());
 
-        TextView authorizedKeysExplanation = new TextView(this);
-        authorizedKeysExplanation.setText(R.string.bfu_authorized_keys_explanation);
-        content.addView(authorizedKeysExplanation, matchWrap());
+        TextView generatedKeyExplanation = new TextView(this);
+        generatedKeyExplanation.setText(R.string.bfu_generated_key_explanation);
+        content.addView(generatedKeyExplanation, matchWrap());
 
-        authorizedKeys = createAuthorizedKeysEditor();
+        generatedPublicKey = createLogConsole(3, 6);
         LinearLayout.LayoutParams keysLayout = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         keysLayout.topMargin = dp(8);
         keysLayout.bottomMargin = dp(16);
-        content.addView(authorizedKeys, keysLayout);
+        content.addView(generatedPublicKey, keysLayout);
+
+        Button rotateSshKey = new Button(this);
+        rotateSshKey.setText(R.string.bfu_rotate_ssh_client_key);
+        rotateSshKey.setOnClickListener(view -> confirmRotateSshClientKey());
+        content.addView(rotateSshKey, matchWrap());
 
         TextView rootAuthorizationExplanation = new TextView(this);
         rootAuthorizationExplanation.setText(R.string.bfu_root_authorization_explanation);
@@ -343,12 +387,15 @@ public class BootActivity extends Activity {
         sshClientExplanation.setText(R.string.bfu_ssh_client_commands_explanation);
         content.addView(sshClientExplanation, matchWrap());
 
-        Button copyKeyExportCommand = new Button(this);
-        copyKeyExportCommand.setText(R.string.bfu_copy_key_export_command);
-        copyKeyExportCommand.setOnClickListener(view -> copySshClientCommand(
-                "key_export", buildKeyExportCommand(),
-                R.string.bfu_key_export_command_copied));
-        content.addView(copyKeyExportCommand, matchWrap());
+        Button exportPrivateKey = new Button(this);
+        exportPrivateKey.setText(R.string.bfu_export_private_key_file);
+        exportPrivateKey.setOnClickListener(view -> confirmPrivateKeyFileExport());
+        content.addView(exportPrivateKey, matchWrap());
+
+        Button copyKeyImportCommand = new Button(this);
+        copyKeyImportCommand.setText(R.string.bfu_copy_key_import_command);
+        copyKeyImportCommand.setOnClickListener(view -> confirmCopyKeyImportCommand());
+        content.addView(copyKeyImportCommand, matchWrap());
 
         Button copySshConnectCommand = new Button(this);
         copySshConnectCommand.setText(R.string.bfu_copy_ssh_connect_command);
@@ -371,24 +418,130 @@ public class BootActivity extends Activity {
         return scrollView;
     }
 
-    private String buildKeyExportCommand() {
-        return "set -eu; "
-                + "KEY=\"$HOME/.ssh/termux-bfu-ed25519\"; "
-                + "command -v ssh-keygen >/dev/null 2>&1 || pkg install -y openssh; "
-                + "mkdir -p \"$HOME/.ssh\"; "
-                + "chmod 0700 \"$HOME/.ssh\"; "
-                + "if [ ! -s \"$KEY\" ]; then "
-                + "ssh-keygen -q -t ed25519 -N '' -C termux-bfu-client -f \"$KEY\"; "
-                + "fi; "
-                + "if [ ! -s \"$KEY.pub\" ]; then "
-                + "ssh-keygen -y -f \"$KEY\" > \"$KEY.pub\"; "
-                + "fi; "
-                + "printf '\\nPaste this public key into Termux: BFU Authorized keys:\\n'; "
-                + "cat \"$KEY.pub\"; "
-                + "if command -v termux-clipboard-set >/dev/null 2>&1; then "
-                + "termux-clipboard-set < \"$KEY.pub\"; "
-                + "printf 'Public key also copied to the Android clipboard.\\n'; fi; "
-                + "printf 'Private key: %s\\n' \"$KEY\"";
+    private void refreshGeneratedSshIdentity(boolean provisionPublicKey) {
+        try {
+            BfuSshClientKeyStore.Identity identity = BfuSshClientKeyStore.ensure(this);
+            if (provisionPublicKey) {
+                BfuRuntime.Layout layout = BfuRuntime.provision(this);
+                BfuAuthorizedKeys.validateAndSave(layout, identity.publicKey);
+            }
+            replaceConsoleText(generatedPublicKey, identity.publicKey, false);
+        } catch (IOException e) {
+            replaceConsoleText(generatedPublicKey,
+                    getString(R.string.bfu_generated_key_failed, e.getMessage()), false);
+        }
+    }
+
+    private void confirmRotateSshClientKey() {
+        if (!isUserUnlocked()) {
+            Toast.makeText(this, R.string.bfu_ssh_key_requires_unlock,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.bfu_rotate_ssh_key_confirm_title)
+                .setMessage(R.string.bfu_rotate_ssh_key_confirm_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.bfu_rotate_ssh_key_confirm_button,
+                        (dialog, which) -> rotateSshClientKey())
+                .show();
+    }
+
+    private void rotateSshClientKey() {
+        try {
+            BfuSshClientKeyStore.Identity identity =
+                    BfuSshClientKeyStore.generateAndReplace(this);
+            BfuRuntime.Layout layout = BfuRuntime.provision(this);
+            BfuAuthorizedKeys.validateAndSave(layout, identity.publicKey);
+            replaceConsoleText(generatedPublicKey, identity.publicKey, false);
+            recordOperation("SSH_CLIENT_KEY_ROTATED algorithm=ed25519 de_public_key_updated=true");
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.bfu_rotate_ssh_key_done_title)
+                    .setMessage(R.string.bfu_rotate_ssh_key_done_message)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show();
+        } catch (IOException e) {
+            recordOperation("SSH_CLIENT_KEY_ROTATE_FAILED "
+                    + BfuSu.sanitize(e.getMessage()));
+            Toast.makeText(this, getString(R.string.bfu_generated_key_failed,
+                    e.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void confirmPrivateKeyFileExport() {
+        if (!isUserUnlocked()) {
+            Toast.makeText(this, R.string.bfu_ssh_key_requires_unlock,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.bfu_export_private_key_confirm_title)
+                .setMessage(R.string.bfu_export_private_key_confirm_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.bfu_export_private_key_confirm_button,
+                        (dialog, which) -> launchPrivateKeyExport())
+                .show();
+    }
+
+    private void launchPrivateKeyExport() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/octet-stream");
+        intent.putExtra(Intent.EXTRA_TITLE, "termux-bfu-ed25519");
+        startActivityForResult(intent, REQUEST_EXPORT_SSH_PRIVATE_KEY);
+    }
+
+    private void confirmCopyKeyImportCommand() {
+        if (!isUserUnlocked()) {
+            Toast.makeText(this, R.string.bfu_ssh_key_requires_unlock,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.bfu_copy_key_import_confirm_title)
+                .setMessage(R.string.bfu_copy_key_import_confirm_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.bfu_copy_key_import_confirm_button,
+                        (dialog, which) -> copyKeyImportCommand())
+                .show();
+    }
+
+    private void copyKeyImportCommand() {
+        try {
+            String command = buildKeyImportCommand(BfuSshClientKeyStore.ensure(this));
+            copySshClientCommand("key_import", command,
+                    R.string.bfu_key_import_command_copied);
+            liveLogHandler.postDelayed(() -> clearSensitiveClipboard(command), 120_000L);
+        } catch (IOException e) {
+            recordOperation("SSH_CLIENT_KEY_IMPORT_COPY_FAILED "
+                    + BfuSu.sanitize(e.getMessage()));
+            Toast.makeText(this, getString(R.string.bfu_generated_key_failed,
+                    e.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void clearSensitiveClipboard(String expected) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(
+                Context.CLIPBOARD_SERVICE);
+        if (clipboard == null || !clipboard.hasPrimaryClip()
+                || clipboard.getPrimaryClip() == null
+                || clipboard.getPrimaryClip().getItemCount() == 0) return;
+        CharSequence current = clipboard.getPrimaryClip().getItemAt(0).coerceToText(this);
+        if (!TextUtils.equals(expected, current)) return;
+        if (Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip();
+        else clipboard.setPrimaryClip(ClipData.newPlainText("", ""));
+        recordOperation("SSH_CLIENT_PRIVATE_KEY_CLIPBOARD_CLEARED timeout_seconds=120");
+    }
+
+    private String buildKeyImportCommand(BfuSshClientKeyStore.Identity identity) {
+        String encoded = Base64.encodeToString(
+                identity.privateKey.getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+                Base64.NO_WRAP);
+        return "set -eu; umask 077; KEY=\"$HOME/.ssh/termux-bfu-ed25519\"; "
+                + "mkdir -p \"$HOME/.ssh\"; chmod 0700 \"$HOME/.ssh\"; "
+                + "printf '%s' '" + encoded + "' | base64 -d > \"$KEY\"; "
+                + "chmod 0600 \"$KEY\"; "
+                + "printf 'Imported Termux: BFU client key: %s\\n' \"$KEY\"";
     }
 
     private static String buildSshConnectCommand() {
@@ -410,7 +563,13 @@ public class BootActivity extends Activity {
                     + " clipboard_unavailable=true");
             return;
         }
-        clipboard.setPrimaryClip(ClipData.newPlainText("Termux BFU command", command));
+        ClipData clip = ClipData.newPlainText("Termux BFU command", command);
+        if (Build.VERSION.SDK_INT >= 33) {
+            PersistableBundle extras = new PersistableBundle();
+            extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
+            clip.getDescription().setExtras(extras);
+        }
+        clipboard.setPrimaryClip(clip);
         recordOperation("SSH_CLIENT_COMMAND_COPIED type=" + operation);
         Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show();
     }
@@ -418,12 +577,7 @@ public class BootActivity extends Activity {
     private void loadSettings() {
         enableBfu.setChecked(BfuPreferences.isEnabled(this));
         allowCeReadableBfu.setChecked(BfuPreferences.allowCeReadableBfu(this));
-        try {
-            authorizedKeys.setText(BfuAuthorizedKeys.read(BfuRuntime.layout(this)));
-        } catch (IOException e) {
-            authorizedKeys.setError(getString(
-                    R.string.bfu_authorized_keys_read_failed, e.getMessage()));
-        }
+        refreshGeneratedSshIdentity(true);
         refreshRootAuthorizationStatus();
         refreshProbeStatus(false);
         refreshOperationLog();
@@ -499,11 +653,8 @@ public class BootActivity extends Activity {
             savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
             BfuRuntime.Layout layout = BfuRuntime.provision(this);
-            int keyCount = 0;
-            if (!authorizedKeys.getText().toString().trim().isEmpty()) {
-                keyCount = BfuAuthorizedKeys.validateAndSave(
-                        layout, authorizedKeys.getText().toString());
-            }
+            BfuSshClientKeyStore.Identity identity = BfuSshClientKeyStore.ensure(this);
+            int keyCount = BfuAuthorizedKeys.validateAndSave(layout, identity.publicKey);
             recordOperation("PROVISION_SUCCEEDED runtime=" + layout.root
                     + " authorized_key_count=" + keyCount);
             Toast.makeText(this, getString(R.string.bfu_saved, layout.root),
@@ -746,8 +897,8 @@ public class BootActivity extends Activity {
             savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
             BfuRuntime.Layout layout = BfuRuntime.provision(this);
-            int keyCount = BfuAuthorizedKeys.validateAndSave(
-                    layout, authorizedKeys.getText().toString());
+            BfuSshClientKeyStore.Identity identity = BfuSshClientKeyStore.ensure(this);
+            int keyCount = BfuAuthorizedKeys.validateAndSave(layout, identity.publicKey);
             BfuBootService.requestDebianSystemConfiguration(this);
             recordOperation("DEBIAN_CONFIG_REQUESTED suite=trixie ssh_user=debian"
                     + " ssh_port=22 authorized_key_count=" + keyCount);
@@ -1054,32 +1205,6 @@ public class BootActivity extends Activity {
     private static String oneLine(String value) {
         if (value == null) return "(null)";
         return value.replace('\r', ' ').replace('\n', ' ').trim();
-    }
-
-    private EditText createAuthorizedKeysEditor() {
-        EditText editor = new EditText(this);
-        editor.setHint(R.string.bfu_authorized_keys_hint);
-        editor.setInputType(InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        editor.setSingleLine(false);
-        editor.setMinLines(4);
-        editor.setMaxLines(10);
-        editor.setGravity(Gravity.TOP | Gravity.START);
-        editor.setTypeface(Typeface.MONOSPACE);
-        editor.setTextSize(12f);
-        editor.setTextColor(Color.rgb(222, 231, 240));
-        editor.setHintTextColor(Color.rgb(126, 143, 158));
-        editor.setHorizontallyScrolling(false);
-        editor.setVerticalScrollBarEnabled(false);
-        editor.setPadding(dp(12), dp(12), dp(12), dp(12));
-
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.rgb(13, 18, 23));
-        background.setCornerRadius(dp(10));
-        background.setStroke(Math.max(1, dp(1)), Color.rgb(70, 112, 148));
-        editor.setBackground(background);
-        return editor;
     }
 
     private EditText createPasswordEditor(int hint) {

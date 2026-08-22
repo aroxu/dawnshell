@@ -55,6 +55,9 @@ android {
 
 dependencies {
     implementation "androidx.annotation:annotation:1.7.0"
+    implementation "net.i2p.crypto:eddsa:0.3.0"
+
+    testImplementation "junit:junit:4.13.2"
 }
 
 task versionName {

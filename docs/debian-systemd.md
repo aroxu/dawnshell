@@ -73,11 +73,14 @@ kernel, module, udev, sysctl, clock, or network state. The
 `.termux-bfu-systemd-ready` marker is written last and removed before any
 reconfiguration attempt, so a partial setup fails closed.
 
-The launcher activity also copies two optional normal-Termux commands. The first
-creates `~/.ssh/termux-bfu-ed25519` in Termux CE and prints its public half; the
-operator pastes that public line into this app. The second connects to
-`debian@127.0.0.1:22`, so it is independent of the phone's current Wi-Fi address.
-No client private-key bytes enter app DE, the Debian rootfs, logs, or clipboard.
+The app generates the client identity in its own CE storage and automatically
+provisions its public half. The first optional normal-Termux command installs the
+explicitly exported private half as `~/.ssh/termux-bfu-ed25519`; the second
+connects to `debian@127.0.0.1:22`, so it is independent of the phone's current
+Wi-Fi address. No client private-key bytes enter app DE, the Debian rootfs, or
+logs. The optional one-line import helper does place the key in a sensitive
+clipboard entry, which is cleared after 120 seconds if unchanged; document export
+avoids the clipboard.
 
 After unlock, the activity can set local passwords for `root` and `debian` by
 feeding `chpasswd` through stdin. It does not enable SSH password or root login.

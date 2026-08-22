@@ -156,6 +156,13 @@ oneshot service touches `/run/termux-bfu-enabled-service.ready` during
 `multi-user.target`, providing proof that systemd launched a configured unit other
 than the SSH/D-Bus dependencies.
 
+The launcher creates one random Ed25519 client identity after Android unlock.
+Its atomic owner-only record lives under this app's normal CE `files/ssh/`
+directory. The activity displays and provisions only the public line to DE, while
+explicit export actions can write the OpenSSH private key through Android's
+document provider or produce a time-limited sensitive Termux import command.
+Locked-boot components never open the CE identity.
+
 ## Lifecycle and idempotence
 
 - BFU is disabled by default and must be enabled once from the launcher activity.

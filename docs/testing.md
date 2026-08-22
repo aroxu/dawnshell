@@ -206,8 +206,8 @@ the launcher/chroot gate; it does not prove systemd 257 compatibility.
 
 ## Debian gates 4–7: systemd, D-Bus, and BFU SSH
 
-While Android is unlocked, paste at least one dedicated public key into the BFU
-`authorized_keys` editor and press **Configure Debian 13 systemd + SSH**. The
+While Android is unlocked, open the app and confirm that it displays its generated
+Ed25519 public key, then press **Configure Debian 13 systemd + SSH**. The
 configuration status must become `SUCCEEDED`; its live selectable log must end in
 both `CONFIGURE_SUCCEEDED` lines. This operation stops a prior test instance,
 installs packages, validates `sshd`, enables `ssh.service` and
@@ -233,13 +233,13 @@ ss -ltn
 ```
 
 For a same-phone AFU client, scroll to the bottom of Termux: BFU. Tap **Copy
-Termux SSH key generation / show-public-key command**, paste and run it once in
-normal Termux, then paste the printed public key into this app's Authorized keys
-field and save/configure. Tap **Copy SSH connect command** and run it. Expected results are an
-interactive `debian@termux-bfu` shell through `127.0.0.1:22`, no password prompt,
-and a private key only at `~/.ssh/termux-bfu-ed25519`. Re-running the setup command
-must not duplicate its public-key line. Verify that neither DE `authorized_keys`
-nor the Debian copy contains `PRIVATE KEY` text.
+Termux private-key import command**, approve the sensitive clipboard warning,
+and paste/run it once in normal Termux. It must create an owner-only OpenSSH key
+at `~/.ssh/termux-bfu-ed25519`. Tap **Copy SSH connect command** and run it.
+Expected results are an interactive `debian@termux-bfu` shell through
+`127.0.0.1:22` and no password prompt. Verify that the command's clipboard entry
+clears after 120 seconds if unchanged, and that neither DE `authorized_keys` nor
+the Debian copy contains `PRIVATE KEY` text.
 
 The decisive cold-boot test is:
 

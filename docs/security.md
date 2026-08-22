@@ -11,9 +11,10 @@
 4. DE and the BFU rootfs must not contain user/client private SSH keys, Termux
    user keys, API tokens, Tailscale auth keys, plaintext passwords, cloud
    credentials, or personal secrets. Debian generates a dedicated BFU server
-   host key in its rootfs; it must not be reused as a client identity.
-   The optional copied Termux setup command creates its client private key only
-   under normal Termux CE home and exports only the public half.
+   host key in its rootfs; it must not be reused as a client identity. The app
+   generates a separate Ed25519 client identity after unlock and stores its
+   private half only in the app's CE files. Only its public line is copied to DE
+   and Debian.
 5. Root is required for the Debian launcher but is never assumed: each boot must
    prove `su -c id` returned `uid=0`, and failure cannot crash the BFU controller.
 6. The Debian launcher does not create a network namespace or expose Android's
@@ -137,13 +138,20 @@ before first unlock, use a unique strong password and treat offline hash crackin
 as part of the DE threat model. OpenSSH remains public-key-only even after these
 local passwords are set, and `PermitRootLogin no` remains mandatory.
 
-The UI's copied setup command may be run only after unlock in normal Termux. It
-generates an unencrypted, purpose-specific client key in CE because unattended
-public-key login is the feature being requested. The command is idempotent and
-prints the public-key line (optionally copying it through Termux:API). The operator
-must paste that line into the standalone app's Authorized keys field. Termux cannot
-write the app's DE tree, and the clipboard contains shell commands or public-key
-text, never the generated private key.
+The app generates the unencrypted purpose-specific Ed25519 client identity with
+`SecureRandom` only after Android reports the user unlocked. Its atomic owner-only
+record is in app CE, not DE. Configuration automatically validates and provisions
+the public half; there is no manual authorized-key input.
+
+Private-key export is always an explicit AFU action. The document-picker path
+writes an OpenSSH private-key file to the operator's selected destination. The
+convenience Termux import command necessarily contains the private key as base64,
+so the UI requires confirmation, marks the clip sensitive on supported Android
+versions, logs no key material, and clears that exact clipboard entry after 120
+seconds. Exported files and pasted commands leave the app's protection boundary
+and must be handled as credentials. Rotation destroys the app's previous identity,
+updates DE public-key state, and requires Debian system reconfiguration before the
+new key replaces the installed `authorized_keys`.
 
 The target's IPC namespace is a documented compatibility exception, not a
 container-security boundary. A captured kernel panic proves that Samsung's
