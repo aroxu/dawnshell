@@ -55,6 +55,18 @@
   helper's final sanitized `ERROR:` line into the visible installer status.
 - [x] Avoid the vendor Android 16 forced-scrollbar crash in the selectable log
   console while retaining touch scrolling and text selection.
+- [x] Diagnose the first physical-device Trixie bootstrap past required-package
+  configuration: Android `mksh` retained debootstrap's target-only `PATH`
+  assignment, so host helpers switched from Termux tools to toybox and looked
+  for a nonexistent `https:__..._Packages` apt-list path.
+- [x] Scope debootstrap target commands to a subshell so the AFU Termux host
+  `PATH` survives every chroot call; add the internal debootstrap log tail to
+  visible failure output.
+- [x] Present root authorization, BFU probes, provision operations, Debian
+  status, and Debian output as selectable console views with independent touch
+  scrolling and outer-page handoff at console edges.
+- [x] Persist a DE-only 48 KiB live tail for button/provision results without
+  storing credentials.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Implement and verify namespace/mount launcher and Debian chroot.
 - [ ] Start systemd as namespace PID 1 and verify D-Bus/systemctl.
@@ -62,12 +74,11 @@
 
 ## Build environment note
 
-The host had only JDK 26, while Gradle 8.5 failed on class-file major version 70.
-A portable Temurin JDK 17 and checksummed Android command-line tools were placed in
-the ignored `.tools` directory. After explicit user acceptance, Platform 34 and
-Build Tools 34.0.0 were installed. The generated debug APK is
+The host defaults to JDK 26, which is too new for this Android Gradle Plugin's
+lint runtime. Builds and lint therefore use the Gradle-managed Temurin JDK 21
+with Android Platform 34 and Build Tools 34.0.0. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `125973CC4CCC19C51EDC8222D8FC93E177B31AB2D34840540E06B533A662BC39`.
+SHA-256 `8D38AEDC49886852E61DA86A2D3ED7CACACCC400273BB2FF852DDD989B3A3BCC`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. Magisk root was subsequently proven entirely during BFU; the
@@ -78,5 +89,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-125973CC4CCC19C51EDC8222D8FC93E177B31AB2D34840540E06B533A662BC39  termux-boot_0.8.1_bfu_debug.apk
+8D38AEDC49886852E61DA86A2D3ED7CACACCC400273BB2FF852DDD989B3A3BCC  termux-boot_0.8.1_bfu_debug.apk
 ```

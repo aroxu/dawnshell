@@ -109,6 +109,19 @@ validation for Debian 13/Trixie arm64, and `INSTALL_SUCCEEDED`. Also verify
 ./scripts/test-rootfs-bfu.sh
 ```
 
+If an older build failed after `Unpacking the base system` with a missing
+`https:__..._Packages` path, install the updated Termux:Boot APK and press the
+installer once more. The installer preserves the old partial tree as
+`/data/local/debian.failed.<epoch>` and creates a fresh staging tree; do not
+manually delete either tree before collecting diagnostics. Any new failure must
+show `DEBOOTSTRAP_LOG_TAIL_BEGIN` through `DEBOOTSTRAP_LOG_TAIL_END` in the app.
+
+For every dark console in the activity, verify that a drag scrolls inside the
+console while more lines remain, then hands the gesture to the whole page at its
+top or bottom edge. Long-press, select multiple lines, and copy them. While a
+selection is active or the console is scrolled up, one-second live refreshes
+must not replace the visible text.
+
 After the 30-second locked interval and first unlock, the newest
 `bfu-rootfs.log` entry must include:
 
