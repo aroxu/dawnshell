@@ -2,4 +2,4 @@
 *.apk
 *.aab
 local.properties
-
+test-results/

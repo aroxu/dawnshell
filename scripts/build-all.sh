@@ -13,7 +13,8 @@ export TERMUX_PACKAGE_VARIANT="apt-android-7"
 
 "$root_dir/termux-boot/scripts/build-bfu-namespace-probe.sh"
 "$root_dir/termux-app/gradlew" -p "$root_dir/termux-app" :app:assembleDebug
-"$root_dir/termux-boot/gradlew" -p "$root_dir/termux-boot" :app:assembleDebug
+"$root_dir/termux-boot/gradlew" -p "$root_dir/termux-boot" \
+  clean :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
 
 mkdir -p "$dist_dir"
 cp "$root_dir/termux-app/app/build/outputs/apk/debug/termux-app_apt-android-7-debug_arm64-v8a.apk" \
