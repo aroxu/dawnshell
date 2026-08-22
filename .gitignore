@@ -1,5 +1,12 @@
 .tools/
+.gradle/
+.idea/
+*.iml
+**/build/
 *.apk
 *.aab
 local.properties
 test-results/
+termux-app/
+termux-boot/
+termux-packages/
