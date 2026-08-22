@@ -24,8 +24,8 @@ pkg update
 pkg install debootstrap util-linux mount-utils
 ```
 
-Then open Termux:Boot and press **Request / verify Magisk root permission**.
-Confirm that the package list contains only the trusted shared-UID apps and choose
+Then open Termux: BFU and press **Request / verify Magisk root permission**.
+Confirm that the package list contains only the standalone trusted app and choose
 Magisk's permanent/forever allow duration. Keep **Enable Direct Boot Debian
 bootstrap** selected and press **Install Debian 13 Trixie arm64 rootfs**. The
 foreground service continues if the activity is backgrounded, but keeping the
@@ -100,10 +100,10 @@ the numeric exit code. The same files survive reboot and can be read after
 unlock with a debuggable build:
 
 ```sh
-adb shell run-as com.termux.boot cat \
-  /data/user_de/0/com.termux.boot/files/debian-install.status
-adb shell run-as com.termux.boot cat \
-  /data/user_de/0/com.termux.boot/files/debian-install.log
+adb shell run-as me.aroxu.termux.bfu cat \
+  /data/user_de/0/me.aroxu.termux.bfu/files/debian-install.status
+adb shell run-as me.aroxu.termux.bfu cat \
+  /data/user_de/0/me.aroxu.termux.bfu/files/debian-install.log
 ```
 
 The literal paths above are diagnostic examples for user 0. Runtime code always

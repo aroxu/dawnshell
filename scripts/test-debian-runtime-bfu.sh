@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-boot_log="/data/user_de/0/com.termux.boot/files/bfu-boot.log"
-root_log="/data/user_de/0/com.termux.boot/files/bfu-root.log"
-rootfs_log="/data/user_de/0/com.termux.boot/files/bfu-rootfs.log"
-runtime_log="/data/user_de/0/com.termux.boot/files/bfu-debian-runtime.log"
+boot_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-boot.log"
+root_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-root.log"
+rootfs_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-rootfs.log"
+runtime_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-debian-runtime.log"
 
 line_count() {
   local path="$1"
-  adb shell run-as com.termux.boot cat "$path" 2>/dev/null \
+  adb shell run-as me.aroxu.termux.bfu cat "$path" 2>/dev/null \
     | wc -l | tr -d '[:space:]' || true
 }
 
@@ -26,10 +26,10 @@ sleep "$wait_seconds"
 echo "Now unlock once so ADB can reconnect and the DE evidence can be read."
 adb wait-for-device
 
-boot_results="$(adb shell run-as com.termux.boot cat "$boot_log")"
-root_results="$(adb shell run-as com.termux.boot cat "$root_log")"
-rootfs_results="$(adb shell run-as com.termux.boot cat "$rootfs_log")"
-runtime_results="$(adb shell run-as com.termux.boot cat "$runtime_log")"
+boot_results="$(adb shell run-as me.aroxu.termux.bfu cat "$boot_log")"
+root_results="$(adb shell run-as me.aroxu.termux.bfu cat "$root_log")"
+rootfs_results="$(adb shell run-as me.aroxu.termux.bfu cat "$rootfs_log")"
+runtime_results="$(adb shell run-as me.aroxu.termux.bfu cat "$runtime_log")"
 
 printf '%s\n' "$boot_results"
 printf '%s\n' "$root_results"

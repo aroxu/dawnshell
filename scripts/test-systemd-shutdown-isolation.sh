@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    export MSYS_NO_PATHCONV=1
+    export MSYS2_ARG_CONV_EXCL='*'
+    ;;
+esac
+
 : "${BFU_PHONE_HOST:?Set BFU_PHONE_HOST to the phone IP address}"
 : "${BFU_SSH_KEY:?Set BFU_SSH_KEY to the dedicated BFU SSH private key}"
 
 ssh_user="${BFU_SSH_USER:-debian}"
 ssh_port="${BFU_SSH_PORT:-22}"
 wait_seconds="${BFU_SSH_WAIT_SECONDS:-120}"
-helper="/data/user_de/0/com.termux.boot/files/bfu/bin/bfu-namespace-probe-arm64"
+helper="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/bin/bfu-namespace-probe-arm64"
 rootfs="/data/local/debian"
-control="/data/user_de/0/com.termux.boot/files/bfu/run"
+control="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/run"
 lifecycle_log="$control/debian-lifecycle.log"
 
 [[ -f "$BFU_SSH_KEY" ]] || {
@@ -34,6 +41,7 @@ ssh_args=(
   -i "$BFU_SSH_KEY"
   -p "$ssh_port"
   -o BatchMode=yes
+  -o IdentitiesOnly=yes
   -o ConnectTimeout=5
   -o ConnectionAttempts=1
   -o StrictHostKeyChecking=accept-new
@@ -44,6 +52,7 @@ ssh_args=(
 # shellcheck disable=SC2016
 health_command='set -eu
 [ "$(cat /proc/1/comm)" = systemd ]
+[ "$(systemctl is-system-running)" = running ]
 [ "$(systemctl is-active dbus.service)" = active ]
 [ "$(systemctl is-active ssh.service)" = active ]
 [ "$(systemctl is-active termux-bfu-boot-proof.service)" = active ]
@@ -107,6 +116,7 @@ grep -Fq 'BFU_DEBIAN_RUNNING' <<<"$status_output"
 grep -Fq 'supervisor_identity_valid=true' <<<"$status_output"
 grep -Fq 'init_identity_valid=true' <<<"$status_output"
 grep -Fq 'namespace_topology_valid=true' <<<"$status_output"
+grep -Fq 'ipc_namespace=android-shared' <<<"$status_output"
 grep -Fq 'network_namespace=android-shared' <<<"$status_output"
 
 echo "Testing explicit restart-debian helper..."
@@ -132,6 +142,14 @@ stop_output="$(timeout 45 adb shell su -c \
   "$helper stop $rootfs $control" | tr -d '\r')"
 printf '%s\n' "$stop_output"
 grep -Fq 'BFU_DEBIAN_STOPPED' <<<"$stop_output"
+stopped_status="$(timeout 20 adb shell su -c \
+  "$helper status $rootfs $control" | tr -d '\r')"
+printf '%s\n' "$stopped_status"
+grep -Fq 'last_state=stopped' <<<"$stopped_status"
+grep -Fq 'wait_status=0' <<<"$stopped_status"
+grep -Fq 'systemd_manager_exit_queued' \
+  < <(adb exec-out run-as me.aroxu.termux.bfu cat "$lifecycle_log" 2>/dev/null \
+      | tr -d '\r')
 if ssh "${ssh_args[@]}" "$ssh_user@$BFU_PHONE_HOST" true 2>/dev/null; then
   echo "FAIL: SSH still accepted a session after stop-debian completed" >&2
   exit 6

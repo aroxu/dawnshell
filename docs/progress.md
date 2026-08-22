@@ -1,5 +1,30 @@
 # Progress
 
+## Standalone split — 2026-08-23
+
+- [x] Create a root-level Android project with package `me.aroxu.termux.bfu`,
+  version `0.1.0`, and launcher name **Termux: BFU**.
+- [x] Remove `sharedUserId`, `BootJobService`, `TermuxService`, normal
+  `~/.termux/boot` dispatch, and signing-key coupling with Termux.
+- [x] Move CE-isolation proof to the standalone app's own CE sentinel and retain
+  app-owned DE settings, keys, runtime files, and logs.
+- [x] Change the Termux key helper to print/copy only the public key for manual
+  paste into the standalone app; Termux cannot write the new app's DE tree.
+- [x] Add a migration guard that refuses start/reconfiguration while the legacy
+  `com.termux.boot` BFU setting is enabled or its supervisor is running.
+- [x] Preserve Debian 13 systemd/OpenSSH, local password controls, private-rootfs
+  setuid, persistent-after-unlock behavior, and the existing `/data/local/debian`.
+- [x] Build and lint successfully with JDK 17; verify target SDK 28,
+  `LOCKED_BOOT_COMPLETED`, Direct-Boot-aware receiver/service, no manifest shared
+  UID, and APK signature schemes v1/v2.
+- [ ] Perform the separate-app migration and five-cycle physical validation.
+
+Staged APK: `dist/termux-bfu_0.1.0_debug.apk`
+
+SHA-256: `BD6833BCF97C54FB35DB35FF12AE841947E1D94083F23211E51D6F1895DE7417`
+
+The entries below record the earlier BFU-enabled Termux:Boot PoC history.
+
 ## 2026-08-22
 
 - [x] Clone current `master` of termux-app, termux-boot, and termux-packages.
@@ -27,7 +52,8 @@
   signing-certificate digest.
 - [x] Verify `LOCKED_BOOT_COMPLETED`, DE storage, foreground service, DE native
   execution, and `USER_UNLOCKED` handoff on the physical SM-N950N / Android 16.
-- [x] Verify PID, mount, IPC, UTS, and cgroup namespace creation on kernel 4.4.302.
+- [x] Verify PID, mount, UTS, and cgroup namespace creation on kernel 4.4.302;
+  retain Android IPC because this vendor kernel cannot safely create it.
 - [x] Verify a `--mount-proc` PID-namespace helper becomes PID 1 with an isolated
   `/proc` process view.
 - [x] Replace the BFU Dropbear milestone with the Debian/systemd boot target.
@@ -76,7 +102,7 @@
 - [x] Show the latest namespace/chroot result in the same selectable probe console
   UI and add an automated cold-boot evidence script.
 - [x] Implement identity-backed native `start/status/stop` with a lifetime lock,
-  graceful systemd halt, stale/orphan detection, and DE lifecycle checkpoints.
+  graceful systemd manager exit, stale/orphan detection, and DE lifecycle checkpoints.
 - [x] Add a private cgroup-v1 `name=systemd` subtree and process-local systemd 257
   legacy-force flags without creating a network namespace or exposing Android
   controller mounts.
@@ -88,10 +114,10 @@
   and explicit start/status/graceful-stop maintenance controls.
 - [x] Add an end-to-end BFU SSH test that compares Debian PID 1 identity before
   and after first unlock.
-- [x] Add a fail-closed BFU CE isolation probe that discards directory output and
-  blocks Debian launch if normal Termux home can be listed.
-- [x] Record PID/mount/UTS/IPC/cgroup/network namespace identities and require
-  private requested namespaces plus the unchanged Android network namespace.
+- [x] Add a fail-closed shared-UID BFU CE sentinel probe that distinguishes an
+  enumerable empty mount stub from readable normal Termux CE contents.
+- [x] Record PID/mount/UTS/cgroup/IPC/network namespace identities and require
+  private requested namespaces plus unchanged Android IPC and network namespaces.
 - [x] Add bounded native health checks for systemd PID 1, D-Bus, default target,
   an independent enabled-unit proof, `ssh.service`, and TCP 22, with locked-state
   evidence persisted in DE.
@@ -107,27 +133,47 @@
 - [x] Make the final harness compare both installed APKs to the local staged pair,
   record their build-specific hashes, and reject a stale embedded or provisioned
   native helper before accepting any physical result.
+- [x] Fix two AFU reconfiguration defects exposed on-device: validate Debian's
+  real `/usr/bin/mawk` executable instead of the host-relative alternatives link,
+  and create the private-tmpfs `/run/sshd` directory before `sshd -t`.
+- [x] Preserve the reboot pstore and identify the first systemd start failure as
+  a Samsung 4.4 kernel translation fault in
+  `unshare -> copy_ipcs -> mq_init_ns -> mqueue_mount -> mount_ns`.
+- [x] Remove every `unshare(CLONE_NEWIPC)` path, add a build-time regression
+  rejection, and require the target topology to share Android IPC while keeping
+  mount/PID/UTS/cgroup private and networking shared.
+- [x] Mask the Android-inapplicable console getty, require systemd state
+  `running`, and prove AFU systemd, D-Bus, proof unit, TCP 22, and public-key SSH
+  on the physical target.
+- [x] Replace the target's hanging halt-signal maintenance stop with systemd's
+  container `exit` operation; verify 0.76-second stop, `wait_status=0`, and an
+  unchanged Android boot ID on-device.
+- [x] Add copyable Termux CE key setup/public-key export and localhost SSH
+  commands; verify Debian UID 1000 login, idempotent key setup, and zero private
+  key material in DE.
+- [x] Add AFU-only local Debian password controls and private-rootfs-only setuid
+  support for interactive `su root`, while keeping OpenSSH public-key-only.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Verify the namespace/mount/PID-1 Debian chroot probe on the target.
 - [x] Promote the setup into an idempotent long-lived Debian launcher.
-- [ ] Start systemd as namespace PID 1 and verify D-Bus/systemctl.
-- [ ] Cold-boot enabled Debian SSH before first unlock.
+- [x] Start systemd as namespace PID 1 and verify D-Bus/systemctl.
+- [x] Cold-boot enabled Debian SSH before first unlock.
 - [ ] Run the agreed single physical validation session covering all remaining
   gates, ten cold cycles, unlock continuity, normal Termux handoff, and shutdown
   isolation.
 
 ## Build environment note
 
-The host defaults to JDK 26, which is too new for this Android Gradle Plugin's
-runtime. Builds and lint therefore use the workspace Temurin JDK 17
-with Android Platform 34 and Build Tools 34.0.0. The currently staged local test
+The host currently defaults to JDK 26. Clean Java compilation, DEX packaging,
+native-helper verification, and APK assembly pass; Android lint requires a
+compatible JDK because this older lint/UAST stack fails under JDK 26. The currently staged local test
 APK is `dist/termux-boot_0.8.1_bfu_debug.apk` with SHA-256
-`CB10E33BCCA5EB133B622B75C44BF8D21F2B96D95FA2D1DDC2A69E5D216176B0`.
+`C60438F14B363CAE9D398F3493BA0279B86E0D3511C9850E6B7027FA9491DC06`.
 Whole debug APK hashes are build-specific because clean D8 runs can vary
 synthetic-lambda metadata; the final harness therefore records the local hash and
-requires the installed APK to match it. The embedded lifecycle helper itself is
-a pinned 44,808-byte AArch64 PIE with SHA-256
-`CED51F99926FB59C1D0D56D6166A792681EDED9354A4EE793A2F070564A17745`.
+requires the installed APK to match it. The BFU helper is rebuilt from the
+checked-in native source and packaged with the APK; no historical fixed helper
+digest is maintained.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. Magisk root was subsequently proven entirely during BFU and the
@@ -139,5 +185,26 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-CB10E33BCCA5EB133B622B75C44BF8D21F2B96D95FA2D1DDC2A69E5D216176B0  termux-boot_0.8.1_bfu_debug.apk
+C60438F14B363CAE9D398F3493BA0279B86E0D3511C9850E6B7027FA9491DC06  termux-boot_0.8.1_bfu_debug.apk
 ```
+
+## 2026-08-23 integrated physical cycle
+
+One cold cycle passed on the currently connected device, which Android identifies
+as `SM-N770F` / `r7` with Linux 4.4.302 (distinct from the original SM-N950N
+target). Before first unlock, Android boot ID
+`1af84e87-c02b-4256-9e32-47a701351f55` accepted public-key SSH on TCP 22 and
+reported systemd PID 1 start ticks `3740`, system state `running`, active D-Bus,
+`ssh.service`, boot-proof service, and `multi-user.target`. The required `id`,
+`uname`, `uptime`, `ip`, and `/proc/meminfo` commands succeeded over SSH.
+
+This ROM exposes the provisioned normal-Termux CE sentinel while
+`UserManager.isUserUnlocked()` is false. The default gate correctly blocked that
+condition; the operator then explicitly enabled the DE-backed unsafe override.
+The successful cycle persisted `CE_ISOLATION_OVERRIDE_USED`, locked-state root,
+rootfs and namespace probes, and a successful locked-boot lifecycle record.
+After unlock, the same systemd start ticks, machine ID, Android boot ID, SSH,
+D-Bus, and proof service remained active. `USER_UNLOCKED` left Debian unchanged,
+normal Termux handoff ran once, duplicates were suppressed, and its test marker
+contained the same Android boot ID. The ROM delayed the JobScheduler handoff by
+about 72 seconds, so the harness now waits up to 120 seconds for that marker.

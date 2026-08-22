@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-marker_path="/data/user_de/0/com.termux.boot/files/bfu-boot.log"
+marker_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-boot.log"
 
 marker_count() {
-  adb shell run-as com.termux.boot cat "$marker_path" 2>/dev/null \
+  adb shell run-as me.aroxu.termux.bfu cat "$marker_path" 2>/dev/null \
     | grep -c '^LOCKED_BOOT_COMPLETED ' || true
 }
 
@@ -26,7 +26,7 @@ done
 
 adb shell dumpsys user | grep -i unlocked || true
 adb logcat -d -s TermuxBFU:I '*:S'
-adb shell run-as com.termux.boot cat "$marker_path"
+adb shell run-as me.aroxu.termux.bfu cat "$marker_path"
 
 (( marker_count_after > marker_count_before ))
 adb logcat -d -s TermuxBFU:I '*:S' | grep -q 'LOCKED_BOOT_COMPLETED received'

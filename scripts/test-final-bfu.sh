@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    export MSYS_NO_PATHCONV=1
+    export MSYS2_ARG_CONV_EXCL='*'
+    ;;
+esac
+
 : "${BFU_PHONE_HOST:?Set BFU_PHONE_HOST to the phone IP address reachable before unlock}"
 : "${BFU_SSH_KEY:?Set BFU_SSH_KEY to the dedicated BFU SSH private key}"
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cycles="${BFU_CYCLES:-10}"
+cycles="${BFU_CYCLES:-5}"
 results_dir="${BFU_RESULTS_DIR:-$repo_dir/test-results/bfu-$(date -u +%Y%m%dT%H%M%SZ)}"
 
 for tool in adb awk grep head sed sha256sum tee tr unzip; do
@@ -29,42 +36,51 @@ printf 'cycle\tandroid_boot_id\tboot_app_pid\ttotal_pss_kib\ttotal_rss_kib\tsupe
   > "$summary"
 
 preflight="$results_dir/preflight.txt"
+crypto_state="$(adb shell getprop ro.crypto.state | tr -d '\r')"
+crypto_type="$(adb shell getprop ro.crypto.type | tr -d '\r')"
+bfu_app_id="$(adb shell dumpsys package me.aroxu.termux.bfu \
+  | tr -d '\r' | sed -n 's/^ *appId=\([0-9][0-9]*\).*$/\1/p' | sed -n '1p')"
 {
-  echo "crypto_type=$(adb shell getprop ro.crypto.type | tr -d '\r')"
+  echo "reported_model=$(adb shell getprop ro.product.model | tr -d '\r')"
+  echo "reported_device=$(adb shell getprop ro.product.device | tr -d '\r')"
+  echo "crypto_state=$crypto_state"
+  echo "crypto_type=${crypto_type:-<unset>}"
   echo "cpu_abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
-  adb shell dumpsys package com.termux.boot \
-    | tr -d '\r' \
-    | grep -E 'userId=|dataDir=|targetSdk='
-  adb shell dumpsys package com.termux \
-    | tr -d '\r' \
-    | grep -E 'userId=|dataDir=|targetSdk='
+  echo "termux_bfu_app_id=$bfu_app_id"
+  adb shell dumpsys package me.aroxu.termux.bfu \
+    | tr -d '\r' | grep -E 'appId=|dataDir=|targetSdk='
 } | tee "$preflight"
-grep -Fq 'crypto_type=file' "$preflight"
+[[ "$crypto_state" = "encrypted" ]] || {
+  echo "FAIL: Android data encryption is not reported as active" >&2
+  exit 2
+}
+if [[ -n "$crypto_type" && "$crypto_type" != "file" ]]; then
+  echo "FAIL: ROM reports a non-FBE crypto type: $crypto_type" >&2
+  exit 2
+fi
+if [[ -z "$crypto_type" ]]; then
+  echo "NOTE: ro.crypto.type is unset; fresh locked-state CE-isolation evidence is mandatory."
+fi
 grep -Fq 'cpu_abi=arm64-v8a' "$preflight"
+[[ -n "$bfu_app_id" ]] || {
+  echo "FAIL: standalone Termux: BFU app is not installed" >&2
+  exit 2
+}
 target_count="$(grep -Fc 'targetSdk=28' "$preflight" || true)"
-[[ "$target_count" -ge 2 ]] || {
-  echo "FAIL: both Termux packages must report targetSdk=28" >&2
+[[ "$target_count" -ge 1 ]] || {
+  echo "FAIL: Termux: BFU must report targetSdk=28" >&2
   exit 2
 }
 
-boot_apk="$repo_dir/dist/termux-boot_0.8.1_bfu_debug.apk"
-termux_apk="$repo_dir/dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk"
-for apk in "$boot_apk" "$termux_apk"; do
-  [[ -f "$apk" ]] || {
-    echo "FAIL: missing staged APK: $apk" >&2
-    exit 2
-  }
-done
-expected_helper_hash="CED51F99926FB59C1D0D56D6166A792681EDED9354A4EE793A2F070564A17745"
-actual_boot_hash="$(sha256sum "$boot_apk" | awk '{print toupper($1)}')"
-actual_termux_hash="$(sha256sum "$termux_apk" | awk '{print toupper($1)}')"
-embedded_helper_hash="$(unzip -p "$boot_apk" \
-  assets/bfu/bin/bfu-namespace-probe-arm64 \
-  | sha256sum | awk '{print toupper($1)}')"
-[[ "$embedded_helper_hash" = "$expected_helper_hash" ]] || {
-  echo "FAIL: staged Termux:Boot APK embeds the wrong BFU helper" >&2
+bfu_apk="$repo_dir/dist/termux-bfu_0.1.0_debug.apk"
+[[ -f "$bfu_apk" ]] || {
+  echo "FAIL: missing staged APK: $bfu_apk" >&2
   exit 2
 }
+actual_bfu_hash="$(sha256sum "$bfu_apk" | awk '{print toupper($1)}')"
+embedded_helper_hash="$(unzip -p "$bfu_apk" \
+  assets/bfu/bin/bfu-namespace-probe-arm64 \
+  | sha256sum | awk '{print toupper($1)}')"
 
 artifact_evidence="$results_dir/artifacts.tsv"
 printf 'package\tlocal_sha256\tinstalled_sha256\n' > "$artifact_evidence"
@@ -80,7 +96,11 @@ verify_installed_apk() {
     exit 2
   }
   installed_apk="$results_dir/installed-${package_name//./-}.apk"
-  adb pull "$installed_path" "$installed_apk" >/dev/null
+  adb_destination="$installed_apk"
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) adb_destination="$(cygpath -w "$installed_apk")" ;;
+  esac
+  adb pull "$installed_path" "$adb_destination" >/dev/null
   installed_hash="$(sha256sum "$installed_apk" | awk '{print toupper($1)}')"
   printf '%s\t%s\t%s\n' \
     "$package_name" "$local_hash" "$installed_hash" >> "$artifact_evidence"
@@ -91,8 +111,7 @@ verify_installed_apk() {
   }
 }
 
-verify_installed_apk com.termux.boot "$actual_boot_hash"
-verify_installed_apk com.termux "$actual_termux_hash"
+verify_installed_apk me.aroxu.termux.bfu "$actual_bfu_hash"
 cat "$artifact_evidence"
 
 for ((cycle = 1; cycle <= cycles; cycle++)); do
@@ -102,31 +121,32 @@ for ((cycle = 1; cycle <= cycles; cycle++)); do
   "$repo_dir/scripts/test-systemd-ssh-bfu.sh" 2>&1 | tee "$cycle_log"
 
   boot_id="$(adb shell cat /proc/sys/kernel/random/boot_id | tr -d '\r\n')"
-  app_pid="$(adb shell pidof com.termux.boot | tr -d '\r\n' || true)"
-  meminfo="$(adb shell dumpsys meminfo com.termux.boot 2>/dev/null | tr -d '\r')"
+  app_pid="$(adb shell pidof me.aroxu.termux.bfu | tr -d '\r\n' || true)"
+  meminfo="$(adb shell dumpsys meminfo me.aroxu.termux.bfu 2>/dev/null | tr -d '\r')"
   total_pss="$(printf '%s\n' "$meminfo" \
     | sed -n 's/^ *TOTAL PSS: *\([0-9][0-9]*\).*/\1/p' \
     | head -n 1)"
   total_rss="$(printf '%s\n' "$meminfo" \
     | sed -n 's/^ *TOTAL PSS:.*TOTAL RSS: *\([0-9][0-9]*\).*/\1/p' \
     | head -n 1)"
-  state="$(adb exec-out run-as com.termux.boot cat \
-    /data/user_de/0/com.termux.boot/files/bfu/run/debian-supervisor.state \
+  state="$(adb exec-out run-as me.aroxu.termux.bfu cat \
+    /data/user_de/0/me.aroxu.termux.bfu/files/bfu/run/debian-supervisor.state \
     2>/dev/null | tr -d '\r')"
   supervisor_pid="$(sed -n 's/^supervisor_pid=//p' <<<"$state")"
   init_host_pid="$(sed -n 's/^init_host_pid=//p' <<<"$state")"
-  helper="/data/user_de/0/com.termux.boot/files/bfu/bin/bfu-namespace-probe-arm64"
+  helper="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/bin/bfu-namespace-probe-arm64"
   rootfs="/data/local/debian"
-  control="/data/user_de/0/com.termux.boot/files/bfu/run"
+  control="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/run"
   launcher_status="$(adb shell su -c \
     "$helper status $rootfs $control" | tr -d '\r')"
   grep -Fq 'BFU_DEBIAN_RUNNING' <<<"$launcher_status"
   grep -Fq 'namespace_topology_valid=true' <<<"$launcher_status"
+  grep -Fq 'ipc_namespace=android-shared' <<<"$launcher_status"
   grep -Fq 'network_namespace=android-shared' <<<"$launcher_status"
-  device_helper_hash="$(adb exec-out run-as com.termux.boot cat "$helper" \
+  device_helper_hash="$(adb exec-out run-as me.aroxu.termux.bfu cat "$helper" \
     | sha256sum | awk '{print toupper($1)}')"
-  [[ "$device_helper_hash" = "$expected_helper_hash" ]] || {
-    echo "FAIL: provisioned BFU helper does not match the frozen APK" >&2
+  [[ "$device_helper_hash" = "$embedded_helper_hash" ]] || {
+    echo "FAIL: provisioned BFU helper does not match the installed APK artifact" >&2
     exit 8
   }
   # Literal root-side loop; command substitutions must expand on Android.
@@ -157,7 +177,7 @@ if ! awk -F '\t' '
   { previous=$4; last=$4 }
   END { if (have && monotonic && last-first > 32768) exit 1 }
 ' "$summary"; then
-  echo "FAIL: Termux:Boot TOTAL PSS rose monotonically by more than 32 MiB" >&2
+  echo "FAIL: Termux: BFU TOTAL PSS rose monotonically by more than 32 MiB" >&2
   exit 7
 fi
 

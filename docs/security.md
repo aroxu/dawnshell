@@ -2,23 +2,26 @@
 
 ## Invariants
 
-1. Termux CE storage is never accessed while `UserManager.isUserUnlocked()` is
-   false.
+1. BFU runtime and Debian never depend on Credential Encrypted storage. The only locked-state
+   CE access is a bounded read attempt against a fixed, non-secret isolation
+   sentinel; the default policy blocks startup if that content is readable.
 2. App control data is created only from a Device Protected Context owned by
-   Termux:Boot; the separately proven Debian rootfs is fixed at `/data/local/debian`.
+   Termux: BFU; the separately proven Debian rootfs is fixed at `/data/local/debian`.
 3. No CE-to-DE automatic synchronization exists.
 4. DE and the BFU rootfs must not contain user/client private SSH keys, Termux
-   user keys, API tokens, Tailscale auth keys, reusable passwords, cloud
+   user keys, API tokens, Tailscale auth keys, plaintext passwords, cloud
    credentials, or personal secrets. Debian generates a dedicated BFU server
    host key in its rootfs; it must not be reused as a client identity.
+   The optional copied Termux setup command creates its client private key only
+   under normal Termux CE home and exports only the public half.
 5. Root is required for the Debian launcher but is never assumed: each boot must
    prove `su -c id` returned `uid=0`, and failure cannot crash the BFU controller.
 6. The Debian launcher does not create a network namespace or expose Android's
    controller mounts to systemd. Its named tracking cgroup and every bind mount
    are visible only through the private mount/cgroup namespace view.
-7. A locked-boot root process must prove that neither canonical normal Termux home
-   path can be listed before the rootfs/namespace launcher runs. Probe output is
-   discarded so CE filenames never enter DE logs.
+7. The locked-boot standalone app process must prove that its provisioned CE sentinel
+   content is unreadable before the rootfs/namespace launcher runs. The fixed
+   sentinel path and verdict may be logged, but no user filename or content is.
 
 ## DE exposure
 
@@ -31,16 +34,16 @@ available before PIN entry and require their own physical/offline threat review.
 
 ## Root and namespace restrictions
 
-Magisk authorization must be granted to the Termux/Termux:Boot shared UID before
+Magisk authorization must be granted to the standalone Termux: BFU UID before
 reboot. The BFU path must never wait indefinitely for an authorization UI; the
 probe is bounded and records only command path, exit status, timeout state, root
 verdict, and sanitized `id` output.
 
-Magisk stores superuser policy by numeric Linux UID. Since the installed Termux
-family declares shared UID `com.termux`, a permanent allow applies to Termux,
-Termux:Boot, and any other correctly signed package sharing that UID. The
-interactive button lists all packages Android reports for the current UID before
-calling `su`. Do not approve if an unexpected package appears. The button cannot
+Magisk stores superuser policy by numeric Linux UID. This app does not declare a
+shared UID, so its policy is independent of Termux and Termux:Boot. The interactive
+button still lists every package Android reports for the current UID before
+calling `su`; normally only `me.aroxu.termux.bfu` is present. Do not approve if an
+unexpected package appears. The button cannot
 write Magisk's policy database; the operator must select permanent/forever in the
 Magisk UI. A successful AFU check is never copied into `bfu-root.log` or treated
 as locked-boot proof.
@@ -51,18 +54,23 @@ The root launcher uses exact, validated paths and makes `/` recursively private
 before bind mounts. It must not bind DE over CE, weaken FBE/SELinux, remount Android
 cgroups globally, or treat a stale pid file as proof that Debian is running. A
 lifetime `flock`, process start ticks, and executable inode identity protect
-start/stop against PID reuse. Explicit stop sends systemd's container halt signal;
-`USER_UNLOCKED` never reaches that path.
+start/stop against PID reuse. Explicit stop runs systemd's supported container
+manager `exit` operation inside the verified PID/mount namespaces; normal exit
+does not enter Android's kernel halt path. `USER_UNLOCKED` never reaches that path.
 
 The native helper is built for Android API 21/arm64 as PIE and has only Android
-system `libc.so`/`libdl.so` dependencies. Gradle verifies its pinned SHA-256 and the
-app verifies the same digest after copying it to owner-only DE storage. Root accepts
+system `libc.so`/`libdl.so` dependencies. The build requires a non-empty helper
+asset, and provisioning copies it to owner-only DE storage. Root accepts
 only the exact, non-symlink, uid-0-owned, non-group/world-writable
 `/data/local/debian` root. The bounded probe exits after the chroot proof. The
 long-running mode exposes only a private `name=systemd` cgroup subtree, rejects
 duplicate or identity-ambiguous instances, and keeps the supervisor independent
-of the Android app process. The chroot root is a separate private bind mount,
-`/sys` and `/proc/sys` are read-only, and neither mode creates a network namespace.
+of the Android app process. The chroot root is a separate private bind mount.
+That private mount clears Android `/data`'s `nosuid` flag so Debian `su` can use
+its normal setuid binary, while retaining `nodev`; the host `/data` mount is never
+remounted. Consequently, a Debian root shell has device-level root authority and
+is not a container security boundary. `/sys` and `/proc/sys` are read-only, and
+neither mode creates a network namespace.
 The state file records all requested namespace inodes and requires the Debian net
 namespace to equal Android's while the others differ.
 
@@ -78,6 +86,13 @@ The rootfs accessibility gate writes only a random-per-process marker named
 `.termux-bfu-access-probe.<pid>` at the rootfs top level, reads it back, and removes
 it through an EXIT/signal trap. It does not modify Debian configuration, users,
 services, mounts, or CE storage.
+
+The AFU-only rootfs deletion control has one compile-time target:
+`/data/local/debian`. It requires two confirmation dialogs and the literal word
+`DELETE`, rejects symlinks or a resolved path mismatch, requests graceful
+supervisor stop, refuses any remaining `systemd` process, and verifies absence
+after deletion. It does not delete app DE settings/logs, staging siblings, normal
+Termux data, or any caller-supplied path.
 
 ## Rootfs supply chain
 
@@ -106,24 +121,45 @@ It also enables a dedicated oneshot proof unit whose only action is creating a
 volatile marker under the namespace-private `/run`; health requires both its
 active state and marker, without granting it Android host-side capabilities.
 
-The SSH account is non-root and has no usable password. Server policy denies
+The SSH account is non-root. It may have a local password for interactive `su`,
+but server policy denies
 password, keyboard-interactive, empty-password, and root authentication. Public
 keys are parsed in Java and revalidated with Debian `ssh-keygen`; key options are
 not accepted. The app logs only key counts, never key bodies.
 
+Local `root` and `debian` password updates are AFU-only. The activity clears both
+input fields immediately, passes `account:password` only through stdin to the
+root-owned Debian `chpasswd`, wipes its mutable buffers, and persists only the
+account name and success/failure metadata. Password text is never placed in an
+Intent, command line, preference, DE file, or operation log. Debian stores only
+the normal salted password hash in `/etc/shadow`. Because the rootfs is available
+before first unlock, use a unique strong password and treat offline hash cracking
+as part of the DE threat model. OpenSSH remains public-key-only even after these
+local passwords are set, and `PermitRootLogin no` remains mandatory.
+
+The UI's copied setup command may be run only after unlock in normal Termux. It
+generates an unencrypted, purpose-specific client key in CE because unattended
+public-key login is the feature being requested. The command is idempotent and
+prints the public-key line (optionally copying it through Termux:API). The operator
+must paste that line into the standalone app's Authorized keys field. Termux cannot
+write the app's DE tree, and the clipboard contains shell commands or public-key
+text, never the generated private key.
+
+The target's IPC namespace is a documented compatibility exception, not a
+container-security boundary. A captured kernel panic proves that Samsung's
+4.4.302 kernel faults while creating a new IPC namespace, so the launcher never
+requests `CLONE_NEWIPC`; its build rejects any reintroduction of that call. The
+launcher still requires private mount/PID/UTS/cgroup namespaces and a shared
+network namespace. Only the dedicated public-key-authenticated emergency account
+and reviewed BFU services should run in this environment. A kernel with a fixed
+IPC namespace implementation is required before claiming IPC isolation.
+
 ## Signing boundary
 
-The Android shared UID makes signing part of the security architecture. F-Droid,
-GitHub debug, and a custom key are different trust domains. Mixing them is expected
-to fail with shared-user/signature errors. The correct deployment set is custom
-Termux plus custom Termux:Boot (and every required plugin), all signed by one
-private key.
-
-The upstream `testkey_untrusted.jks` files in the pinned Termux and Termux:Boot
-trees have the same SHA-256 file hash
-`A2BA19F2417DE94DD3BDFB6CEECE070CDC5F9B492AF09CD5900058E860B18C7D`.
-That is useful for local debug interoperability only; the password is public in
-Gradle files and the key is unsuitable for production.
+`me.aroxu.termux.bfu` has no shared UID, so its certificate does not need to match
+Termux, Termux:Boot, or any plugin. Android still requires all future updates of
+this package to use the same certificate. The checked-in debug key is public and
+unsuitable for production; production builds require a private signing key.
 
 ## Logging
 
@@ -133,3 +169,18 @@ environment dumps, full command lines containing credentials, or SSH packet data
 Automatic health diagnostics include unit names/states but deliberately do not
 copy the arbitrary system journal into DE, where a future custom service might
 have logged secrets.
+
+## CE-readable ROM override
+
+The default policy fails closed when the standalone app's provisioned CE sentinel
+is readable before first unlock. Some legacy/custom-ROM storage stacks expose CE
+contents while Android still reports the user as locked. An explicit
+device-protected preference can permit BFU Debian startup only for this exact
+sentinel-readable result. It does not apply to missing provisioning receipts,
+probe errors, timeouts, root failures, or an unlock transition during probing.
+Every use is persisted as `CE_ISOLATION_OVERRIDE_USED`.
+
+This override does not decrypt or mount CE; it acknowledges that the ROM has
+already made CE readable. It is disabled by default and weakens the original CE
+isolation guarantee, so operators must treat BFU root/SSH access as capable of
+reaching CE data on such a device.

@@ -2,8 +2,9 @@
 
 ## Upstream findings
 
-At the pinned upstream revisions, both Termux and Termux:Boot set
-`targetSdkVersion=28` and declare the shared UID `com.termux`.
+The original PoC was implemented in Termux:Boot, whose upstream AFU flow is
+summarized below. The production BFU split is now a standalone app with package
+`me.aroxu.termux.bfu`, target SDK 28, and no shared UID.
 
 Termux:Boot has this AFU-only flow:
 
@@ -34,25 +35,23 @@ LOCKED_BOOT_COMPLETED
   -> pre-authorized su
   -> root launcher
   -> Debian rootfs outside CE
-  -> mount/PID/UTS/IPC/cgroup namespaces (network namespace shared)
+  -> mount/PID/UTS/cgroup namespaces (IPC and network namespaces shared)
   -> chroot -> /sbin/init
   -> systemd is PID 1 inside the Debian PID namespace
 
 USER_UNLOCKED (runtime receiver in BfuBootService)
-  -> verify UserManager.isUserUnlocked()
-  -> normal boot-script scheduler
-  -> BootJobService
-  -> TermuxService
+  -> record the transition
   -> BFU service and Debian/systemd continue unchanged
 
 BOOT_COMPLETED
-  -> idempotently ensure BFU service is started
-  -> AFU handoff if the user is unlocked
+  -> locked-state fallback that idempotently ensures the BFU service is started
 ```
 
 `ACTION_USER_UNLOCKED` is registered dynamically because Android documents it as
-registered-receiver-only; listing it in the manifest would not provide a handoff.
+registered-receiver-only; listing it in the manifest would not provide the event.
 The manifest therefore contains `LOCKED_BOOT_COMPLETED` and `BOOT_COMPLETED`.
+Normal Termux boot-script execution is intentionally absent and remains the
+responsibility of the separate upstream Termux:Boot app.
 
 ## Storage boundaries
 
@@ -63,9 +62,11 @@ Context de = context.createDeviceProtectedStorageContext();
 File root = new File(de.getFilesDir(), "bfu");
 ```
 
-No `/data/user_de/0/...` string is used by runtime code. The expected owner package
-is `com.termux.boot`, so a typical user-0 path is
-`/data/user_de/0/com.termux.boot/files/bfu`, but the Context result is authoritative.
+No `/data/user_de/0/...` string is used to calculate the runtime layout. The owner
+package is `me.aroxu.termux.bfu`, so a typical user-0 path is
+`/data/user_de/0/me.aroxu.termux.bfu/files/bfu`, but the Context result is
+authoritative. A fixed legacy `com.termux.boot` path is consulted only by the
+migration guard to refuse a second supervisor while the old one is running.
 
 The PoC creates:
 
@@ -110,7 +111,7 @@ whether the target-28 app domain can `execve()` a writable DE file on the target
 `BfuRootProbe` runs `su -c id` without a shell, enforces a 15-second timeout, and
 requires both exit status 0 and a `uid=0` identity. It records the user-unlocked
 state both before and after `su`, and fsyncs every result to `bfu-root.log`;
-failure does not stop the foreground service or AFU handoff.
+failure does not stop the foreground service.
 
 The launcher activity exposes a separate interactive authorization action. It is
 available only after unlock, allows up to 120 seconds for the Magisk UI, and
@@ -119,12 +120,14 @@ executes only `su -c id`. Its result is fsynced to
 evidence. The app cannot force Magisk to grant access or determine whether the
 operator selected a temporary or permanent duration.
 
+While unlocked, provisioning writes a fixed, non-secret sentinel into this app's
+CE files directory and a matching provisioning receipt into its DE storage.
 After—and only after—the same-boot root result succeeds entirely while locked,
-`BfuCeIsolationProbe` asks the same bounded root channel to list the two canonical
-normal Termux home paths with all output discarded. Debian launch fails closed if
-either listing succeeds. It records only the verdict and locked state, never CE
-filenames or contents. The check verifies FBE isolation; it does not attempt to
-unlock, mount, copy, or otherwise bypass CE.
+`BfuCeIsolationProbe` runs as the standalone app UID and tries to read that
+exact sentinel. Debian launch fails closed when the DE receipt is absent or the
+CE sentinel contents are readable. Merely listing an empty CE mount stub is not
+treated as content access. The check never uses root, logs CE filenames beyond
+the fixed sentinel path, or attempts to unlock, mount, copy, or bypass CE.
 
 After the CE isolation gate succeeds,
 `probe-rootfs.sh` runs through the same bounded `su` helper. It checks the candidate
@@ -161,47 +164,46 @@ than the SSH/D-Bus dependencies.
 - The service promotes itself to foreground before filesystem or process work.
 - A single-thread executor prevents duplicate probe executions in one service
   instance.
-- `USER_UNLOCKED` never stops the BFU service. It only dispatches normal Termux
-  scripts. A DE-stored kernel boot ID (or Android boot counter fallback)
-  suppresses every later dispatch in the same boot, including service recreation
-  long after the unlock broadcast.
-- Dynamic `USER_UNLOCKED` and manifest `BOOT_COMPLETED` can both request AFU boot.
-  Elapsed realtime remains only a fallback if `/proc/sys/kernel/random/boot_id`
-  is unexpectedly unreadable.
+- `USER_UNLOCKED` never stops or restarts the BFU service; it records the event.
 - `BOOT_COMPLETED` idempotently requests the BFU service and rechecks
   `UserManager`; a newly created service skips BFU startup probes if Android is
-  already unlocked, so AFU fallback cannot contaminate locked-boot evidence.
-- `BootJobService` is not Direct-Boot-aware and is never called by the locked path.
+  already unlocked, so it cannot contaminate locked-boot evidence.
 - `ACTION_USER_UNLOCKED` is registered dynamically by the foreground service;
   Android documents this action as unavailable to manifest receivers.
-- The root supervisor is independent of the Android app process. Unlock, normal
-  Termux handoff, and app UI recreation do not signal or restart Debian PID 1.
+- The root supervisor is independent of the Android app process. Unlock and app
+  UI recreation do not signal or restart Debian PID 1.
 
 ## Debian launcher boundary
 
 The Android service remains a small lifecycle controller. Mount, namespace,
 chroot, and systemd setup belongs in a separately testable root launcher. Its
 bounded `probe` operation is an ARM64 PIE copied from the
-APK into DE, SHA-256 checked both at build time and at provisioning time, then
+APK into owner-only DE, then
 executed through the already-proven BFU `su`. It depends only on Android's
 `/system/bin/linker64`, `libc.so`, and `libdl.so`, not Termux CE tools.
 
 The probe accepts only the exact, root-owned `/data/local/debian` path. It creates
-private mount, PID, UTS, IPC, and cgroup namespaces, recursively privatizes `/`,
+private mount, PID, UTS, and cgroup namespaces, recursively privatizes `/`,
 binds `/dev` and `/sys` as slave mounts, mounts PID-namespace `/proc` and private
 tmpfs `/run`, and executes Debian `/bin/sh` through `chroot`. Success requires the
 Debian shell to observe itself as PID 1 and `/proc/1/comm` as `sh`. The namespace
-and all temporary mounts disappear when the bounded probe exits.
+and all temporary mounts disappear when the bounded probe exits. IPC remains in
+Android's namespace because the target Samsung 4.4 kernel panics inside
+`mqueue_mount` while creating a new IPC namespace; the helper contains no
+`unshare(CLONE_NEWIPC)` call.
 
 The same helper now exposes `start`, `restart`, `status`, `health`, and `stop`.
 Start acquires an
 exclusive lock for the supervisor lifetime, records both process start ticks and
-executable device/inode identity plus PID/mount/UTS/IPC/cgroup/network namespace
+executable device/inode identity plus PID/mount/UTS/cgroup/IPC/network namespace
 inodes, rejects verified orphan PID 1 instances, and waits for `/sbin/init` to
 survive an initial grace period. The expected topology requires every requested
-namespace to differ from Android PID 1 while the network namespace must match.
+namespace to differ from Android PID 1 while IPC and network must match.
 Stop signals only an identity-verified supervisor; the supervisor asks systemd
-to halt with `SIGRTMIN+3` before a bounded forced cleanup.
+to stop units and exit PID 1 through the container-specific `systemctl exit`
+operation. A bounded fallback and final forced cleanup remain for a broken
+manager, but normal target-device exit records `wait_status=0` without entering
+Android's kernel halt path.
 
 The rootfs is first bind-mounted onto itself and made private, so systemd shutdown
 can remount or detach its own chroot root without changing Android's `/data`
