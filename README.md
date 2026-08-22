@@ -24,6 +24,31 @@ Termux:Boot app separately if those AFU features are needed.
   for AFU `debootstrap`, `mount`, and related bootstrap tools. BFU boot and the
   running Debian/systemd/OpenSSH environment do not depend on Termux CE storage.
 
+## Termux requirement
+
+**A working normal Termux installation is required by the currently supported
+setup and management workflow.** Termux: BFU is a separate Android package and
+its locked-boot runtime is independent, but the app currently uses tools from
+`/data/data/com.termux/files/usr` for:
+
+- the first Debian rootfs installation;
+- Debian systemd/OpenSSH package installation and reconfiguration;
+- convenient SSH client-key generation, localhost SSH access, and operational
+  diagnostics from the phone.
+
+Prepare normal Termux after unlock with:
+
+```sh
+pkg install debootstrap util-linux mount-utils openssh
+```
+
+After Debian has been installed and configured, BFU systemd/OpenSSH can start
+without launching Termux and without reading Termux CE storage. Nevertheless,
+this project currently treats Termux as a required companion for supported
+reinstallation, reconfiguration, recovery, and day-to-day administration. A
+future bundled bootstrap toolchain would be required before claiming a fully
+Termux-independent installation and management path.
+
 ## Implemented flow
 
 ```text
