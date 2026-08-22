@@ -22,11 +22,7 @@ Termux service class, action, URI scheme, and background extra. Termux's own
 `/data/data/com.termux/files/home`; the source comments explicitly state that the
 prefix is compiled into Termux binaries.
 
-The latest upstream Dropbear package is not a BFU binary. It depends on
-`termux-auth` and zlib, is configured with `--disable-static`, and is patched with
-multiple `@TERMUX_PREFIX@` paths. It cannot be copied into DE storage unchanged.
-
-## BFU/AFU split
+## Target lifecycle
 
 ```text
 LOCKED_BOOT_COMPLETED
@@ -35,18 +31,23 @@ LOCKED_BOOT_COMPLETED
   -> Device Protected SharedPreferences: enabled?
   -> directBootAware BfuBootService (foreground)
   -> createDeviceProtectedStorageContext()
-  -> <DE filesDir>/bfu
-  -> minimal runtime only
+  -> pre-authorized su
+  -> root launcher
+  -> Debian rootfs outside CE
+  -> mount/PID/UTS/IPC/cgroup namespaces (network namespace shared)
+  -> chroot -> /sbin/init
+  -> systemd is PID 1 inside the Debian PID namespace
 
 USER_UNLOCKED (runtime receiver in BfuBootService)
   -> verify UserManager.isUserUnlocked()
-  -> stop BFU child daemon (future Dropbear milestone)
   -> normal boot-script scheduler
   -> BootJobService
   -> TermuxService
+  -> BFU service and Debian/systemd continue unchanged
 
 BOOT_COMPLETED
-  -> AFU fallback if the BFU service was killed before unlock
+  -> idempotently ensure BFU service is started
+  -> AFU handoff if the user is unlocked
 ```
 
 `ACTION_USER_UNLOCKED` is registered dynamically because Android documents it as
@@ -70,9 +71,10 @@ The PoC creates:
 
 ```text
 <DE filesDir>/bfu-boot.log
+<DE filesDir>/bfu-root.log
 bfu/
   bin/
-  etc/authorized_keys
+  etc/
   home/
   run/
   scripts/test.sh
@@ -88,6 +90,10 @@ The `test.sh` file is mode 0700-equivalent through Java owner-only permission ca
 and is invoked directly, not as `/system/bin/sh test.sh`. This intentionally tests
 whether the target-28 app domain can `execve()` a writable DE file on the target ROM.
 
+`BfuRootProbe` runs `su -c id` without a shell, enforces a 15-second timeout, and
+requires both exit status 0 and a `uid=0` identity. Every result is fsynced to
+`bfu-root.log`; failure does not stop the foreground service or AFU handoff.
+
 ## Lifecycle and idempotence
 
 - BFU is disabled by default and must be enabled once from the launcher activity.
@@ -96,35 +102,28 @@ whether the target-28 app domain can `execve()` a writable DE file on the target
 - The service promotes itself to foreground before filesystem or process work.
 - A single-thread executor prevents duplicate probe executions in one service
   instance.
+- `USER_UNLOCKED` never stops the BFU service. It only dispatches normal Termux
+  scripts, with the existing 60-second duplicate suppression.
 - Dynamic `USER_UNLOCKED` and manifest `BOOT_COMPLETED` can both request AFU boot.
   A DE monotonic timestamp suppresses duplicate normal dispatches for 60 seconds.
-- `BOOT_COMPLETED` rechecks `UserManager`; CE access is refused while locked.
+- `BOOT_COMPLETED` idempotently requests the BFU service and rechecks
+  `UserManager`; CE access is refused while locked.
 - `BootJobService` is not Direct-Boot-aware and is never called by the locked path.
 
-## Native executable decision
+## Debian launcher boundary
 
-The current PoC keeps `targetSdkVersion=28` and tests DE execution first. For the
-SSH milestone, package a server-only ARM64 Dropbear as an APK native library and
-prefer executing the immutable file in `applicationInfo.nativeLibraryDir`. DE then
-contains only host/public-key configuration, home, pid, logs, and temporary files.
-This avoids making downloaded/copy-provisioned native code the long-term design and
-also gives a fallback if Samsung/EvolutionX SELinux blocks DE `execve()` despite
-target 28.
+The Android service will remain a small lifecycle controller. Mount, namespace,
+chroot, and systemd setup belongs in a separately testable root launcher with
+`start`, `stop`, `restart`, and `status` operations. The first rootfs candidate is
+`/data/local/debian`, but it is not accepted until a BFU root-access probe proves it
+is executable and writable on the target ROM. The launcher must never use Termux CE
+paths.
 
-The custom Dropbear build must:
-
-- target `arm64-v8a`, API 28 or lower, and produce PIE code;
-- omit password, PAM, shadow, keyboard-interactive, agent forwarding, X11, SFTP,
-  client tools, compression, syslog, utmp/wtmp/lastlog, and Termux dependencies;
-- accept host key, pid file, authorized-keys file, shell, home, and port as runtime
-  paths rather than compile-time `/data/...` constants;
-- use `/system/bin/sh` and the restricted BFU environment;
-- listen on port 2222 by default and survive a network interface appearing later;
-- remain functional without root.
-
-Whether a fully static Bionic executable or a self-contained APK-native executable
-is more reliable on the Note 8 must be decided by device tests, not assumed from a
-desktop Linux build.
+The launcher creates mount, PID, UTS, IPC, and cgroup namespaces but deliberately
+does not create a network namespace. It first makes `/` recursively private, then
+prepares private `/dev`, `/sys`, PID-namespace `/proc`, and tmpfs `/run` mounts
+before executing `env container=termux chroot "$ROOT" /sbin/init`. Full ordering,
+cgroup constraints, and milestone gates are in `debian-systemd.md`.
 
 ## Platform constraints
 

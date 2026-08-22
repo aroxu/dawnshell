@@ -1,8 +1,8 @@
 # Termux BFU
 
-Direct Boot proof of concept for starting a minimal Termux:Boot-owned environment
-before the first user unlock, then handing off to normal Termux after CE storage
-becomes available.
+Direct Boot bootstrap for starting a root-owned Debian 12 arm64 environment with
+systemd before the first user unlock. Normal Termux remains an AFU management
+frontend, not the server runtime.
 
 The project does not unlock, bind-mount over, copy, or otherwise bypass Termux CE
 storage. BFU state belongs only in the Device Protected Storage returned by
@@ -10,8 +10,8 @@ storage. BFU state belongs only in the Device Protected Storage returned by
 
 ## Current status
 
-The first proof of concept is implemented on the `bfu/direct-boot-poc` branch in
-`termux-boot`:
+The Direct Boot foundation has been verified on the target SM-N950N running
+Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
 
 - receives and logs `LOCKED_BOOT_COMPLETED` with tag `TermuxBFU`;
 - appends each locked-boot receipt to the persistent DE marker
@@ -19,15 +19,18 @@ The first proof of concept is implemented on the `bfu/direct-boot-poc` branch in
 - starts a Direct-Boot-aware foreground service when BFU mode is enabled;
 - provisions `files/bfu/{bin,etc,home,run,scripts,tmp}` in DE storage;
 - directly executes the DE file `files/bfu/scripts/test.sh`;
+- runs a bounded `su -c id` probe and persists its sanitized result in
+  `files/bfu-root.log`;
 - dynamically receives `USER_UNLOCKED` and hands off to the unchanged normal
-  Termux boot-script scheduling path;
+  Termux boot-script scheduling path without stopping the BFU service;
 - also handles `BOOT_COMPLETED` as an AFU fallback and suppresses the unlock/boot
   race for 60 seconds;
-- stores BFU settings and public authorized keys in Device Protected
-  SharedPreferences.
+- stores BFU settings in Device Protected SharedPreferences.
 
-An SSH daemon is not included yet. The current notification deliberately says
-"planned SSH port" and the code never logs `SSH daemon started`.
+The former BFU Dropbear milestone has been superseded. The next device gate is
+pre-authorized Magisk root during BFU; only after that passes will the launcher
+probe `/data/local/debian`, namespaces, chroot, and systemd in order. See
+[Debian systemd plan](docs/debian-systemd.md).
 
 ## Built APK pair
 
@@ -37,7 +40,7 @@ upstream `testkey_untrusted.jks` files:
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `D4858A67B79332ABB00FF39B94A835AF0238B3DF77EF1BDA1049D28B7099A413` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `78BE1637EBA6DC25925EFDA245807A04F04F04E96FC4C78621F5CA32792FA920` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
@@ -87,4 +90,5 @@ Before replacing an F-Droid installation:
    Termux. Never restore CE credentials into the BFU DE tree.
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
-[testing](docs/testing.md), and [progress](docs/progress.md).
+[testing](docs/testing.md), [Debian systemd plan](docs/debian-systemd.md), and
+[progress](docs/progress.md).
