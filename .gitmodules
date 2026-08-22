@@ -1,9 +1,9 @@
 [submodule "termux-app"]
 	path = termux-app
-	url = https://github.com/termux/termux-app.git
+	url = https://github.com/aroxu/termux-app.git
 [submodule "termux-boot"]
 	path = termux-boot
-	url = https://github.com/termux/termux-boot.git
+	url = https://github.com/aroxu/termux-boot.git
 [submodule "termux-packages"]
 	path = termux-packages
-	url = https://github.com/termux/termux-packages.git
+	url = https://github.com/aroxu/termux-packages.git
