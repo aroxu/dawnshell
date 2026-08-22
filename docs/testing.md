@@ -188,8 +188,9 @@ While Android is unlocked, paste at least one dedicated public key into the BFU
 `authorized_keys` editor and press **Configure Debian 13 systemd + SSH**. The
 configuration status must become `SUCCEEDED`; its live selectable log must end in
 both `CONFIGURE_SUCCEEDED` lines. This operation stops a prior test instance,
-installs packages, validates `sshd`, enables `ssh.service`, publishes the ready
-marker, and starts systemd once for AFU validation.
+installs packages, validates `sshd`, enables `ssh.service` and
+`termux-bfu-boot-proof.service`, publishes the ready marker, and starts systemd
+once for AFU validation.
 
 Press **Refresh Debian systemd status**. A successful launcher status contains
 `BFU_DEBIAN_RUNNING`, identity-valid supervisor/init, valid namespace topology,
@@ -201,6 +202,8 @@ ssh -p 22 -i /path/to/bfu_key debian@PHONE_IP
 systemctl is-system-running
 systemctl is-active dbus.service
 systemctl is-active ssh.service
+systemctl is-active termux-bfu-boot-proof.service
+test -f /run/termux-bfu-enabled-service.ready
 busctl --system --no-pager list
 cat /proc/1/comm
 ss -ltn
@@ -216,10 +219,13 @@ BFU_SSH_KEY=/path/to/bfu_key \
 
 Do not unlock while it waits. Pass requires SSH on TCP 22, `/proc/1/comm` equal
 to `systemd`, working D-Bus, `multi-user.target`, `ssh.service=active`, and a
-listening `:22` socket. The script then asks for the first unlock, proves PID 1
-start ticks plus machine ID remain identical, checks the locked DE health proof,
-and installs a temporary normal Termux boot script whose current-boot marker must
-appear after unlock. The temporary script and marker are removed on success.
+listening `:22` socket. It additionally requires the enabled boot-proof service
+and its private `/run` marker. The script then asks for the first unlock, proves
+PID 1 start ticks plus machine ID remain identical, and requires exactly one fresh
+same-cycle DE record for `LOCKED_BOOT_COMPLETED`, BFU root, CE isolation, rootfs,
+namespace/chroot, and lifecycle health. It installs a temporary normal Termux boot
+script whose current-boot marker must appear after unlock. The temporary script
+and marker are removed on success.
 
 On failure, copy the **Debian systemd lifecycle log** before changing anything.
 Stages such as `cgroup_v1_name_systemd_mount`, `cgroup_move_pid1`,
@@ -253,12 +259,15 @@ Each cycle cold-boots, waits for the complete BFU SSH health check before asking
 for unlock, verifies unchanged Debian PID 1 across `USER_UNLOCKED`, proves exactly
 one normal Termux handoff, and records Android boot ID, app PID/RSS, supervisor,
 and init host PID under ignored `test-results/`. Repeated boot IDs and a strictly
-monotonic PSS increase over 32 MiB fail the harness.
+monotonic PSS increase over 32 MiB fail the harness. Before cycle one, the harness
+pulls the installed Termux:Boot APK and requires it to match the frozen artifact;
+after every cycle it also hashes the provisioned DE helper.
 
 After the cycles, the wrapper runs `test-systemd-shutdown-isolation.sh`. It checks
 native status, explicit restart/stop/start, then invokes Debian `systemctl
-poweroff` and `systemctl reboot` through the restricted root helper. Every action
-must leave Android's boot ID unchanged and Debian SSH must recover after restart.
+poweroff`, `systemctl reboot`, and `/usr/sbin/shutdown --poweroff --no-wall now`
+through the restricted root helper. Every action must leave Android's boot ID
+unchanged and Debian SSH must recover after restart.
 
 During BFU, verify CE remains unavailable even to the already pre-authorized root
 probe. Do not change SELinux, mount DE over CE, or use root to alter FBE state.

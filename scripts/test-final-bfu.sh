@@ -48,12 +48,28 @@ for apk in "$boot_apk" "$termux_apk"; do
     exit 2
   }
 done
-expected_boot_hash="936C0CB1F2276D59AB7932AB134CA272781039FD846A49BA735B6734458BEAA1"
+expected_boot_hash="E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD"
 expected_termux_hash="31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6"
+expected_helper_hash="DD5E7CB52AC785F4AA6D04694ED6D3DB762D93820E274DD18AB36AC1FB7C6231"
 actual_boot_hash="$(sha256sum "$boot_apk" | awk '{print toupper($1)}')"
 actual_termux_hash="$(sha256sum "$termux_apk" | awk '{print toupper($1)}')"
 [[ "$actual_boot_hash" = "$expected_boot_hash" ]]
 [[ "$actual_termux_hash" = "$expected_termux_hash" ]]
+
+installed_boot_path="$(adb shell pm path com.termux.boot \
+  | tr -d '\r' | sed -n 's/^package://p' | head -n 1)"
+[[ -n "$installed_boot_path" ]] || {
+  echo "FAIL: could not resolve the installed Termux:Boot APK" >&2
+  exit 2
+}
+installed_boot_apk="$results_dir/installed-termux-boot.apk"
+adb pull "$installed_boot_path" "$installed_boot_apk" >/dev/null
+installed_boot_hash="$(sha256sum "$installed_boot_apk" | awk '{print toupper($1)}')"
+[[ "$installed_boot_hash" = "$expected_boot_hash" ]] || {
+  echo "FAIL: installed Termux:Boot APK does not match the frozen artifact" >&2
+  echo "expected=$expected_boot_hash actual=$installed_boot_hash" >&2
+  exit 2
+}
 
 for ((cycle = 1; cycle <= cycles; cycle++)); do
   echo "============================================================"
@@ -83,6 +99,12 @@ for ((cycle = 1; cycle <= cycles; cycle++)); do
   grep -Fq 'BFU_DEBIAN_RUNNING' <<<"$launcher_status"
   grep -Fq 'namespace_topology_valid=true' <<<"$launcher_status"
   grep -Fq 'network_namespace=android-shared' <<<"$launcher_status"
+  device_helper_hash="$(adb exec-out run-as com.termux.boot cat "$helper" \
+    | sha256sum | awk '{print toupper($1)}')"
+  [[ "$device_helper_hash" = "$expected_helper_hash" ]] || {
+    echo "FAIL: provisioned BFU helper does not match the frozen APK" >&2
+    exit 8
+  }
   # Literal root-side loop; command substitutions must expand on Android.
   # shellcheck disable=SC2016
   systemd_count="$(adb shell su -c 'count=0; for file in /proc/[0-9]*/comm; do [ "$(cat "$file" 2>/dev/null)" = systemd ] && count=$((count + 1)); done; echo "$count"' | tr -d '\r\n')"
@@ -116,12 +138,12 @@ if ! awk -F '\t' '
 fi
 
 echo "============================================================"
-echo "Running namespace shutdown/reboot isolation checks..."
+echo "Running namespace poweroff/reboot/shutdown isolation checks..."
 "$repo_dir/scripts/test-systemd-shutdown-isolation.sh" 2>&1 \
   | tee "$results_dir/shutdown-isolation.log"
 
 cp "$summary" "$results_dir/summary.tsv"
 echo "============================================================"
-echo "PASS: $cycles BFU cold cycles plus poweroff/reboot isolation completed."
+echo "PASS: $cycles BFU cold cycles plus poweroff/reboot/shutdown isolation completed."
 echo "Evidence directory: $results_dir"
 cat "$summary"

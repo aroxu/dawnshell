@@ -45,8 +45,8 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
   app-owned Device Protected Storage;
 - offers an AFU-only Debian 13 configurator that installs systemd 257, D-Bus, and
   OpenSSH, creates the unprivileged `debian` account, disables password/root
-  authentication, enables `ssh.service` on TCP 22, and publishes a root-owned
-  BFU-ready marker only after validation;
+  authentication, enables `ssh.service` on TCP 22 plus an independent oneshot
+  boot-proof unit, and publishes a root-owned BFU-ready marker only after validation;
 - provides idempotent native `start/restart/status/health/stop` controls protected by a
   lifetime `flock` plus `/proc` start-time and executable-inode identity checks;
 - starts `/sbin/init` as PID 1 in private mount/PID/UTS/IPC/cgroup namespaces,
@@ -57,10 +57,12 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
   DE lifecycle logs in the activity;
 - records and validates PID/mount/UTS/IPC/cgroup namespace identities, proves the
   network namespace is still Android's, and enters the live PID/mount namespaces
-  for bounded `systemctl`, D-Bus, `ssh.service`, and TCP 22 health checks;
+  for bounded `systemctl`, D-Bus, enabled-unit marker, `ssh.service`, and TCP 22
+  health checks;
 - creates a private bind mount for the chroot root, keeps `/sys` and `/proc/sys`
   read-only, and includes a root-only test operation for proving Debian
-  `systemctl poweroff`/`reboot` cannot reboot Android;
+  `systemctl poweroff`, `systemctl reboot`, and `/usr/sbin/shutdown` cannot reboot
+  Android;
 - dynamically receives `USER_UNLOCKED` and hands off to the unchanged normal
   Termux boot-script scheduling path without stopping the BFU service;
 - also handles `BOOT_COMPLETED` as an AFU fallback and uses the kernel boot ID
@@ -85,7 +87,7 @@ files. Termux is unchanged from 2026-08-22; Termux:Boot was rebuilt on 2026-08-2
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / embedded arm64 BFU helper | `936C0CB1F2276D59AB7932AB134CA272781039FD846A49BA735B6734458BEAA1` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / embedded arm64 BFU helper | `E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.

@@ -46,11 +46,14 @@ health_command='set -eu
 [ "$(cat /proc/1/comm)" = systemd ]
 [ "$(systemctl is-active dbus.service)" = active ]
 [ "$(systemctl is-active ssh.service)" = active ]
+[ "$(systemctl is-active termux-bfu-boot-proof.service)" = active ]
+[ -f /run/termux-bfu-enabled-service.ready ]
 [ "$(systemctl get-default)" = multi-user.target ]
 busctl --system --no-pager list >/dev/null
 ss -H -ltn | awk '\''$4 ~ /:22$/ { found=1 } END { exit !found }'\''
-printf "pid1_start_ticks=%s machine_id=%s\n" \
-  "$(awk '\''{print $22}'\'' /proc/1/stat)" "$(cat /etc/machine-id)"'
+printf "pid1_start_ticks=%s machine_id=%s proof_state=%s proof_marker=present\n" \
+  "$(awk '\''{print $22}'\'' /proc/1/stat)" "$(cat /etc/machine-id)" \
+  "$(systemctl is-active termux-bfu-boot-proof.service)"'
 
 wait_for_ssh() {
   local deadline=$((SECONDS + wait_seconds))
@@ -138,10 +141,14 @@ fi
 start_debian
 echo "PASS: stop-debian halted only the Debian namespace and start-debian restored it."
 
-for mode in poweroff reboot; do
+for mode in poweroff reboot shutdown; do
   before_boot_id="$(android_boot_id)"
   [[ -n "$before_boot_id" ]]
-  echo "Testing systemctl $mode inside the Debian PID namespace..."
+  if [[ "$mode" == shutdown ]]; then
+    echo "Testing /usr/sbin/shutdown inside the Debian PID namespace..."
+  else
+    echo "Testing systemctl $mode inside the Debian PID namespace..."
+  fi
 
   command="$helper shutdown-test $rootfs $control $mode"
   set +e
@@ -179,7 +186,7 @@ for mode in poweroff reboot; do
     echo "FAIL: Android rebooted while restoring Debian after $mode" >&2
     exit 4
   }
-  echo "PASS: systemctl $mode stopped only Debian; Android stayed on boot $before_boot_id."
+  echo "PASS: $mode stopped only Debian; Android stayed on boot $before_boot_id."
 done
 
-echo "PASS: Debian poweroff/reboot targets are isolated from Android host lifecycle."
+echo "PASS: Debian poweroff/reboot/shutdown paths are isolated from Android host lifecycle."

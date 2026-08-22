@@ -53,24 +53,29 @@ boot scripts and does not issue `start`, `stop`, or `restart`.
 
 An AFU-only configurator installs `systemd`, `systemd-sysv`, `dbus`, and
 `openssh-server`, creates user `debian`, generates dedicated BFU host keys, copies
-validated public keys from app DE, and enables `ssh.service` at TCP 22. It masks
-units that would write Android-owned kernel, module, udev, sysctl, clock, or
-network state. The `.termux-bfu-systemd-ready` marker is written last and removed
-before any reconfiguration attempt, so a partial setup fails closed.
+validated public keys from app DE, and enables `ssh.service` at TCP 22. It also
+enables an independent oneshot service that creates a volatile marker in private
+`/run` at `multi-user.target`; this proves configured enabled services ran rather
+than inferring that only from SSH. It masks units that would write Android-owned
+kernel, module, udev, sysctl, clock, or network state. The
+`.termux-bfu-systemd-ready` marker is written last and removed before any
+reconfiguration attempt, so a partial setup fails closed.
 
 After the initial PID 1 grace period, the launcher records all namespace inodes
 and rejects the instance unless PID/mount/UTS/IPC/cgroup are private while network
 matches Android. Java then polls the fixed native `health` operation until it
 proves systemd PID 1, active D-Bus service and bus, `multi-user.target`, active
-`ssh.service`, and a TCP 22 listener. The locked/unlocked state surrounding that
-health proof is written to DE.
+`ssh.service`, an active independent boot-proof service with its `/run` marker,
+and a TCP 22 listener. The locked/unlocked state surrounding that health proof is
+written to DE.
 
 The final harness also calls the helper's restricted `shutdown-test` with each of
-`poweroff` and `reboot`. It executes `systemctl --no-block` inside the verified
-Debian PID/mount namespaces and waits for the lifetime lock to release. The host
-script compares `/proc/sys/kernel/random/boot_id` before and after and restarts
-Debian; this is how namespace reboot isolation is tested without trusting the
-helper's own process outcome.
+`poweroff`, `reboot`, and `shutdown`. It executes `systemctl --no-block` for the
+first two and a fixed `/usr/sbin/shutdown --poweroff --no-wall now` for the third
+inside the verified Debian PID/mount namespaces, then waits for the lifetime lock
+to release. The host script compares `/proc/sys/kernel/random/boot_id` before and
+after and restarts Debian; this is how namespace reboot isolation is tested
+without trusting the helper's own process outcome.
 
 ## Trixie systemd compatibility gate
 
@@ -98,7 +103,8 @@ and [v257 release notes](https://github.com/systemd/systemd/blob/v257/NEWS).
 4. `chroot` executes Debian `/bin/sh` as namespace PID 1.
 5. `/sbin/init` becomes namespace PID 1.
 6. D-Bus and `systemctl` work and the default target is reached.
-7. Enabled Debian `ssh.service` starts after cold boot before first unlock.
+7. Enabled Debian `ssh.service` and the independent boot-proof service start after
+   cold boot before first unlock.
 
 Gates 1 and the Debian 13 rootfs installation have been proven on the target.
 The source implements every remaining gate. Per the agreed test order, gates 2

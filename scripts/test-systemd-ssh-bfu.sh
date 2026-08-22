@@ -12,6 +12,10 @@ if [[ "${BFU_SKIP_UNLOCK_CONTINUITY:-}" == "1" ]]; then
   verify_handoff=0
 fi
 operation_log_path="/data/user_de/0/com.termux.boot/files/bfu-operation.log"
+locked_boot_log_path="/data/user_de/0/com.termux.boot/files/bfu-boot.log"
+root_log_path="/data/user_de/0/com.termux.boot/files/bfu-root.log"
+rootfs_log_path="/data/user_de/0/com.termux.boot/files/bfu-rootfs.log"
+runtime_log_path="/data/user_de/0/com.termux.boot/files/bfu-debian-runtime.log"
 lifecycle_status_path="/data/user_de/0/com.termux.boot/files/debian-lifecycle.status"
 lifecycle_log_path="/data/user_de/0/com.termux.boot/files/bfu/run/debian-lifecycle.log"
 ce_isolation_log_path="/data/user_de/0/com.termux.boot/files/bfu-ce-isolation.log"
@@ -32,6 +36,27 @@ done
 
 read_boot_de_file() {
   adb exec-out run-as com.termux.boot cat "$1" 2>/dev/null | tr -d '\r'
+}
+
+fresh_log_lines() {
+  local path="$1"
+  local previous_count="$2"
+  local contents
+  contents="$(read_boot_de_file "$path" || true)"
+  [[ -n "$contents" ]] || return 0
+  printf '%s\n' "$contents" | sed -n "$((previous_count + 1)),\$p"
+}
+
+require_one_fresh_record() {
+  local label="$1"
+  local marker="$2"
+  local contents="$3"
+  local count
+  count="$(grep -Fc "$marker" <<<"$contents" || true)"
+  [[ "$count" == "1" ]] || {
+    echo "FAIL: expected one fresh $label record, observed $count" >&2
+    exit 7
+  }
 }
 
 known_hosts="$(mktemp)"
@@ -56,20 +81,31 @@ health_command='set -eu
 [ "$(cat /proc/1/comm)" = systemd ]
 [ "$(systemctl is-active dbus.service)" = active ]
 [ "$(systemctl is-active ssh.service)" = active ]
+[ "$(systemctl is-active termux-bfu-boot-proof.service)" = active ]
+[ -f /run/termux-bfu-enabled-service.ready ]
 [ "$(systemctl get-default)" = multi-user.target ]
 busctl --system --no-pager list >/dev/null
 ss -H -ltn | awk '\''$4 ~ /:22$/ { found=1 } END { exit !found }'\''
-printf "pid1=%s start_ticks=%s machine_id=%s system_state=%s dbus_state=%s ssh_state=%s target=%s\n" \
+printf "pid1=%s start_ticks=%s machine_id=%s system_state=%s dbus_state=%s ssh_state=%s proof_state=%s proof_marker=present target=%s\n" \
   "$(cat /proc/1/comm)" \
   "$(awk '\''{print $22}'\'' /proc/1/stat)" \
   "$(cat /etc/machine-id)" \
   "$(systemctl is-system-running 2>/dev/null || true)" \
   "$(systemctl is-active dbus.service)" \
   "$(systemctl is-active ssh.service)" \
+  "$(systemctl is-active termux-bfu-boot-proof.service)" \
   "$(systemctl get-default)"'
 
 adb get-state >/dev/null
 operation_before="$( (read_boot_de_file "$operation_log_path" || true) \
+  | wc -l | tr -d ' ' )"
+locked_boot_before="$( (read_boot_de_file "$locked_boot_log_path" || true) \
+  | wc -l | tr -d ' ' )"
+root_before="$( (read_boot_de_file "$root_log_path" || true) \
+  | wc -l | tr -d ' ' )"
+rootfs_before="$( (read_boot_de_file "$rootfs_log_path" || true) \
+  | wc -l | tr -d ' ' )"
+runtime_before="$( (read_boot_de_file "$runtime_log_path" || true) \
   | wc -l | tr -d ' ' )"
 lifecycle_before="$( (read_boot_de_file "$lifecycle_log_path" || true) \
   | wc -l | tr -d ' ' )"
@@ -142,7 +178,39 @@ grep -Fq 'user_unlocked_before=false' <<<"$lifecycle_status"
 grep -Fq 'user_unlocked_after=false' <<<"$lifecycle_status"
 grep -Fq 'health_exit=0' <<<"$lifecycle_status"
 grep -Fq 'dbus_bus=ok' <<<"$lifecycle_status"
+grep -Fq 'boot_proof_service=active' <<<"$lifecycle_status"
+grep -Fq 'boot_proof_marker=present' <<<"$lifecycle_status"
 grep -Fq 'listen_22=true' <<<"$lifecycle_status"
+
+locked_boot_new="$(fresh_log_lines "$locked_boot_log_path" "$locked_boot_before")"
+printf '%s\n' "$locked_boot_new"
+require_one_fresh_record "LOCKED_BOOT_COMPLETED" \
+  'LOCKED_BOOT_COMPLETED ' "$locked_boot_new"
+
+root_new="$(fresh_log_lines "$root_log_path" "$root_before")"
+printf '%s\n' "$root_new"
+require_one_fresh_record "BFU root probe" 'ROOT_PROBE ' "$root_new"
+grep -Fq 'exit=0 timeout=false root=true' <<<"$root_new"
+grep -Fq 'user_unlocked_before=false user_unlocked_after=false' <<<"$root_new"
+grep -Fq 'output=uid=0(' <<<"$root_new"
+
+rootfs_new="$(fresh_log_lines "$rootfs_log_path" "$rootfs_before")"
+printf '%s\n' "$rootfs_new"
+require_one_fresh_record "BFU rootfs probe" 'ROOTFS_PROBE ' "$rootfs_new"
+grep -Fq 'rootfs=/data/local/debian' <<<"$rootfs_new"
+grep -Fq 'exit=0 timeout=false accessible=true' <<<"$rootfs_new"
+grep -Fq 'user_unlocked_before=false user_unlocked_after=false' <<<"$rootfs_new"
+grep -Fq 'Debian-rootfs-access-ok root=/data/local/debian' <<<"$rootfs_new"
+
+runtime_new="$(fresh_log_lines "$runtime_log_path" "$runtime_before")"
+printf '%s\n' "$runtime_new"
+require_one_fresh_record "BFU namespace/chroot probe" \
+  'DEBIAN_RUNTIME_PROBE ' "$runtime_new"
+grep -Fq 'exit=0 timeout=false namespace_chroot=true' <<<"$runtime_new"
+grep -Fq 'user_unlocked_before=false user_unlocked_after=false' <<<"$runtime_new"
+grep -Fq 'BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=arm64 debian=13' \
+  <<<"$runtime_new"
+grep -Fq 'init=present systemctl=present' <<<"$runtime_new"
 
 operation_all="$(read_boot_de_file "$operation_log_path")"
 operation_new="$(printf '%s\n' "$operation_all" \
@@ -161,6 +229,10 @@ lifecycle_new="$(printf '%s\n' "$lifecycle_all" \
   | sed -n "$((lifecycle_before + 1)),\$p")"
 printf '%s\n' "$lifecycle_new"
 grep -Fq 'BFU_DEBIAN_SYSTEMD_STARTED' <<<"$lifecycle_new"
+grep -Fq 'label=host_proc_cgroups' <<<"$lifecycle_new"
+grep -Fq 'cgroup_v1_name_systemd_mounted' <<<"$lifecycle_new"
+grep -Fq 'private_systemd_cgroup_view_mounted' <<<"$lifecycle_new"
+grep -Fq 'label=debian_pid1_cgroup' <<<"$lifecycle_new"
 grep -Fq 'network_namespace=android-shared' <<<"$lifecycle_new"
 grep -Fq 'ANDROID_HEALTH attempt=' <<<"$lifecycle_new"
 grep -Fq 'ready=true' <<<"$lifecycle_new"
@@ -169,6 +241,8 @@ ce_isolation_all="$(read_boot_de_file "$ce_isolation_log_path")"
 ce_isolation_new="$(printf '%s\n' "$ce_isolation_all" \
   | sed -n "$((ce_isolation_before + 1)),\$p")"
 printf '%s\n' "$ce_isolation_new"
+require_one_fresh_record "BFU CE isolation probe" \
+  'CE_ISOLATION_PROBE ' "$ce_isolation_new"
 grep -Fq 'ce_isolated=true' <<<"$ce_isolation_new"
 grep -Fq 'user_unlocked_before=false' <<<"$ce_isolation_new"
 grep -Fq 'user_unlocked_after=false' <<<"$ce_isolation_new"

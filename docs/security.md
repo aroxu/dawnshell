@@ -68,9 +68,11 @@ namespace to equal Android's while the others differ.
 
 Health and shutdown-test operations enter only namespace descriptors belonging to
 the identity-verified live PID 1. Health runs a fixed, bounded set of local
-systemd/D-Bus/socket checks. Shutdown-test accepts only `poweroff` or `reboot` and
-exists for ADB/root validation; it does not expose arbitrary command execution.
-Only the external harness can prove that Android's boot ID stayed unchanged.
+systemd/D-Bus/socket checks. Shutdown-test accepts only `poweroff`, `reboot`, or
+the literal `shutdown` selector; that selector maps only to a fixed
+`/usr/sbin/shutdown --poweroff --no-wall now` invocation. It exists for ADB/root
+validation and does not expose arbitrary command execution. Only the external
+harness can prove that Android's boot ID stayed unchanged.
 
 The rootfs accessibility gate writes only a random-per-process marker named
 `.termux-bfu-access-probe.<pid>` at the rootfs top level, reads it back, and removes
@@ -100,6 +102,9 @@ After `ca-certificates` is installed, sources are replaced with HTTPS and update
 again. Package service startup is blocked with a temporary, restored
 `policy-rc.d`. The BFU-ready marker is published only after `sshd -t`, effective
 public-key-only policy checks, host-key generation, and `ssh.service` enablement.
+It also enables a dedicated oneshot proof unit whose only action is creating a
+volatile marker under the namespace-private `/run`; health requires both its
+active state and marker, without granting it Android host-side capabilities.
 
 The SSH account is non-root and has no usable password. Server policy denies
 password, keyboard-interactive, empty-password, and root authentication. Public

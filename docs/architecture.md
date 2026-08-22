@@ -148,7 +148,10 @@ configures an unprivileged `debian` SSH account. Password, keyboard-interactive,
 empty-password, and root login are disabled. The service binds wildcard IPv4 TCP
 22, so it can begin listening before Android finishes attaching an address. The
 validated public keys originate in DE; BFU-only host keys and the installed key
-copy live in the BFU-accessible Debian rootfs, never Termux CE.
+copy live in the BFU-accessible Debian rootfs, never Termux CE. A separate enabled
+oneshot service touches `/run/termux-bfu-enabled-service.ready` during
+`multi-user.target`, providing proof that systemd launched a configured unit other
+than the SSH/D-Bus dependencies.
 
 ## Lifecycle and idempotence
 
@@ -166,7 +169,8 @@ copy live in the BFU-accessible Debian rootfs, never Termux CE.
   Elapsed realtime remains only a fallback if `/proc/sys/kernel/random/boot_id`
   is unexpectedly unreadable.
 - `BOOT_COMPLETED` idempotently requests the BFU service and rechecks
-  `UserManager`; CE access is refused while locked.
+  `UserManager`; a newly created service skips BFU startup probes if Android is
+  already unlocked, so AFU fallback cannot contaminate locked-boot evidence.
 - `BootJobService` is not Direct-Boot-aware and is never called by the locked path.
 - `ACTION_USER_UNLOCKED` is registered dynamically by the foreground service;
   Android documents this action as unavailable to manifest receivers.
@@ -205,13 +209,15 @@ mount. `/sys` and `/proc/sys` are read-only in the Debian view. Health opens the
 already-verified PID and mount namespace descriptors, revalidates identities to
 close PID-reuse races, joins them, forks a child in the Debian PID namespace, and
 checks PID 1, D-Bus service/bus access, the default target, `ssh.service`, and a
-TCP 22 listener. Only fixed commands are accepted.
+TCP 22 listener. It also requires the independent boot-proof service to be active
+and its volatile `/run` marker to exist. Only fixed commands are accepted.
 
-For the final physical test, `shutdown-test` permits only `poweroff` or `reboot`,
-invokes the corresponding `systemctl --no-block` operation inside those same
-verified namespaces, and waits for the supervisor lock to be released. The host
-test script separately compares Android boot IDs; the helper never claims Android
-isolation by itself.
+For the final physical test, `shutdown-test` permits only `poweroff`, `reboot`, or
+`shutdown`. The first two invoke the corresponding `systemctl --no-block`
+operation and the third invokes the fixed `/usr/sbin/shutdown --poweroff --no-wall
+now` command inside those same verified namespaces. Each path waits for the
+supervisor lock to be released. The host test script separately compares Android
+boot IDs; the helper never claims Android isolation by itself.
 
 For systemd 257 on this cgroup-v1 kernel, the helper mounts a private
 `name=systemd` hierarchy, creates a dedicated `termux-bfu` child, moves only the

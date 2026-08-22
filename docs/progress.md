@@ -93,11 +93,17 @@
 - [x] Record PID/mount/UTS/IPC/cgroup/network namespace identities and require
   private requested namespaces plus the unchanged Android network namespace.
 - [x] Add bounded native health checks for systemd PID 1, D-Bus, default target,
-  `ssh.service`, and TCP 22, with locked-state evidence persisted in DE.
+  an independent enabled-unit proof, `ssh.service`, and TCP 22, with locked-state
+  evidence persisted in DE.
 - [x] Add explicit restart control, a private rootfs bind mount, read-only `/sys`,
   and boot-ID-scoped normal Termux handoff deduplication.
-- [x] Add restricted Debian poweroff/reboot isolation tests and a ten-cycle final
-  BFU harness that records boot/process/RSS evidence.
+- [x] Add restricted Debian poweroff/reboot/shutdown isolation tests and a
+  ten-cycle final BFU harness that records boot/process/RSS evidence and requires
+  fresh same-cycle evidence for every locked-boot gate.
+- [x] Prevent an AFU `BOOT_COMPLETED` service recreation from rerunning BFU probes
+  and contaminating the locked-only evidence stream.
+- [x] Make the final harness reject a stale installed APK or provisioned native
+  helper before accepting any physical result.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Verify the namespace/mount/PID-1 Debian chroot probe on the target.
 - [x] Promote the setup into an idempotent long-lived Debian launcher.
@@ -113,9 +119,9 @@ The host defaults to JDK 26, which is too new for this Android Gradle Plugin's
 runtime. Builds and lint therefore use the workspace Temurin JDK 17
 with Android Platform 34 and Build Tools 34.0.0. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `936C0CB1F2276D59AB7932AB134CA272781039FD846A49BA735B6734458BEAA1`.
-Its embedded lifecycle helper is a 43,776-byte AArch64 PIE with SHA-256
-`E46E38065C053D281E27EF9D7C420F38CA9CDE2B44796FF61F63FF0DDAD09B3A`.
+SHA-256 `E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD`.
+Its embedded lifecycle helper is a 44,632-byte AArch64 PIE with SHA-256
+`DD5E7CB52AC785F4AA6D04694ED6D3DB762D93820E274DD18AB36AC1FB7C6231`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. Magisk root was subsequently proven entirely during BFU and the
@@ -127,5 +133,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-936C0CB1F2276D59AB7932AB134CA272781039FD846A49BA735B6734458BEAA1  termux-boot_0.8.1_bfu_debug.apk
+E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD  termux-boot_0.8.1_bfu_debug.apk
 ```
