@@ -28,6 +28,10 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
   requiring BFU ADB;
 - after BFU root succeeds, probes `/data/local/debian` directory, shell mode, and
   temporary read/write access and records `files/bfu-rootfs.log`;
+- after the storage gate succeeds, runs a SHA-256-pinned ARM64 helper that creates
+  private mount/PID/UTS/IPC/cgroup namespaces and proves Debian `/bin/sh` is PID 1
+  with a matching private `/proc`; the result is stored in
+  `files/bfu-debian-runtime.log`;
 - offers an AFU-only, checksum-pinned Debian 13 Trixie arm64 rootfs installer that uses
   a private mount namespace and publishes only a fully validated staging tree;
 - streams installer stdout/stderr to a DE-persistent log shown in a selectable,
@@ -40,22 +44,22 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
 - stores BFU settings in Device Protected SharedPreferences.
 
 The former BFU Dropbear milestone has been superseded. Pre-authorized Magisk root
-during BFU is verified on-device. The latest physical-device probe correctly
-reported `stage=root_missing`; the app now provides the rootfs preparation path,
-but gate 2 remains open until the resulting tree passes a fresh locked-boot
-probe. Only after it passes will namespaces, chroot, and systemd follow. See
+during BFU is verified on-device, and Debian 13 Trixie installation has completed.
+The next cold boot verifies both BFU rootfs accessibility and the new one-shot
+namespace/chroot gate. Long-lived systemd remains disabled until that evidence
+passes. See
 [rootfs installation](docs/rootfs-installation.md) and
 [Debian systemd plan](docs/debian-systemd.md).
 
 ## Built APK pair
 
-Both debug APKs were successfully built on 2026-08-22 with the byte-identical
-upstream `testkey_untrusted.jks` files:
+The staged debug pair uses the byte-identical upstream `testkey_untrusted.jks`
+files. Termux is unchanged from 2026-08-22; Termux:Boot was rebuilt on 2026-08-23:
 
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `125973CC4CCC19C51EDC8222D8FC93E177B31AB2D34840540E06B533A662BC39` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / embedded arm64 BFU helper | `87BB870E00A45479DBAEC35BB8B941064A20E984A14E158BDEE88F33547AB0DC` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
@@ -92,6 +96,7 @@ Snapshots were fetched on 2026-08-22.
 
 - JDK 17
 - Android SDK Platform 34 and Build Tools 34.0.0 for Termux:Boot
+- Android NDK 29.0.14206865 to reproduce the Termux:Boot namespace helper
 - Android SDK Platform 36, Build Tools 35.0.0, and NDK 29.0.14206865 for Termux
 - ADB for device tests
 - one signing key shared by Termux and every installed Termux plugin

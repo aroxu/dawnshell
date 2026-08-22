@@ -1,10 +1,10 @@
 # BFU runtime
 
-This directory will contain the reproducible ARM64 server-only Dropbear build. It
-must not import the normal Termux Dropbear package artifact: that package is
-dynamic, depends on `termux-auth` and zlib, and embeds the normal Termux prefix.
+The active BFU runtime is now Debian 13 rather than a standalone Dropbear tree.
+The first native runtime component is the ARM64 namespace/chroot probe under the
+`termux-boot` source tree; its reproducible NDK build script and source are shipped
+next to the APK asset so the fork remains self-contained.
 
-The APK-native executable and its source/build metadata belong here. Runtime keys,
-authorized keys, pids, and logs belong only in Termux:Boot Device Protected Storage
-on the device and must never be committed.
-
+This directory tracks cross-repository runtime decisions. Runtime keys, authorized
+keys, pids, and logs belong only in Termux:Boot Device Protected Storage or the
+separately reviewed Debian rootfs on the device and must never be committed.

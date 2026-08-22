@@ -139,16 +139,42 @@ the Debian shell because its ELF interpreter and libraries require the later
 chroot setup. On failure, preserve the `stage=...` output before changing the
 candidate path or filesystem policy.
 
+## Debian gate 3: namespaces and chroot
+
+Install the APK containing the ARM64 namespace helper, keep BFU enabled, and run:
+
+```sh
+./scripts/test-debian-runtime-bfu.sh
+```
+
+The script performs a cold boot, requires a fresh DE result produced while locked,
+and expects:
+
+```text
+exit=0
+timeout=false
+namespace_chroot=true
+user_unlocked_before=false
+user_unlocked_after=false
+output=BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=arm64 debian=13
+```
+
+The helper uses no Termux CE executable. It creates mount/PID/UTS/IPC/cgroup
+namespaces but no network namespace, makes `/` recursively private, mounts private
+`/proc` and `/run`, enters the verified rootfs, and exits. A failure includes an
+exact `stage=` such as `unshare_cgroup`, `proc_mount`, `chroot`, or
+`exec_debian_shell`; preserve that line before changing code or device policy.
+
+This is a one-shot proof, not the long-running Debian service. Success completes
+the launcher/chroot gate; it does not prove systemd 257 compatibility.
+
 ## Later Debian gates
 
 After BFU root is proven, validate these one at a time:
 
-1. mount/PID/UTS/IPC/cgroup namespaces are created without a network namespace;
-   namespace PID 1 sees a matching private `/proc`.
-2. `chroot` executes Debian `/bin/sh`.
-3. `/sbin/init` becomes namespace PID 1.
-4. D-Bus and `systemctl` work and the default target is reached.
-5. enabled Debian `ssh.service` is reachable after cold boot before unlock.
+1. `/sbin/init` becomes namespace PID 1.
+2. D-Bus and `systemctl` work and the default target is reached.
+3. enabled Debian `ssh.service` is reachable after cold boot before unlock.
 
 Capture `/sys/fs/cgroup`, `/proc/cgroups`, `/proc/self/cgroup`, and
 `/proc/cmdline` before changing the launcher for systemd. Debian 13's systemd 257

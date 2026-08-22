@@ -45,6 +45,14 @@ cgroups globally, or treat a stale pid file as proof that Debian is running.
 Shutdown/reboot requests inside the Debian PID namespace must be tested to ensure
 they cannot unintentionally reboot the Android host.
 
+The namespace probe is built for Android API 21/arm64 as PIE and has only Android
+system `libc.so`/`libdl.so` dependencies. Gradle verifies its pinned SHA-256 and the
+app verifies the same digest after copying it to owner-only DE storage. Root accepts
+only the exact, non-symlink, uid-0-owned, non-group/world-writable
+`/data/local/debian` root. The probe has
+independent native and Java timeouts, creates no network namespace, and exits after
+the chroot proof so every private mount namespace is reclaimed.
+
 The rootfs accessibility gate writes only a random-per-process marker named
 `.termux-bfu-access-probe.<pid>` at the rootfs top level, reads it back, and removes
 it through an EXIT/signal trap. It does not modify Debian configuration, users,

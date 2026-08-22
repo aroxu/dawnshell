@@ -28,6 +28,12 @@ not the full rootfs, so uninstalling Termux:Boot does not silently remove Debian
 
 ## Launcher contract
 
+The current APK implements the destructive-state-free `probe` subset as a small
+ARM64 Android-native helper. It exercises every namespace and mount operation,
+executes Debian `/bin/sh` as namespace PID 1, records the result in DE, and exits.
+It intentionally does not start systemd or leave mounts/processes behind. This
+separates launcher/kernel/SELinux failures from the next systemd/cgroup gate.
+
 The future root helper exposes `start-debian`, `stop-debian`, `restart-debian`, and
 `status-debian`. Start must reject duplicate instances using live process identity
 and namespace evidence, not a pid file alone. Within a new mount namespace it must:
@@ -65,7 +71,7 @@ and [v257 release notes](https://github.com/systemd/systemd/blob/v257/NEWS).
    temporary read/write access.
 3. Root helper creates mount/PID/UTS/IPC/cgroup namespaces and PID 1 sees its own
    `/proc`.
-4. `chroot` executes Debian `/bin/sh`.
+4. `chroot` executes Debian `/bin/sh` as namespace PID 1.
 5. `/sbin/init` becomes namespace PID 1.
 6. D-Bus and `systemctl` work and the default target is reached.
 7. Enabled Debian `ssh.service` starts after cold boot before first unlock.

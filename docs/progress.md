@@ -67,8 +67,17 @@
   scrolling and outer-page handoff at console edges.
 - [x] Persist a DE-only 48 KiB live tail for button/provision results without
   storing credentials.
+
+## 2026-08-23
+
+- [x] Complete the Debian 13 Trixie rootfs installation on the physical target.
+- [x] Add a CE-independent ARM64 namespace/chroot probe with pinned native-asset
+  SHA-256, strict rootfs validation, private mounts, and bounded execution.
+- [x] Show the latest namespace/chroot result in the same selectable probe console
+  UI and add an automated cold-boot evidence script.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
-- [ ] Implement and verify namespace/mount launcher and Debian chroot.
+- [ ] Verify the namespace/mount/PID-1 Debian chroot probe on the target.
+- [ ] Promote the proven setup into an idempotent long-lived Debian launcher.
 - [ ] Start systemd as namespace PID 1 and verify D-Bus/systemctl.
 - [ ] Cold-boot enabled Debian SSH before first unlock.
 
@@ -78,16 +87,19 @@ The host defaults to JDK 26, which is too new for this Android Gradle Plugin's
 lint runtime. Builds and lint therefore use the Gradle-managed Temurin JDK 21
 with Android Platform 34 and Build Tools 34.0.0. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `8D38AEDC49886852E61DA86A2D3ED7CACACCC400273BB2FF852DDD989B3A3BCC`.
+SHA-256 `87BB870E00A45479DBAEC35BB8B941064A20E984A14E158BDEE88F33547AB0DC`.
+Its embedded namespace helper is a 12,224-byte AArch64 PIE with SHA-256
+`BCEC89CB70EE9B3847260788E04548E497D830E8A56388B07C275606A7DC5EA8`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
-the device owner. Magisk root was subsequently proven entirely during BFU; the
-next physical-device action is running the new AFU rootfs installer and repeating
-the locked-boot rootfs accessibility probe.
+the device owner. Magisk root was subsequently proven entirely during BFU and the
+Debian 13 rootfs installation completed. The next physical-device action is a cold
+boot with this APK to collect fresh rootfs and namespace/chroot evidence while the
+user remains locked.
 
 The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-8D38AEDC49886852E61DA86A2D3ED7CACACCC400273BB2FF852DDD989B3A3BCC  termux-boot_0.8.1_bfu_debug.apk
+87BB870E00A45479DBAEC35BB8B941064A20E984A14E158BDEE88F33547AB0DC  termux-boot_0.8.1_bfu_debug.apk
 ```

@@ -74,10 +74,11 @@ The PoC creates:
 <DE filesDir>/bfu-root.log
 <DE filesDir>/bfu-root-authorization.log
 <DE filesDir>/bfu-rootfs.log
+<DE filesDir>/bfu-debian-runtime.log
 <DE filesDir>/debian-install.status
 <DE filesDir>/debian-install.log
 bfu/
-  bin/
+  bin/bfu-namespace-probe-arm64
   etc/
   home/
   run/
@@ -142,18 +143,25 @@ No Termux path is embedded in the resulting Debian filesystem.
 
 ## Debian launcher boundary
 
-The Android service will remain a small lifecycle controller. Mount, namespace,
-chroot, and systemd setup belongs in a separately testable root launcher with
-`start`, `stop`, `restart`, and `status` operations. The first rootfs candidate is
-`/data/local/debian`, but it is not accepted until a BFU root-access probe proves it
-is executable and writable on the target ROM. The launcher must never use Termux CE
-paths.
+The Android service remains a small lifecycle controller. Mount, namespace,
+chroot, and systemd setup belongs in a separately testable root launcher. The
+first implemented operation is a bounded `probe`: an ARM64 PIE copied from the
+APK into DE, SHA-256 checked both at build time and at provisioning time, then
+executed through the already-proven BFU `su`. It depends only on Android's
+`/system/bin/linker64`, `libc.so`, and `libdl.so`, not Termux CE tools.
 
-The launcher creates mount, PID, UTS, IPC, and cgroup namespaces but deliberately
-does not create a network namespace. It first makes `/` recursively private, then
-prepares private `/dev`, `/sys`, PID-namespace `/proc`, and tmpfs `/run` mounts
-before executing `env container=termux chroot "$ROOT" /sbin/init`. Full ordering,
-cgroup constraints, and milestone gates are in `debian-systemd.md`.
+The probe accepts only the exact, root-owned `/data/local/debian` path. It creates
+private mount, PID, UTS, IPC, and cgroup namespaces, recursively privatizes `/`,
+binds `/dev` and `/sys` as slave mounts, mounts PID-namespace `/proc` and private
+tmpfs `/run`, and executes Debian `/bin/sh` through `chroot`. Success requires the
+Debian shell to observe itself as PID 1 and `/proc/1/comm` as `sh`. The namespace
+and all temporary mounts disappear when the bounded probe exits.
+
+The later long-lived launcher will reuse the same setup but add identity-backed
+`start`, `stop`, `restart`, and `status` operations before executing
+`env container=termux-bfu chroot "$ROOT" /sbin/init`. Neither the probe nor the
+future launcher creates a network namespace. Full ordering, cgroup constraints,
+and milestone gates are in `debian-systemd.md`.
 
 ## Platform constraints
 
