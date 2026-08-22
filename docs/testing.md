@@ -260,8 +260,12 @@ for unlock, verifies unchanged Debian PID 1 across `USER_UNLOCKED`, proves exact
 one normal Termux handoff, and records Android boot ID, app PID/RSS, supervisor,
 and init host PID under ignored `test-results/`. Repeated boot IDs and a strictly
 monotonic PSS increase over 32 MiB fail the harness. Before cycle one, the harness
-pulls the installed Termux:Boot APK and requires it to match the frozen artifact;
-after every cycle it also hashes the provisioned DE helper.
+pulls the installed Termux and Termux:Boot APKs and requires each to match its
+local staged artifact byte for byte. It records those build-specific hashes in
+`artifacts.tsv`. Because D8 synthetic-lambda metadata can change a full debug APK
+hash across clean builds, the source does not treat one historical whole-APK hash
+as a release identity. The embedded and provisioned BFU helper remain pinned to a
+fixed SHA-256 and are checked separately, including after every cycle.
 
 After the cycles, the wrapper runs `test-systemd-shutdown-isolation.sh`. It checks
 native status, explicit restart/stop/start, then invokes Debian `systemctl

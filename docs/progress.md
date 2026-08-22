@@ -102,8 +102,9 @@
   fresh same-cycle evidence for every locked-boot gate.
 - [x] Prevent an AFU `BOOT_COMPLETED` service recreation from rerunning BFU probes
   and contaminating the locked-only evidence stream.
-- [x] Make the final harness reject a stale installed APK or provisioned native
-  helper before accepting any physical result.
+- [x] Make the final harness compare both installed APKs to the local staged pair,
+  record their build-specific hashes, and reject a stale embedded or provisioned
+  native helper before accepting any physical result.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Verify the namespace/mount/PID-1 Debian chroot probe on the target.
 - [x] Promote the setup into an idempotent long-lived Debian launcher.
@@ -117,10 +118,13 @@
 
 The host defaults to JDK 26, which is too new for this Android Gradle Plugin's
 runtime. Builds and lint therefore use the workspace Temurin JDK 17
-with Android Platform 34 and Build Tools 34.0.0. The generated debug APK is
-`termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD`.
-Its embedded lifecycle helper is a 44,632-byte AArch64 PIE with SHA-256
+with Android Platform 34 and Build Tools 34.0.0. The currently staged local test
+APK is `dist/termux-boot_0.8.1_bfu_debug.apk` with SHA-256
+`E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD`.
+Whole debug APK hashes are build-specific because clean D8 runs can vary
+synthetic-lambda metadata; the final harness therefore records the local hash and
+requires the installed APK to match it. The embedded lifecycle helper itself is
+a pinned 44,632-byte AArch64 PIE with SHA-256
 `DD5E7CB52AC785F4AA6D04694ED6D3DB762D93820E274DD18AB36AC1FB7C6231`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
