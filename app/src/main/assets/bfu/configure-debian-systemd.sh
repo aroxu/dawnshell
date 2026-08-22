@@ -241,6 +241,42 @@ for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
     }
 done
 
+install -d -m 0755 -o root -g root /usr/local/sbin
+cat > /usr/local/sbin/reboot <<'EOF_HOST_REBOOT'
+#!/bin/sh
+set -eu
+
+[ "$(id -u)" = 0 ] || {
+    echo "reboot: root privileges are required" >&2
+    exit 1
+}
+
+bridge=/run/termux-bfu-host-reboot
+if [ "${1-}" = "--check" ] && [ "$#" -eq 1 ]; then
+    [ -p "$bridge" ] || {
+        echo "reboot: Android host bridge is unavailable" >&2
+        exit 1
+    }
+    echo "Android host reboot bridge ready"
+    exit 0
+fi
+
+[ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ "$1" = now ]; } || {
+    echo "usage: reboot [now|--check]" >&2
+    exit 2
+}
+[ -p "$bridge" ] || {
+    echo "reboot: Android host bridge is unavailable" >&2
+    exit 1
+}
+printf 'ANDROID_REBOOT\n' > "$bridge"
+sleep 10
+echo "reboot: Android host did not reboot within 10 seconds" >&2
+exit 1
+EOF_HOST_REBOOT
+chmod 0755 /usr/local/sbin/reboot
+chown 0:0 /usr/local/sbin/reboot
+
 echo termux-bfu > /etc/hostname
 : > /etc/machine-id
 systemd-machine-id-setup
@@ -376,6 +412,7 @@ systemctl --root=/ --no-reload enable \
 systemctl --root=/ --no-reload set-default multi-user.target
 [ "$(systemctl --root=/ is-enabled ssh.service)" = enabled ]
 [ "$(systemctl --root=/ is-enabled termux-bfu-boot-proof.service)" = enabled ]
+[ -x /usr/local/sbin/reboot ]
 
 cat > "${READY_MARKER}.new" <<EOF_READY
 format=1
@@ -386,6 +423,7 @@ ssh_service=ssh.service
 boot_proof_service=termux-bfu-boot-proof.service
 ssh_user=debian
 ssh_port=22
+host_reboot_bridge=/usr/local/sbin/reboot
 configured_epoch=$(date +%s)
 EOF_READY
 chown 0:0 "${READY_MARKER}.new"

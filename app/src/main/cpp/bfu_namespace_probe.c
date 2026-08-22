@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/file.h>
 #include <sys/mount.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -29,11 +30,22 @@ static const char *const kReadyMarker = ".termux-bfu-systemd-ready";
 static const char *const kLockName = "debian-supervisor.lock";
 static const char *const kStateName = "debian-supervisor.state";
 static const char *const kLifecycleLogName = "debian-lifecycle.log";
+static const char *const kHostRebootFifoName = "host-reboot.fifo";
 static const char *const kCgroupMountName = "systemd-cgroup";
 static const char *const kCgroupChildName = "termux-bfu";
 static const int kStartTimeoutMs = 20000;
 static const int kStartGraceMs = 3000;
 static const int kStopTimeoutMs = 30000;
+static const char *const kHostVeth = "tbfu-host";
+static const char *const kGuestVeth = "tbfu-guest";
+static const char *const kHostAddress = "172.31.255.1/30";
+static const char *const kGuestAddress = "172.31.255.2/30";
+static const char *const kGuestGateway = "172.31.255.1";
+static const char *const kGuestNetwork = "172.31.255.0/30";
+static const char *const kGuestSshAddress = "172.31.255.2:22";
+static const char *const kNatChain = "TBFU_NAT";
+static const char *const kForwardChain = "TBFU_FWD";
+static const int kHostRulePriority = 8990;
 
 static volatile sig_atomic_t alarm_child_pid = -1;
 static volatile sig_atomic_t stop_requested = 0;
@@ -150,6 +162,88 @@ static int fail_message(const char *stage, const char *message_text, int code) {
     fputs(message, stderr);
     report_failure_text(message);
     return code;
+}
+
+static int run_argv(char *const argv[], bool quiet) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        if (quiet) {
+            int null_fd = open("/dev/null", O_RDWR | O_CLOEXEC);
+            if (null_fd >= 0) {
+                (void) dup2(null_fd, STDOUT_FILENO);
+                (void) dup2(null_fd, STDERR_FILENO);
+                if (null_fd > STDERR_FILENO) close(null_fd);
+            }
+        }
+        execv(argv[0], argv);
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return -1;
+    }
+    if (!WIFEXITED(status)) {
+        errno = EINTR;
+        return -1;
+    }
+    if (WEXITSTATUS(status) != 0) {
+        errno = EPROTO;
+        return -1;
+    }
+    return 0;
+}
+
+static int capture_argv(char *const argv[], char *output, size_t output_size) {
+    if (output_size < 2) {
+        errno = EINVAL;
+        return -1;
+    }
+    int descriptors[2];
+    if (pipe(descriptors) != 0) return -1;
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(descriptors[0]);
+        close(descriptors[1]);
+        return -1;
+    }
+    if (pid == 0) {
+        close(descriptors[0]);
+        (void) dup2(descriptors[1], STDOUT_FILENO);
+        int null_fd = open("/dev/null", O_WRONLY | O_CLOEXEC);
+        if (null_fd >= 0) {
+            (void) dup2(null_fd, STDERR_FILENO);
+            if (null_fd > STDERR_FILENO) close(null_fd);
+        }
+        if (descriptors[1] > STDERR_FILENO) close(descriptors[1]);
+        execv(argv[0], argv);
+        _exit(127);
+    }
+    close(descriptors[1]);
+    size_t offset = 0;
+    while (offset + 1 < output_size) {
+        ssize_t count = read(descriptors[0], output + offset,
+                             output_size - offset - 1);
+        if (count == 0) break;
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        offset += (size_t) count;
+    }
+    close(descriptors[0]);
+    output[offset] = '\0';
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return -1;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        errno = EPROTO;
+        return -1;
+    }
+    return 0;
 }
 
 static void alarm_handler(int signal_number) {
@@ -411,7 +505,7 @@ static int validate_init_namespace_topology(const LauncherState *state) {
             || state->init_uts_ns_ino == host_uts
             || state->init_ipc_ns_ino != host_ipc
             || state->init_cgroup_ns_ino == host_cgroup
-            || state->init_net_ns_ino != host_net) {
+            || state->init_net_ns_ino == host_net) {
         errno = EXDEV;
         return -1;
     }
@@ -840,7 +934,348 @@ static int prepare_child_mounts(const char *root, const char *control_dir,
     }
     dprintf(STDERR_FILENO, "[%lld] BFU_DEBIAN_STAGE private_run_mounted\n",
             (long long) realtime_seconds());
+    if (systemd_mode) {
+        char source[PATH_MAX];
+        char target[PATH_MAX];
+        struct stat fifo_stat;
+        if (joined_path(source, sizeof(source), control_dir,
+                        kHostRebootFifoName) != 0
+                || joined_path(target, sizeof(target), root,
+                               "run/termux-bfu-host-reboot") != 0) {
+            return fail_errno("host_reboot_fifo_path", 52);
+        }
+        if (lstat(source, &fifo_stat) != 0 || !S_ISFIFO(fifo_stat.st_mode)
+                || fifo_stat.st_uid != 0 || (fifo_stat.st_mode & 0777) != 0600) {
+            return fail_message("host_reboot_fifo_validate",
+                                "expected_root_owned_mode_0600_fifo", 52);
+        }
+        int target_fd = open(target, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+                             0600);
+        if (target_fd < 0) return fail_errno("host_reboot_target_create", 52);
+        close(target_fd);
+        if (mount(source, target, NULL, MS_BIND, NULL) != 0) {
+            return fail_errno("host_reboot_fifo_bind", 52);
+        }
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_STAGE host_reboot_bridge_mounted\n",
+                (long long) realtime_seconds());
+    }
     return 0;
+}
+
+static int prepare_host_reboot_fifo(const char *control_dir,
+                                    char *path, size_t path_size) {
+    if (joined_path(path, path_size, control_dir, kHostRebootFifoName) != 0) {
+        return -1;
+    }
+    if (unlink(path) != 0 && errno != ENOENT) return -1;
+    if (mkfifo(path, 0600) != 0) return -1;
+    if (chown(path, 0, 0) != 0 || chmod(path, 0600) != 0) {
+        int saved_errno = errno;
+        unlink(path);
+        errno = saved_errno;
+        return -1;
+    }
+    return 0;
+}
+
+static void delete_host_policy_rules(void) {
+    char priority[16];
+    snprintf(priority, sizeof(priority), "%d", kHostRulePriority);
+    for (int attempt = 0; attempt < 4; attempt++) {
+        char *const command[] = {"/system/bin/ip", "rule", "del", "pref",
+                                 priority, NULL};
+        if (run_argv(command, true) != 0) break;
+    }
+    char *const delete_main[] = {"/system/bin/ip", "rule", "del", "pref",
+                                 "8980", NULL};
+    (void) run_argv(delete_main, true);
+    char *const delete_guest[] = {"/system/bin/ip", "rule", "del", "pref",
+                                  "8970", NULL};
+    (void) run_argv(delete_guest, true);
+}
+
+static void cleanup_host_network(void) {
+    char *const output_dnat[] = {
+            "/system/bin/iptables", "-w", "2", "-t", "nat", "-D", "OUTPUT",
+            "-d", "127.0.0.1/32", "-p", "tcp", "--dport", "22", "-j",
+            "DNAT", "--to-destination", (char *) kGuestSshAddress, NULL};
+    char *const prerouting_dnat[] = {
+            "/system/bin/iptables", "-w", "2", "-t", "nat", "-D",
+            "PREROUTING", "!", "-i", (char *) kHostVeth, "-p", "tcp",
+            "--dport", "22", "-j", "DNAT", "--to-destination",
+            (char *) kGuestSshAddress, NULL};
+    char *const nat_jump[] = {
+            "/system/bin/iptables", "-w", "2", "-t", "nat", "-D",
+            "POSTROUTING", "-s", (char *) kGuestNetwork, "-j",
+            (char *) kNatChain, NULL};
+    char *const nat_flush[] = {"/system/bin/iptables", "-w", "2", "-t", "nat",
+                               "-F", (char *) kNatChain, NULL};
+    char *const nat_delete[] = {"/system/bin/iptables", "-w", "2", "-t", "nat",
+                                "-X", (char *) kNatChain, NULL};
+    char *const forward_jump[] = {"/system/bin/iptables", "-w", "2", "-D",
+                                  "FORWARD", "-j", (char *) kForwardChain, NULL};
+    char *const forward_flush[] = {"/system/bin/iptables", "-w", "2", "-F",
+                                   (char *) kForwardChain, NULL};
+    char *const forward_delete[] = {"/system/bin/iptables", "-w", "2", "-X",
+                                    (char *) kForwardChain, NULL};
+    (void) run_argv(output_dnat, true);
+    (void) run_argv(prerouting_dnat, true);
+    (void) run_argv(nat_jump, true);
+    (void) run_argv(nat_flush, true);
+    (void) run_argv(nat_delete, true);
+    (void) run_argv(forward_jump, true);
+    (void) run_argv(forward_flush, true);
+    (void) run_argv(forward_delete, true);
+    delete_host_policy_rules();
+    char *const delete_veth[] = {"/system/bin/ip", "link", "delete",
+                                 (char *) kHostVeth, NULL};
+    (void) run_argv(delete_veth, true);
+}
+
+static int install_host_firewall(void) {
+    char *const commands[][24] = {
+        {"/system/bin/iptables", "-w", "2", "-t", "nat", "-N",
+         (char *) kNatChain, NULL},
+        {"/system/bin/iptables", "-w", "2", "-t", "nat", "-A",
+         (char *) kNatChain, "-s", (char *) kGuestNetwork, "-j", "MASQUERADE", NULL},
+        {"/system/bin/iptables", "-w", "2", "-t", "nat", "-I",
+         "POSTROUTING", "1", "-s", (char *) kGuestNetwork, "-j",
+         (char *) kNatChain, NULL},
+        {"/system/bin/iptables", "-w", "2", "-t", "nat", "-I",
+         "PREROUTING", "1", "!", "-i", (char *) kHostVeth, "-p", "tcp",
+         "--dport", "22", "-j", "DNAT", "--to-destination",
+         (char *) kGuestSshAddress, NULL},
+        {"/system/bin/iptables", "-w", "2", "-t", "nat", "-I", "OUTPUT",
+         "1", "-d", "127.0.0.1/32", "-p", "tcp", "--dport", "22", "-j",
+         "DNAT", "--to-destination", (char *) kGuestSshAddress, NULL},
+        {"/system/bin/iptables", "-w", "2", "-N", (char *) kForwardChain, NULL},
+        {"/system/bin/iptables", "-w", "2", "-A", (char *) kForwardChain,
+         "-i", (char *) kHostVeth, "-j", "ACCEPT", NULL},
+        {"/system/bin/iptables", "-w", "2", "-A", (char *) kForwardChain,
+         "-o", (char *) kHostVeth, "-m", "conntrack", "--ctstate",
+         "RELATED,ESTABLISHED", "-j", "ACCEPT", NULL},
+        {"/system/bin/iptables", "-w", "2", "-A", (char *) kForwardChain,
+         "-o", (char *) kHostVeth, "-d", "172.31.255.2/32", "-p", "tcp",
+         "--dport", "22", "-j", "ACCEPT", NULL},
+        {"/system/bin/iptables", "-w", "2", "-I", "FORWARD", "1", "-j",
+         (char *) kForwardChain, NULL}
+    };
+    const size_t count = sizeof(commands) / sizeof(commands[0]);
+    for (size_t index = 0; index < count; index++) {
+        if (run_argv(commands[index], false) != 0) return -1;
+    }
+    return 0;
+}
+
+static int reconcile_host_route(char *active_table, size_t active_table_size) {
+    char output[1024];
+    char *const get_route[] = {"/system/bin/ip", "-4", "route", "get",
+                               "1.1.1.1", NULL};
+    if (capture_argv(get_route, output, sizeof(output)) != 0) return -1;
+    char table[64] = {0};
+    char *save = NULL;
+    for (char *token = strtok_r(output, " \t\r\n", &save); token != NULL;
+         token = strtok_r(NULL, " \t\r\n", &save)) {
+        if (strcmp(token, "table") != 0) continue;
+        token = strtok_r(NULL, " \t\r\n", &save);
+        if (token != NULL) snprintf(table, sizeof(table), "%s", token);
+        break;
+    }
+    if (table[0] == '\0') {
+        errno = ENETUNREACH;
+        return -1;
+    }
+    if (strcmp(table, active_table) == 0) return 0;
+    char priority[16];
+    snprintf(priority, sizeof(priority), "%d", kHostRulePriority);
+    char *const delete_active[] = {"/system/bin/ip", "rule", "del", "pref",
+                                   priority, NULL};
+    (void) run_argv(delete_active, true);
+    char *const add_active[] = {"/system/bin/ip", "rule", "add", "pref", priority,
+                                "iif", (char *) kHostVeth, "lookup", table, NULL};
+    if (run_argv(add_active, false) != 0) return -1;
+    snprintf(active_table, active_table_size, "%s", table);
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_NETWORK active_android_table=%s\n",
+            (long long) realtime_seconds(), table);
+    return 0;
+}
+
+static int configure_host_veth(pid_t target_pid, bool *forwarding_changed) {
+    cleanup_host_network();
+    char target[24];
+    snprintf(target, sizeof(target), "%d", target_pid);
+    char *const add_veth[] = {"/system/bin/ip", "link", "add",
+                              (char *) kHostVeth, "type", "veth", "peer", "name",
+                              (char *) kGuestVeth, NULL};
+    char *const move_guest[] = {"/system/bin/ip", "link", "set",
+                                (char *) kGuestVeth, "netns", target, NULL};
+    char *const add_address[] = {"/system/bin/ip", "address", "add",
+                                 (char *) kHostAddress, "dev", (char *) kHostVeth,
+                                 NULL};
+    char *const link_up[] = {"/system/bin/ip", "link", "set",
+                             (char *) kHostVeth, "up", NULL};
+    if (run_argv(add_veth, false) != 0
+            || run_argv(move_guest, false) != 0
+            || run_argv(add_address, false) != 0
+            || run_argv(link_up, false) != 0) return -1;
+    char *const add_main[] = {"/system/bin/ip", "rule", "add", "pref", "8980",
+                              "iif", (char *) kHostVeth, "lookup", "main", NULL};
+    char *const add_guest[] = {"/system/bin/ip", "rule", "add", "pref", "8970",
+                               "to", (char *) kGuestNetwork, "lookup", "main", NULL};
+    if (run_argv(add_guest, false) != 0
+            || run_argv(add_main, false) != 0) return -1;
+
+    char forwarding = '0';
+    int fd = open("/proc/sys/net/ipv4/ip_forward", O_RDWR | O_CLOEXEC);
+    if (fd < 0 || read(fd, &forwarding, 1) != 1) {
+        if (fd >= 0) close(fd);
+        return -1;
+    }
+    if (forwarding != '1') {
+        if (lseek(fd, 0, SEEK_SET) < 0 || write(fd, "1\n", 2) != 2) {
+            close(fd);
+            return -1;
+        }
+        *forwarding_changed = true;
+    }
+    close(fd);
+    return install_host_firewall();
+}
+
+static void network_manager_loop(pid_t supervisor_pid, int ready_fd,
+                                 const char *host_reboot_fifo) {
+    (void) prctl(PR_SET_PDEATHSIG, SIGTERM);
+    if (getppid() != supervisor_pid) _exit(1);
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = stop_handler;
+    sigemptyset(&action.sa_mask);
+    (void) sigaction(SIGTERM, &action, NULL);
+    (void) sigaction(SIGINT, &action, NULL);
+
+    uint64_t host_net = 0;
+    uint64_t target_net = 0;
+    bool namespace_ready = false;
+    for (int attempt = 0; attempt < 100 && !stop_requested; attempt++) {
+        if (read_proc_namespace_inode(1, "net", &host_net) == 0
+                && read_proc_namespace_inode(supervisor_pid, "net", &target_net) == 0
+                && target_net != host_net) {
+            namespace_ready = true;
+            break;
+        }
+        usleep(100000);
+    }
+    bool forwarding_changed = false;
+    char result = namespace_ready
+            && configure_host_veth(supervisor_pid, &forwarding_changed) == 0 ? '1' : '0';
+    (void) write(ready_fd, &result, 1);
+    close(ready_fd);
+    if (result != '1') {
+        cleanup_host_network();
+        unlink(host_reboot_fifo);
+        _exit(1);
+    }
+
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE private_network_veth_ready subnet=%s\n",
+            (long long) realtime_seconds(), kGuestNetwork);
+    int reboot_fd = open(host_reboot_fifo, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    if (reboot_fd < 0) {
+        cleanup_host_network();
+        unlink(host_reboot_fifo);
+        _exit(1);
+    }
+    char active_table[64] = {0};
+    while (!stop_requested && kill(supervisor_pid, 0) == 0) {
+        (void) reconcile_host_route(active_table, sizeof(active_table));
+        for (int tick = 0; tick < 20 && !stop_requested; tick++) {
+            char request[64];
+            ssize_t count = read(reboot_fd, request, sizeof(request) - 1);
+            if (count > 0) {
+                request[count] = '\0';
+                if (strcmp(request, "ANDROID_REBOOT\n") == 0) {
+                    dprintf(STDERR_FILENO,
+                            "[%lld] BFU_DEBIAN_HOST_REBOOT_REQUEST accepted=true\n",
+                            (long long) realtime_seconds());
+                    char *const command[] = {"/system/bin/reboot", NULL};
+                    if (run_argv(command, false) != 0) {
+                        dprintf(STDERR_FILENO,
+                                "[%lld] BFU_DEBIAN_HOST_REBOOT_FAILED errno=%d\n",
+                                (long long) realtime_seconds(), errno);
+                    }
+                }
+            }
+            usleep(100000);
+        }
+    }
+    close(reboot_fd);
+    cleanup_host_network();
+    unlink(host_reboot_fifo);
+    if (forwarding_changed) {
+        int fd = open("/proc/sys/net/ipv4/ip_forward", O_WRONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            (void) write(fd, "0\n", 2);
+            close(fd);
+        }
+    }
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE private_network_cleaned\n",
+            (long long) realtime_seconds());
+    _exit(0);
+}
+
+static int start_network_manager(pid_t supervisor_pid, int inherited_lock_fd,
+                                 int inherited_app_ready_fd,
+                                 const char *host_reboot_fifo,
+                                 pid_t *manager_pid, int *ready_fd) {
+    int descriptors[2];
+    if (pipe(descriptors) != 0) return -1;
+    pid_t child = fork();
+    if (child < 0) {
+        close(descriptors[0]);
+        close(descriptors[1]);
+        return -1;
+    }
+    if (child == 0) {
+        close(descriptors[0]);
+        close(inherited_lock_fd);
+        close(inherited_app_ready_fd);
+        network_manager_loop(supervisor_pid, descriptors[1], host_reboot_fifo);
+    }
+    close(descriptors[1]);
+    *manager_pid = child;
+    *ready_fd = descriptors[0];
+    return 0;
+}
+
+static int configure_private_network(int manager_ready_fd) {
+    struct pollfd descriptor = {.fd = manager_ready_fd, .events = POLLIN | POLLHUP};
+    int result;
+    do {
+        result = poll(&descriptor, 1, 15000);
+    } while (result < 0 && errno == EINTR);
+    char ready = '0';
+    if (result <= 0 || read(manager_ready_fd, &ready, 1) != 1 || ready != '1') {
+        close(manager_ready_fd);
+        errno = result == 0 ? ETIMEDOUT : EPROTO;
+        return -1;
+    }
+    close(manager_ready_fd);
+    char *const loopback_up[] = {"/system/bin/ip", "link", "set", "lo", "up", NULL};
+    char *const add_address[] = {"/system/bin/ip", "address", "add",
+                                 (char *) kGuestAddress, "dev", (char *) kGuestVeth,
+                                 NULL};
+    char *const guest_up[] = {"/system/bin/ip", "link", "set",
+                              (char *) kGuestVeth, "up", NULL};
+    char *const default_route[] = {"/system/bin/ip", "route", "replace", "default",
+                                   "via", (char *) kGuestGateway, "dev",
+                                   (char *) kGuestVeth, NULL};
+    return run_argv(loopback_up, false) == 0
+            && run_argv(add_address, false) == 0
+            && run_argv(guest_up, false) == 0
+            && run_argv(default_route, false) == 0 ? 0 : -1;
 }
 
 static int set_base_private_namespaces(void) {
@@ -854,11 +1289,15 @@ static int set_base_private_namespaces(void) {
     if (unshare(CLONE_NEWUTS) != 0) return fail_errno("unshare_uts", 55);
     dprintf(STDERR_FILENO, "[%lld] BFU_DEBIAN_STAGE uts_namespace_private\n",
             (long long) realtime_seconds());
+    if (unshare(CLONE_NEWNET) != 0) return fail_errno("unshare_network", 56);
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE network_namespace_private\n",
+            (long long) realtime_seconds());
     /* Samsung's 4.4 target kernel dereferences a stale mqueue mount pointer in
        copy_ipcs()->mq_init_ns()->mqueue_mount() when CLONE_NEWIPC is requested.
        The fault panics Android before userspace can handle an errno. IPC is
-       therefore deliberately shared, just like networking; mount/PID/UTS and
-       cgroup isolation remain mandatory. */
+       therefore deliberately shared; mount/PID/UTS/cgroup/network isolation
+       remain mandatory. */
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_STAGE ipc_namespace_android_shared "
             "legacy_kernel_compat=true\n",
@@ -874,9 +1313,13 @@ static int set_private_namespaces(void) {
     return 0;
 }
 
-static int set_systemd_parent_namespaces(const char *control_dir) {
+static int set_systemd_parent_namespaces(const char *control_dir,
+                                         int network_ready_fd) {
     int result = set_base_private_namespaces();
     if (result != 0) return result;
+    if (configure_private_network(network_ready_fd) != 0) {
+        return fail_errno("configure_private_network", 56);
+    }
     result = prepare_systemd_cgroup_mount(control_dir);
     if (result != 0) return result;
     if (unshare(CLONE_NEWPID) != 0) return fail_errno("unshare_pid", 58);
@@ -1158,7 +1601,27 @@ static int supervisor_loop(const char *root, const char *control_dir,
         return 77;
     }
 
-    int result = set_systemd_parent_namespaces(control_dir);
+    pid_t network_manager_pid = -1;
+    int network_ready_fd = -1;
+    char host_reboot_fifo[PATH_MAX];
+    if (prepare_host_reboot_fifo(control_dir, host_reboot_fifo,
+                                 sizeof(host_reboot_fifo)) != 0) {
+        dprintf(ready_fd,
+                "BFU_DEBIAN_START_FAILED stage=host_reboot_fifo errno=%d\n",
+                errno);
+        return 78;
+    }
+    if (start_network_manager(getpid(), lock_fd, ready_fd,
+                              host_reboot_fifo,
+                              &network_manager_pid, &network_ready_fd) != 0) {
+        unlink(host_reboot_fifo);
+        dprintf(ready_fd,
+                "BFU_DEBIAN_START_FAILED stage=network_manager_start errno=%d\n",
+                errno);
+        return 78;
+    }
+
+    int result = set_systemd_parent_namespaces(control_dir, network_ready_fd);
     if (result != 0) {
         dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=namespace_setup exit=%d\n",
                 result);
@@ -1250,7 +1713,7 @@ static int supervisor_loop(const char *root, const char *control_dir,
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_SYSTEMD_STARTED supervisor_pid=%d init_host_pid=%d "
             "namespaces=pid:%llu,mnt:%llu,uts:%llu,ipc:%llu,cgroup:%llu,net:%llu "
-            "ipc_namespace=android-shared network_namespace=android-shared\n",
+            "ipc_namespace=android-shared network_namespace=private-veth\n",
             (long long) realtime_seconds(), getpid(), init_pid,
             (unsigned long long) state.init_pid_ns_ino,
             (unsigned long long) state.init_mnt_ns_ino,
@@ -1303,6 +1766,10 @@ static int supervisor_loop(const char *root, const char *control_dir,
         usleep(200000);
     }
 
+    if (network_manager_pid > 0) {
+        (void) kill(network_manager_pid, SIGTERM);
+        while (waitpid(network_manager_pid, NULL, 0) < 0 && errno == EINTR) {}
+    }
     snprintf(state.state, sizeof(state.state), "stopped");
     state.wait_status = wait_status;
     (void) write_state(control_dir, &state);
@@ -1381,7 +1848,7 @@ static int run_status(const char *root, const char *control_dir) {
     printf("BFU_DEBIAN_%s state=%s supervisor_pid=%d init_host_pid=%d "
            "supervisor_identity_valid=%s init_identity_valid=%s "
            "namespace_topology_valid=%s ipc_namespace=android-shared "
-           "network_namespace=android-shared "
+           "network_namespace=private-veth "
            "pid_ns=%llu mnt_ns=%llu uts_ns=%llu ipc_ns=%llu cgroup_ns=%llu "
            "net_ns=%llu updated_epoch=%lld\n",
            supervisor_valid && (topology_valid || strcmp(state.state, "starting") == 0)
@@ -1553,13 +2020,33 @@ static int run_in_debian_namespaces(const char *root, const char *control_dir,
         close(lock_fd);
         return fail_errno("namespace_command_open_pid", 102);
     }
+    count = snprintf(namespace_path, sizeof(namespace_path), "/proc/%d/ns/net",
+                     state.init_host_pid);
+    if (count < 0 || (size_t) count >= sizeof(namespace_path)) {
+        close(pid_namespace_fd);
+        close(mount_namespace_fd);
+        close(lock_fd);
+        errno = ENAMETOOLONG;
+        return fail_errno("namespace_command_net_path", 102);
+    }
+    int net_namespace_fd = open(namespace_path, O_RDONLY | O_CLOEXEC);
+    if (net_namespace_fd < 0) {
+        close(pid_namespace_fd);
+        close(mount_namespace_fd);
+        close(lock_fd);
+        return fail_errno("namespace_command_open_net", 102);
+    }
     struct stat mount_namespace_stat;
     struct stat pid_namespace_stat;
+    struct stat net_namespace_stat;
     if (fstat(mount_namespace_fd, &mount_namespace_stat) != 0
             || fstat(pid_namespace_fd, &pid_namespace_stat) != 0
+            || fstat(net_namespace_fd, &net_namespace_stat) != 0
             || (uint64_t) mount_namespace_stat.st_ino != state.init_mnt_ns_ino
             || (uint64_t) pid_namespace_stat.st_ino != state.init_pid_ns_ino
+            || (uint64_t) net_namespace_stat.st_ino != state.init_net_ns_ino
             || !validate_init_identity(&state)) {
+        close(net_namespace_fd);
         close(pid_namespace_fd);
         close(mount_namespace_fd);
         close(lock_fd);
@@ -1567,6 +2054,13 @@ static int run_in_debian_namespaces(const char *root, const char *control_dir,
                             "init_identity_changed_before_setns", 102);
     }
     close(lock_fd);
+    if (setns(net_namespace_fd, CLONE_NEWNET) != 0) {
+        close(net_namespace_fd);
+        close(pid_namespace_fd);
+        close(mount_namespace_fd);
+        return fail_errno("namespace_command_setns_net", 102);
+    }
+    close(net_namespace_fd);
     if (setns(pid_namespace_fd, CLONE_NEWPID) != 0) {
         close(pid_namespace_fd);
         close(mount_namespace_fd);

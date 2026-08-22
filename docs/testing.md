@@ -195,8 +195,8 @@ user_unlocked_after=false
 output=BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=arm64 debian=13
 ```
 
-The helper uses no Termux CE executable. It creates mount/PID/UTS/cgroup
-namespaces but no IPC or network namespace, makes `/` recursively private, mounts private
+The helper uses no Termux CE executable. It creates mount/PID/UTS/cgroup/network
+namespaces but no IPC namespace, makes `/` recursively private, mounts private
 `/proc` and `/run`, enters the verified rootfs, and exits. A failure includes an
 exact `stage=` such as `unshare_cgroup`, `proc_mount`, `chroot`, or
 `exec_debian_shell`; preserve that line before changing code or device policy.
@@ -216,7 +216,10 @@ once for AFU validation.
 
 Press **Refresh Debian systemd status**. A successful launcher status contains
 `BFU_DEBIAN_RUNNING`, identity-valid supervisor/init, valid namespace topology,
-and a native health line proving D-Bus, `ssh.service`, and TCP 22.
+`network_namespace=private-veth`, and a native health line proving D-Bus,
+`ssh.service`, and TCP 22. Host inspection must show `tbfu-host`, destination-only
+and veth-ingress policy rules, and dedicated `TBFU_NAT`/`TBFU_FWD` chains. After
+an explicit stop all of those objects must be absent and `ip_forward` restored.
 Then confirm from another computer:
 
 ```sh
@@ -264,6 +267,23 @@ Stages such as `cgroup_v1_name_systemd_mount`, `cgroup_move_pid1`,
 `cgroup_view_bind`, `exec_systemd`, or `systemd_early_exit` identify the exact
 gate. Debian 13's systemd 257 requires the explicit cgroup-v1 legacy-force path;
 never repair a failure by remounting or delegating Android's host controller tree.
+
+For network-mode validation, start with no uplink and confirm systemd/sshd stay
+running with `tbfu-guest` up. Enable Wi-Fi and require outbound IPv4 plus SSH to
+the phone address without restarting Debian. If USB Ethernet is available,
+hot-plug it, confirm Android assigned the interface and route, then repeat SSH
+from its local subnet and outbound connectivity. The lifecycle log must record a
+new `active_android_table=` when Android changes its selected default table.
+Kernel-mode Tailscale validation requires `tailscale0` inside Debian's netns and
+successful IPv4 control-plane access; an unavailable IPv6 uplink may still log
+IPv6 fallback failures.
+
+After reconfiguration, `su root -c '/usr/local/sbin/reboot --check'` must print
+`Android host reboot bridge ready`, while the same command as `debian` must fail.
+Do not execute `reboot now` during non-destructive validation: it intentionally
+reboots the entire Android device. Existing `shutdown-test` coverage continues
+to use `systemctl`/`shutdown` paths and proves those namespace-isolated paths do
+not reboot Android.
 
 ## First unlock continuity
 

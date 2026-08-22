@@ -117,7 +117,12 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 - [x] Add a fail-closed shared-UID BFU CE sentinel probe that distinguishes an
   enumerable empty mount stub from readable normal Termux CE contents.
 - [x] Record PID/mount/UTS/cgroup/IPC/network namespace identities and require
-  private requested namespaces plus unchanged Android IPC and network namespaces.
+  private requested namespaces plus unchanged Android IPC only.
+- [x] Add a private network namespace with managed veth/NAT, delayed active-route
+  reconciliation, connected-route preference for USB Ethernet/Wi-Fi LAN clients,
+  TCP 22 forwarding, and bounded host rule/firewall cleanup.
+- [x] Add a root-only fixed-token FIFO bridge for `reboot now` to intentionally
+  reboot Android while preserving `systemctl reboot` isolation tests.
 - [x] Add bounded native health checks for systemd PID 1, D-Bus, default target,
   an independent enabled-unit proof, `ssh.service`, and TCP 22, with locked-state
   evidence persisted in DE.

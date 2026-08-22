@@ -57,8 +57,9 @@ LOCKED_BOOT_COMPLETED
   -> app-owned CE-isolation sentinel check
   -> pre-authorized Magisk root probe
   -> /data/local/debian rootfs gate
-  -> private mount/PID/UTS/cgroup namespaces
-     (Android IPC and network namespaces retained for Samsung Linux 4.4)
+  -> private mount/PID/UTS/cgroup/network namespaces
+     (Android IPC retained for Samsung Linux 4.4 compatibility)
+  -> managed veth + NAT to Android's current active network
   -> Debian 13 systemd as namespace PID 1
   -> D-Bus + ssh.service + boot-proof service
 
@@ -70,7 +71,7 @@ USER_UNLOCKED
 The launcher provides rootfs installation, system configuration, lifecycle
 controls, local password controls, selectable live logs, an app-generated Ed25519
 client identity, private-key export/import helpers, a copyable localhost SSH
-command, and a two-stage destructive control for permanently deleting exactly
+command, a root-only `reboot now` bridge that reboots Android, and a two-stage destructive control for permanently deleting exactly
 `/data/local/debian` after stopping and verifying the supervisor. The client
 private key is kept in this app's CE storage; only its public key enters DE and
 Debian.
@@ -137,6 +138,10 @@ It verifies BFU SSH/systemd health, unlock continuity, one systemd instance,
 provisioned-helper equality with the staged APK, process memory evidence, and
 poweroff/reboot/shutdown namespace isolation. It does not test normal
 Termux:Boot handoff because that belongs to the separate `com.termux.boot` app.
+
+The network manager follows the table selected by Android, so Wi-Fi, mobile data,
+and USB Ethernet can be hot-plugged without restarting Debian. Android/ROM support
+must still bring the physical interface up and obtain its address during BFU.
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
 [testing](docs/testing.md), [rootfs installation](docs/rootfs-installation.md),

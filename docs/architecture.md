@@ -35,7 +35,8 @@ LOCKED_BOOT_COMPLETED
   -> pre-authorized su
   -> root launcher
   -> Debian rootfs outside CE
-  -> mount/PID/UTS/cgroup namespaces (IPC and network namespaces shared)
+  -> mount/PID/UTS/cgroup/network namespaces (IPC namespace shared)
+  -> veth/NAT bridge to Android's current active route table
   -> chroot -> /sbin/init
   -> systemd is PID 1 inside the Debian PID namespace
 
@@ -190,7 +191,7 @@ executed through the already-proven BFU `su`. It depends only on Android's
 `/system/bin/linker64`, `libc.so`, and `libdl.so`, not Termux CE tools.
 
 The probe accepts only the exact, root-owned `/data/local/debian` path. It creates
-private mount, PID, UTS, and cgroup namespaces, recursively privatizes `/`,
+private mount, PID, UTS, cgroup, and network namespaces, recursively privatizes `/`,
 binds `/dev` and `/sys` as slave mounts, mounts PID-namespace `/proc` and private
 tmpfs `/run`, and executes Debian `/bin/sh` through `chroot`. Success requires the
 Debian shell to observe itself as PID 1 and `/proc/1/comm` as `sh`. The namespace
@@ -205,7 +206,16 @@ exclusive lock for the supervisor lifetime, records both process start ticks and
 executable device/inode identity plus PID/mount/UTS/cgroup/IPC/network namespace
 inodes, rejects verified orphan PID 1 instances, and waits for `/sbin/init` to
 survive an initial grace period. The expected topology requires every requested
-namespace to differ from Android PID 1 while IPC and network must match.
+namespace to differ from Android PID 1 while IPC alone must match. A host-side
+manager owns a veth pair, narrow policy rules, NAT/forward chains, and TCP 22
+DNAT. It polls Android's selected route table, preferring `main` connected routes
+so Wi-Fi, mobile, and USB Ethernet can hot-plug without restarting Debian. If no
+default network exists yet, the veth remains up and routing is reconciled later.
+The host-side manager also owns a root-only mode-0600 FIFO bind-mounted at
+`/run/termux-bfu-host-reboot`. Debian's `/usr/local/sbin/reboot` accepts only no
+argument, `now`, or the non-mutating `--check`; a valid reboot request is executed
+by the manager while it remains in Android's host PID namespace. Direct
+`systemctl reboot` remains PID-namespace isolated.
 Stop signals only an identity-verified supervisor; the supervisor asks systemd
 to stop units and exit PID 1 through the container-specific `systemctl exit`
 operation. A bounded fallback and final forced cleanup remain for a broken
@@ -215,7 +225,7 @@ Android's kernel halt path.
 The rootfs is first bind-mounted onto itself and made private, so systemd shutdown
 can remount or detach its own chroot root without changing Android's `/data`
 mount. `/sys` and `/proc/sys` are read-only in the Debian view. Health opens the
-already-verified PID and mount namespace descriptors, revalidates identities to
+already-verified PID, mount, and network namespace descriptors, revalidates identities to
 close PID-reuse races, joins them, forks a child in the Debian PID namespace, and
 checks PID 1, D-Bus service/bus access, the default target, `ssh.service`, and a
 TCP 22 listener. It also requires the independent boot-proof service to be active
@@ -236,7 +246,7 @@ future Debian PID 1 into it, enters a cgroup namespace rooted there, and bind
 mounts only that view at Debian `/sys/fs/cgroup/systemd`. Android controller
 mounts are hidden from systemd rather than delegated. A process-local
 `SYSTEMD_PROC_CMDLINE` enables systemd 257's explicit legacy-force path without
-changing Android `/proc/cmdline`. No operation creates a network namespace.
+changing Android `/proc/cmdline`.
 
 ## Platform constraints
 

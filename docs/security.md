@@ -17,9 +17,10 @@
    and Debian.
 5. Root is required for the Debian launcher but is never assumed: each boot must
    prove `su -c id` returned `uid=0`, and failure cannot crash the BFU controller.
-6. The Debian launcher does not create a network namespace or expose Android's
-   controller mounts to systemd. Its named tracking cgroup and every bind mount
-   are visible only through the private mount/cgroup namespace view.
+6. The Debian launcher creates a private network namespace and exposes only its
+   managed veth uplink, not Android interfaces or Android's controller mounts, to
+   systemd. Its named tracking cgroup and every bind mount are visible only
+   through the private mount/cgroup namespace view.
 7. The locked-boot standalone app process must prove that its provisioned CE sentinel
    content is unreadable before the rootfs/namespace launcher runs. The fixed
    sentinel path and verdict may be logged, but no user filename or content is.
@@ -70,10 +71,18 @@ of the Android app process. The chroot root is a separate private bind mount.
 That private mount clears Android `/data`'s `nosuid` flag so Debian `su` can use
 its normal setuid binary, while retaining `nodev`; the host `/data` mount is never
 remounted. Consequently, a Debian root shell has device-level root authority and
-is not a container security boundary. `/sys` and `/proc/sys` are read-only, and
-neither mode creates a network namespace.
-The state file records all requested namespace inodes and requires the Debian net
-namespace to equal Android's while the others differ.
+is not a container security boundary. `/sys` and `/proc/sys` are read-only. The
+state file records all requested namespace inodes and requires the Debian network
+namespace to differ from Android's while IPC remains shared. Host policy rules
+are limited to the BFU veth and /30 destination; dedicated iptables chains and
+`ip_forward` are removed or restored when the identity-verified supervisor exits.
+
+The host reboot bridge is intentionally privileged. Its source FIFO is a fixed
+file under the private DE control directory, owned by root with mode 0600, and is
+bind-mounted only into the private Debian `/run`. The wrapper rejects non-root
+callers and all arguments except no argument, `now`, and non-mutating `--check`.
+The host manager accepts only the literal `ANDROID_REBOOT` token. A successful
+request reboots the entire Android device and is not namespace-isolated.
 
 Health and shutdown-test operations enter only namespace descriptors belonging to
 the identity-verified live PID 1. Health runs a fixed, bounded set of local
@@ -153,12 +162,18 @@ and must be handled as credentials. Rotation destroys the app's previous identit
 updates DE public-key state, and requires Debian system reconfiguration before the
 new key replaces the installed `authorized_keys`.
 
+Tailscale may run in kernel TUN mode inside the private network namespace. Never
+store a reusable enrollment auth key in DE or the BFU rootfs. Interactive login
+is preferred. Once enrolled, `/var/lib/tailscale/tailscaled.state` is necessarily
+available during BFU and must be treated as a device credential with weaker
+at-rest protection than CE data.
+
 The target's IPC namespace is a documented compatibility exception, not a
 container-security boundary. A captured kernel panic proves that Samsung's
 4.4.302 kernel faults while creating a new IPC namespace, so the launcher never
 requests `CLONE_NEWIPC`; its build rejects any reintroduction of that call. The
-launcher still requires private mount/PID/UTS/cgroup namespaces and a shared
-network namespace. Only the dedicated public-key-authenticated emergency account
+launcher still requires private mount/PID/UTS/cgroup/network namespaces and
+shared IPC. Only the dedicated public-key-authenticated emergency account
 and reviewed BFU services should run in this environment. A kernel with a fixed
 IPC namespace implementation is required before claiming IPC isolation.
 

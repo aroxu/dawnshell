@@ -117,7 +117,7 @@ grep -Fq 'supervisor_identity_valid=true' <<<"$status_output"
 grep -Fq 'init_identity_valid=true' <<<"$status_output"
 grep -Fq 'namespace_topology_valid=true' <<<"$status_output"
 grep -Fq 'ipc_namespace=android-shared' <<<"$status_output"
-grep -Fq 'network_namespace=android-shared' <<<"$status_output"
+grep -Fq 'network_namespace=private-veth' <<<"$status_output"
 
 echo "Testing explicit restart-debian helper..."
 restart_output="$(timeout 80 adb shell su -c \
