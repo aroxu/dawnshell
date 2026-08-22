@@ -95,6 +95,8 @@
 - [x] Add bounded native health checks for systemd PID 1, D-Bus, default target,
   an independent enabled-unit proof, `ssh.service`, and TCP 22, with locked-state
   evidence persisted in DE.
+- [x] Require `multi-user.target` itself to be active instead of treating its
+  configured default-target name as proof that the boot target was reached.
 - [x] Add explicit restart control, a private rootfs bind mount, read-only `/sys`,
   and boot-ID-scoped normal Termux handoff deduplication.
 - [x] Add restricted Debian poweroff/reboot/shutdown isolation tests and a
@@ -120,12 +122,12 @@ The host defaults to JDK 26, which is too new for this Android Gradle Plugin's
 runtime. Builds and lint therefore use the workspace Temurin JDK 17
 with Android Platform 34 and Build Tools 34.0.0. The currently staged local test
 APK is `dist/termux-boot_0.8.1_bfu_debug.apk` with SHA-256
-`E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD`.
+`CB10E33BCCA5EB133B622B75C44BF8D21F2B96D95FA2D1DDC2A69E5D216176B0`.
 Whole debug APK hashes are build-specific because clean D8 runs can vary
 synthetic-lambda metadata; the final harness therefore records the local hash and
 requires the installed APK to match it. The embedded lifecycle helper itself is
-a pinned 44,632-byte AArch64 PIE with SHA-256
-`DD5E7CB52AC785F4AA6D04694ED6D3DB762D93820E274DD18AB36AC1FB7C6231`.
+a pinned 44,808-byte AArch64 PIE with SHA-256
+`CED51F99926FB59C1D0D56D6166A792681EDED9354A4EE793A2F070564A17745`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. Magisk root was subsequently proven entirely during BFU and the
@@ -137,5 +139,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD  termux-boot_0.8.1_bfu_debug.apk
+CB10E33BCCA5EB133B622B75C44BF8D21F2B96D95FA2D1DDC2A69E5D216176B0  termux-boot_0.8.1_bfu_debug.apk
 ```

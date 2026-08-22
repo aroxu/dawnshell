@@ -49,11 +49,13 @@ health_command='set -eu
 [ "$(systemctl is-active termux-bfu-boot-proof.service)" = active ]
 [ -f /run/termux-bfu-enabled-service.ready ]
 [ "$(systemctl get-default)" = multi-user.target ]
+[ "$(systemctl is-active multi-user.target)" = active ]
 busctl --system --no-pager list >/dev/null
 ss -H -ltn | awk '\''$4 ~ /:22$/ { found=1 } END { exit !found }'\''
-printf "pid1_start_ticks=%s machine_id=%s proof_state=%s proof_marker=present\n" \
+printf "pid1_start_ticks=%s machine_id=%s proof_state=%s proof_marker=present target_state=%s\n" \
   "$(awk '\''{print $22}'\'' /proc/1/stat)" "$(cat /etc/machine-id)" \
-  "$(systemctl is-active termux-bfu-boot-proof.service)"'
+  "$(systemctl is-active termux-bfu-boot-proof.service)" \
+  "$(systemctl is-active multi-user.target)"'
 
 wait_for_ssh() {
   local deadline=$((SECONDS + wait_seconds))

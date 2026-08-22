@@ -66,8 +66,9 @@ and rejects the instance unless PID/mount/UTS/IPC/cgroup are private while netwo
 matches Android. Java then polls the fixed native `health` operation until it
 proves systemd PID 1, active D-Bus service and bus, `multi-user.target`, active
 `ssh.service`, an active independent boot-proof service with its `/run` marker,
-and a TCP 22 listener. The locked/unlocked state surrounding that health proof is
-written to DE.
+and a TCP 22 listener. It checks both that `multi-user.target` is configured as
+default and that the target unit is actually active. The locked/unlocked state
+surrounding that health proof is written to DE.
 
 The final harness also calls the helper's restricted `shutdown-test` with each of
 `poweroff`, `reboot`, and `shutdown`. It executes `systemctl --no-block` for the

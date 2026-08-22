@@ -84,9 +84,10 @@ health_command='set -eu
 [ "$(systemctl is-active termux-bfu-boot-proof.service)" = active ]
 [ -f /run/termux-bfu-enabled-service.ready ]
 [ "$(systemctl get-default)" = multi-user.target ]
+[ "$(systemctl is-active multi-user.target)" = active ]
 busctl --system --no-pager list >/dev/null
 ss -H -ltn | awk '\''$4 ~ /:22$/ { found=1 } END { exit !found }'\''
-printf "pid1=%s start_ticks=%s machine_id=%s system_state=%s dbus_state=%s ssh_state=%s proof_state=%s proof_marker=present target=%s\n" \
+printf "pid1=%s start_ticks=%s machine_id=%s system_state=%s dbus_state=%s ssh_state=%s proof_state=%s proof_marker=present target=%s target_state=%s\n" \
   "$(cat /proc/1/comm)" \
   "$(awk '\''{print $22}'\'' /proc/1/stat)" \
   "$(cat /etc/machine-id)" \
@@ -94,7 +95,8 @@ printf "pid1=%s start_ticks=%s machine_id=%s system_state=%s dbus_state=%s ssh_s
   "$(systemctl is-active dbus.service)" \
   "$(systemctl is-active ssh.service)" \
   "$(systemctl is-active termux-bfu-boot-proof.service)" \
-  "$(systemctl get-default)"'
+  "$(systemctl get-default)" \
+  "$(systemctl is-active multi-user.target)"'
 
 adb get-state >/dev/null
 operation_before="$( (read_boot_de_file "$operation_log_path" || true) \
@@ -180,6 +182,7 @@ grep -Fq 'health_exit=0' <<<"$lifecycle_status"
 grep -Fq 'dbus_bus=ok' <<<"$lifecycle_status"
 grep -Fq 'boot_proof_service=active' <<<"$lifecycle_status"
 grep -Fq 'boot_proof_marker=present' <<<"$lifecycle_status"
+grep -Fq 'target_state=active' <<<"$lifecycle_status"
 grep -Fq 'listen_22=true' <<<"$lifecycle_status"
 
 locked_boot_new="$(fresh_log_lines "$locked_boot_log_path" "$locked_boot_before")"

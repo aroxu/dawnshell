@@ -55,7 +55,7 @@ for apk in "$boot_apk" "$termux_apk"; do
     exit 2
   }
 done
-expected_helper_hash="DD5E7CB52AC785F4AA6D04694ED6D3DB762D93820E274DD18AB36AC1FB7C6231"
+expected_helper_hash="CED51F99926FB59C1D0D56D6166A792681EDED9354A4EE793A2F070564A17745"
 actual_boot_hash="$(sha256sum "$boot_apk" | awk '{print toupper($1)}')"
 actual_termux_hash="$(sha256sum "$termux_apk" | awk '{print toupper($1)}')"
 embedded_helper_hash="$(unzip -p "$boot_apk" \

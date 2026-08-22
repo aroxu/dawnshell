@@ -203,6 +203,7 @@ systemctl is-system-running
 systemctl is-active dbus.service
 systemctl is-active ssh.service
 systemctl is-active termux-bfu-boot-proof.service
+systemctl is-active multi-user.target
 test -f /run/termux-bfu-enabled-service.ready
 busctl --system --no-pager list
 cat /proc/1/comm
@@ -218,8 +219,9 @@ BFU_SSH_KEY=/path/to/bfu_key \
 ```
 
 Do not unlock while it waits. Pass requires SSH on TCP 22, `/proc/1/comm` equal
-to `systemd`, working D-Bus, `multi-user.target`, `ssh.service=active`, and a
-listening `:22` socket. It additionally requires the enabled boot-proof service
+to `systemd`, working D-Bus, configured and active `multi-user.target`,
+`ssh.service=active`, and a listening `:22` socket. It additionally requires the
+enabled boot-proof service
 and its private `/run` marker. The script then asks for the first unlock, proves
 PID 1 start ticks plus machine ID remain identical, and requires exactly one fresh
 same-cycle DE record for `LOCKED_BOOT_COMPLETED`, BFU root, CE isolation, rootfs,

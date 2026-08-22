@@ -210,7 +210,9 @@ already-verified PID and mount namespace descriptors, revalidates identities to
 close PID-reuse races, joins them, forks a child in the Debian PID namespace, and
 checks PID 1, D-Bus service/bus access, the default target, `ssh.service`, and a
 TCP 22 listener. It also requires the independent boot-proof service to be active
-and its volatile `/run` marker to exist. Only fixed commands are accepted.
+and its volatile `/run` marker to exist. Both the configured default-target name
+and the active state of `multi-user.target` are required, so configuration is not
+mistaken for target reachability. Only fixed commands are accepted.
 
 For the final physical test, `shutdown-test` permits only `poweroff`, `reboot`, or
 `shutdown`. The first two invoke the corresponding `systemctl --no-block`

@@ -87,7 +87,7 @@ files. Termux is unchanged from 2026-08-22; Termux:Boot was rebuilt on 2026-08-2
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / embedded arm64 BFU helper | `E07BBC47AF62E4C441D6373FF1FF33A9796737853A21BD1010ACD9652858BDDD` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / embedded arm64 BFU helper | `CB10E33BCCA5EB133B622B75C44BF8D21F2B96D95FA2D1DDC2A69E5D216176B0` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
