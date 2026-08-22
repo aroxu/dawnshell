@@ -13,6 +13,8 @@
 - [x] Add Device Protected settings/provisioning UI.
 - [x] Add DE layout and direct executable probe.
 - [x] Preserve AFU scheduling and add unlock/boot duplicate suppression.
+- [x] Persist every `LOCKED_BOOT_COMPLETED` receipt in the DE-only
+  `files/bfu-boot.log` marker and validate a fresh line in the test script.
 - [x] Verify Android command-line-tools archive SHA-256 against the official value.
 - [x] Build and sign the Termux:Boot debug APK with portable JDK 17 / SDK 34.
 - [x] Verify final APK manifest, target SDK 28, Direct Boot components, and signature.
@@ -36,7 +38,7 @@ A portable Temurin JDK 17 and checksummed Android command-line tools were placed
 the ignored `.tools` directory. After explicit user acceptance, Platform 34 and
 Build Tools 34.0.0 were installed. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `CB4FA7EFEA7A12A6B7D94A6C10EEAF456EFE956B3ABADDE2B6472906E1D014D0`.
+SHA-256 `D4858A67B79332ABB00FF39B94A835AF0238B3DF77EF1BDA1049D28B7099A413`.
 
 No ADB device was connected, so physical milestone validation remains pending.
 
@@ -44,5 +46,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-CB4FA7EFEA7A12A6B7D94A6C10EEAF456EFE956B3ABADDE2B6472906E1D014D0  termux-boot_0.8.1_bfu_debug.apk
+D4858A67B79332ABB00FF39B94A835AF0238B3DF77EF1BDA1049D28B7099A413  termux-boot_0.8.1_bfu_debug.apk
 ```

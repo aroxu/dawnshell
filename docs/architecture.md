@@ -69,6 +69,7 @@ is `com.termux.boot`, so a typical user-0 path is
 The PoC creates:
 
 ```text
+<DE filesDir>/bfu-boot.log
 bfu/
   bin/
   etc/authorized_keys
@@ -77,6 +78,11 @@ bfu/
   scripts/test.sh
   tmp/
 ```
+
+`BootReceiver` appends `LOCKED_BOOT_COMPLETED <unix-epoch-ms>` to `bfu-boot.log`
+before checking the BFU preference or starting the service. This marker proves the
+manifest receiver ran with Device Protected Storage available even if logcat has
+rotated or later service startup fails.
 
 The `test.sh` file is mode 0700-equivalent through Java owner-only permission calls
 and is invoked directly, not as `/system/bin/sh test.sh`. This intentionally tests
@@ -136,4 +142,3 @@ References:
 - https://developer.android.com/reference/android/content/Intent#ACTION_USER_UNLOCKED
 - https://developer.android.com/about/versions/10/behavior-changes-10#execute-permission
 - https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start
-

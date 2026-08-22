@@ -26,9 +26,19 @@ adb reboot
 adb wait-for-device
 adb shell dumpsys user | grep -i unlocked
 adb logcat -d -s TermuxBFU:I '*:S'
+adb shell run-as com.termux.boot \
+  cat /data/user_de/0/com.termux.boot/files/bfu-boot.log
 ```
 
-Pass requires `LOCKED_BOOT_COMPLETED received` while user 0 is locked.
+Pass requires user 0 to remain locked and a new line in the DE marker:
+
+```text
+LOCKED_BOOT_COMPLETED <unix-epoch-milliseconds>
+```
+
+The marker is primary evidence because it survives logcat rotation and is written
+before BFU enablement or service startup. `LOCKED_BOOT_COMPLETED received` in
+logcat is supporting evidence.
 
 ## Milestone 2: DE executable
 
@@ -85,4 +95,3 @@ RSS, or a missed locked broadcast.
 During BFU, verify CE remains unavailable. Do not change SELinux, mount DE over CE,
 or grant root to the app for this test. Relevant denial is a pass for CE isolation,
 not a defect to bypass.
-

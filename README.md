@@ -14,6 +14,8 @@ The first proof of concept is implemented on the `bfu/direct-boot-poc` branch in
 `termux-boot`:
 
 - receives and logs `LOCKED_BOOT_COMPLETED` with tag `TermuxBFU`;
+- appends each locked-boot receipt to the persistent DE marker
+  `files/bfu-boot.log` before any BFU setting or service checks;
 - starts a Direct-Boot-aware foreground service when BFU mode is enabled;
 - provisions `files/bfu/{bin,etc,home,run,scripts,tmp}` in DE storage;
 - directly executes the DE file `files/bfu/scripts/test.sh`;
@@ -35,7 +37,7 @@ upstream `testkey_untrusted.jks` files:
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `CB4FA7EFEA7A12A6B7D94A6C10EEAF456EFE956B3ABADDE2B6472906E1D014D0` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `D4858A67B79332ABB00FF39B94A835AF0238B3DF77EF1BDA1049D28B7099A413` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
