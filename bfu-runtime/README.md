@@ -8,3 +8,5 @@ next to the APK asset so the fork remains self-contained.
 This directory tracks cross-repository runtime decisions. Runtime keys, authorized
 keys, pids, and logs belong only in Termux:Boot Device Protected Storage or the
 separately reviewed Debian rootfs on the device and must never be committed.
+The embedded helper now owns probe/start/restart/status/health/stop plus a
+restricted shutdown-isolation test; it never accepts an arbitrary shell command.

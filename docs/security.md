@@ -16,6 +16,9 @@
 6. The Debian launcher does not create a network namespace or expose Android's
    controller mounts to systemd. Its named tracking cgroup and every bind mount
    are visible only through the private mount/cgroup namespace view.
+7. A locked-boot root process must prove that neither canonical normal Termux home
+   path can be listed before the rootfs/namespace launcher runs. Probe output is
+   discarded so CE filenames never enter DE logs.
 
 ## DE exposure
 
@@ -58,7 +61,16 @@ only the exact, non-symlink, uid-0-owned, non-group/world-writable
 `/data/local/debian` root. The bounded probe exits after the chroot proof. The
 long-running mode exposes only a private `name=systemd` cgroup subtree, rejects
 duplicate or identity-ambiguous instances, and keeps the supervisor independent
-of the Android app process. Neither mode creates a network namespace.
+of the Android app process. The chroot root is a separate private bind mount,
+`/sys` and `/proc/sys` are read-only, and neither mode creates a network namespace.
+The state file records all requested namespace inodes and requires the Debian net
+namespace to equal Android's while the others differ.
+
+Health and shutdown-test operations enter only namespace descriptors belonging to
+the identity-verified live PID 1. Health runs a fixed, bounded set of local
+systemd/D-Bus/socket checks. Shutdown-test accepts only `poweroff` or `reboot` and
+exists for ADB/root validation; it does not expose arbitrary command execution.
+Only the external harness can prove that Android's boot ID stayed unchanged.
 
 The rootfs accessibility gate writes only a random-per-process marker named
 `.termux-bfu-access-probe.<pid>` at the rootfs top level, reads it back, and removes
@@ -113,3 +125,6 @@ Gradle files and the key is unsuitable for production.
 Use tag `TermuxBFU`. Allowed messages include lifecycle action, DE root, runtime
 verification, child pid/status, and sanitized exit errors. Never log key contents,
 environment dumps, full command lines containing credentials, or SSH packet data.
+Automatic health diagnostics include unit names/states but deliberately do not
+copy the arbitrary system journal into DE, where a future custom service might
+have logged secrets.

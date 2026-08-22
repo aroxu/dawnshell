@@ -92,6 +92,20 @@ The interactive authorization result is stored separately at
 `files/bfu-root-authorization.log`. Never use it as a substitute for the newest
 post-reboot line in `files/bfu-root.log`.
 
+The same locked startup now fails closed unless `files/bfu-ce-isolation.log`
+gains a fresh entry containing all of:
+
+```text
+ce_isolated=true
+user_unlocked_before=false
+user_unlocked_after=false
+output=TERMUX_CE_ISOLATED paths_unreadable=true
+```
+
+The probe asks root only whether the two canonical Termux home directories can be
+listed and discards listing output. Any successful listing is a hard failure; do
+not weaken FBE or hide the result to continue booting Debian.
+
 ## Debian gate 2: rootfs accessibility
 
 While unlocked, install Termux prerequisites, then use the in-app installer:
@@ -178,13 +192,16 @@ installs packages, validates `sshd`, enables `ssh.service`, publishes the ready
 marker, and starts systemd once for AFU validation.
 
 Press **Refresh Debian systemd status**. A successful launcher status contains
-`BFU_DEBIAN_RUNNING`, an identity-valid supervisor, and an identity-valid init.
+`BFU_DEBIAN_RUNNING`, identity-valid supervisor/init, valid namespace topology,
+and a native health line proving D-Bus, `ssh.service`, and TCP 22.
 Then confirm from another computer:
 
 ```sh
 ssh -p 22 -i /path/to/bfu_key debian@PHONE_IP
 systemctl is-system-running
+systemctl is-active dbus.service
 systemctl is-active ssh.service
+busctl --system --no-pager list
 cat /proc/1/comm
 ss -ltn
 ```
@@ -198,9 +215,11 @@ BFU_SSH_KEY=/path/to/bfu_key \
 ```
 
 Do not unlock while it waits. Pass requires SSH on TCP 22, `/proc/1/comm` equal
-to `systemd`, `ssh.service` equal to `active`, and a listening `:22` socket. The
-script then asks for the first unlock and proves that PID 1 start ticks plus
-machine ID remain identical across `USER_UNLOCKED`.
+to `systemd`, working D-Bus, `multi-user.target`, `ssh.service=active`, and a
+listening `:22` socket. The script then asks for the first unlock, proves PID 1
+start ticks plus machine ID remain identical, checks the locked DE health proof,
+and installs a temporary normal Termux boot script whose current-boot marker must
+appear after unlock. The temporary script and marker are removed on success.
 
 On failure, copy the **Debian systemd lifecycle log** before changing anything.
 Stages such as `cgroup_v1_name_systemd_mount`, `cgroup_move_pid1`,
@@ -221,11 +240,26 @@ Unlock once while the BFU service is active, then verify:
 
 ## Reboot and isolation matrix
 
-Run ten cold cycles. Record boot ID, BFU service pid, future systemd host/PID-
-namespace identities, unlock time, AFU script marker, and RSS. Fail on duplicate
-Debian instances, duplicate AFU scripts, steadily rising RSS, or a missed locked
-broadcast.
+After code/APK work is frozen, run the complete physical session:
 
-During BFU, verify CE remains unavailable. Do not change SELinux, mount DE over CE,
-or grant root to the app for this test. Relevant denial is a pass for CE isolation,
-not a defect to bypass.
+```sh
+BFU_PHONE_HOST=PHONE_IP \
+BFU_SSH_KEY=/path/to/bfu_key \
+BFU_CYCLES=10 \
+./scripts/test-final-bfu.sh
+```
+
+Each cycle cold-boots, waits for the complete BFU SSH health check before asking
+for unlock, verifies unchanged Debian PID 1 across `USER_UNLOCKED`, proves exactly
+one normal Termux handoff, and records Android boot ID, app PID/RSS, supervisor,
+and init host PID under ignored `test-results/`. Repeated boot IDs and a strictly
+monotonic PSS increase over 32 MiB fail the harness.
+
+After the cycles, the wrapper runs `test-systemd-shutdown-isolation.sh`. It checks
+native status, explicit restart/stop/start, then invokes Debian `systemctl
+poweroff` and `systemctl reboot` through the restricted root helper. Every action
+must leave Android's boot ID unchanged and Debian SSH must recover after restart.
+
+During BFU, verify CE remains unavailable even to the already pre-authorized root
+probe. Do not change SELinux, mount DE over CE, or use root to alter FBE state.
+The inability to list CE is the required result, not a defect to bypass.

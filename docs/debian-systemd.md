@@ -33,12 +33,13 @@ ARM64 Android-native helper. It exercises every namespace and mount operation,
 executes Debian `/bin/sh` as namespace PID 1, records the result in DE, and exits.
 This separates launcher/kernel/SELinux failures from the systemd gate.
 
-The same helper exposes `start`, `status`, and `stop`. Start rejects duplicates
+The same helper exposes `start`, `restart`, `status`, `health`, and `stop`. Start rejects duplicates
 using a lifetime advisory lock and live `/proc` identity (PID start ticks plus
 executable device/inode), not a pid file alone. Within a new mount namespace it:
 
 1. `mount --make-rprivate /`.
-2. Recursively bind `/dev` and `/sys` into the rootfs and mark those binds slave.
+2. Bind the rootfs onto itself as a private mount, then recursively bind `/dev`
+   and `/sys`, mark those binds slave, and make the Debian `/sys` view read-only.
 3. mount `/proc` so it reflects the new PID namespace.
 4. mount a `mode=755,nosuid,nodev` tmpfs at `$ROOT/run` and create `/run/lock`.
 5. presents a private `name=systemd` cgroup-v1 subtree while hiding Android's
@@ -56,6 +57,20 @@ validated public keys from app DE, and enables `ssh.service` at TCP 22. It masks
 units that would write Android-owned kernel, module, udev, sysctl, clock, or
 network state. The `.termux-bfu-systemd-ready` marker is written last and removed
 before any reconfiguration attempt, so a partial setup fails closed.
+
+After the initial PID 1 grace period, the launcher records all namespace inodes
+and rejects the instance unless PID/mount/UTS/IPC/cgroup are private while network
+matches Android. Java then polls the fixed native `health` operation until it
+proves systemd PID 1, active D-Bus service and bus, `multi-user.target`, active
+`ssh.service`, and a TCP 22 listener. The locked/unlocked state surrounding that
+health proof is written to DE.
+
+The final harness also calls the helper's restricted `shutdown-test` with each of
+`poweroff` and `reboot`. It executes `systemctl --no-block` inside the verified
+Debian PID/mount namespaces and waits for the lifetime lock to release. The host
+script compares `/proc/sys/kernel/random/boot_id` before and after and restarts
+Debian; this is how namespace reboot isolation is tested without trusting the
+helper's own process outcome.
 
 ## Trixie systemd compatibility gate
 
@@ -86,6 +101,7 @@ and [v257 release notes](https://github.com/systemd/systemd/blob/v257/NEWS).
 7. Enabled Debian `ssh.service` starts after cold boot before first unlock.
 
 Gates 1 and the Debian 13 rootfs installation have been proven on the target.
-The source implements every remaining gate. Gates 2 through 7 still require a
-fresh physical-device run of `scripts/test-systemd-ssh-bfu.sh`; implementation is
-not treated as proof of BFU SSH reachability.
+The source implements every remaining gate. Per the agreed test order, gates 2
+through 7, unlock continuity, ten cold cycles, and shutdown isolation will be run
+together with `scripts/test-final-bfu.sh` after the APK is frozen; implementation
+is not treated as proof of BFU SSH reachability.

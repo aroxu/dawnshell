@@ -73,6 +73,7 @@ The PoC creates:
 <DE filesDir>/bfu-boot.log
 <DE filesDir>/bfu-root.log
 <DE filesDir>/bfu-root-authorization.log
+<DE filesDir>/bfu-ce-isolation.log
 <DE filesDir>/bfu-rootfs.log
 <DE filesDir>/bfu-debian-runtime.log
 <DE filesDir>/debian-install.status
@@ -80,6 +81,7 @@ The PoC creates:
 <DE filesDir>/debian-system-config.status
 <DE filesDir>/debian-system-config.log
 <DE filesDir>/debian-lifecycle.status
+<DE filesDir>/bfu-operation.log
 bfu/
   bin/bfu-namespace-probe-arm64
   etc/authorized_keys       # validated public keys only
@@ -118,6 +120,13 @@ evidence. The app cannot force Magisk to grant access or determine whether the
 operator selected a temporary or permanent duration.
 
 After—and only after—the same-boot root result succeeds entirely while locked,
+`BfuCeIsolationProbe` asks the same bounded root channel to list the two canonical
+normal Termux home paths with all output discarded. Debian launch fails closed if
+either listing succeeds. It records only the verdict and locked state, never CE
+filenames or contents. The check verifies FBE isolation; it does not attempt to
+unlock, mount, copy, or otherwise bypass CE.
+
+After the CE isolation gate succeeds,
 `probe-rootfs.sh` runs through the same bounded `su` helper. It checks the candidate
 `/data/local/debian`, `etc`, and readable/executable `bin/sh`, then creates, reads,
 and removes an owner-private temporary marker in the rootfs. It does not execute a
@@ -150,9 +159,12 @@ copy live in the BFU-accessible Debian rootfs, never Termux CE.
 - A single-thread executor prevents duplicate probe executions in one service
   instance.
 - `USER_UNLOCKED` never stops the BFU service. It only dispatches normal Termux
-  scripts, with the existing 60-second duplicate suppression.
+  scripts. A DE-stored kernel boot ID (or Android boot counter fallback)
+  suppresses every later dispatch in the same boot, including service recreation
+  long after the unlock broadcast.
 - Dynamic `USER_UNLOCKED` and manifest `BOOT_COMPLETED` can both request AFU boot.
-  A DE monotonic timestamp suppresses duplicate normal dispatches for 60 seconds.
+  Elapsed realtime remains only a fallback if `/proc/sys/kernel/random/boot_id`
+  is unexpectedly unreadable.
 - `BOOT_COMPLETED` idempotently requests the BFU service and rechecks
   `UserManager`; CE access is refused while locked.
 - `BootJobService` is not Direct-Boot-aware and is never called by the locked path.
@@ -177,12 +189,29 @@ tmpfs `/run`, and executes Debian `/bin/sh` through `chroot`. Success requires t
 Debian shell to observe itself as PID 1 and `/proc/1/comm` as `sh`. The namespace
 and all temporary mounts disappear when the bounded probe exits.
 
-The same helper now exposes `start`, `status`, and `stop`. Start acquires an
+The same helper now exposes `start`, `restart`, `status`, `health`, and `stop`.
+Start acquires an
 exclusive lock for the supervisor lifetime, records both process start ticks and
-executable device/inode identity, rejects verified orphan PID 1 instances, and
-waits for `/sbin/init` to survive an initial grace period. Stop signals only an
-identity-verified supervisor; the supervisor asks systemd to halt with
-`SIGRTMIN+3` before a bounded forced cleanup.
+executable device/inode identity plus PID/mount/UTS/IPC/cgroup/network namespace
+inodes, rejects verified orphan PID 1 instances, and waits for `/sbin/init` to
+survive an initial grace period. The expected topology requires every requested
+namespace to differ from Android PID 1 while the network namespace must match.
+Stop signals only an identity-verified supervisor; the supervisor asks systemd
+to halt with `SIGRTMIN+3` before a bounded forced cleanup.
+
+The rootfs is first bind-mounted onto itself and made private, so systemd shutdown
+can remount or detach its own chroot root without changing Android's `/data`
+mount. `/sys` and `/proc/sys` are read-only in the Debian view. Health opens the
+already-verified PID and mount namespace descriptors, revalidates identities to
+close PID-reuse races, joins them, forks a child in the Debian PID namespace, and
+checks PID 1, D-Bus service/bus access, the default target, `ssh.service`, and a
+TCP 22 listener. Only fixed commands are accepted.
+
+For the final physical test, `shutdown-test` permits only `poweroff` or `reboot`,
+invokes the corresponding `systemctl --no-block` operation inside those same
+verified namespaces, and waits for the supervisor lock to be released. The host
+test script separately compares Android boot IDs; the helper never claims Android
+isolation by itself.
 
 For systemd 257 on this cgroup-v1 kernel, the helper mounts a private
 `name=systemd` hierarchy, creates a dedicated `termux-bfu` child, moves only the
