@@ -1,0 +1,5 @@
+.tools/
+*.apk
+*.aab
+local.properties
+
