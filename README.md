@@ -21,6 +21,9 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
 - directly executes the DE file `files/bfu/scripts/test.sh`;
 - runs a bounded `su -c id` probe and persists its sanitized result in
   `files/bfu-root.log`;
+- provides an unlock-time **Request / verify Magisk root permission** action that
+  opens the normal Magisk authorization flow, verifies `uid=0`, and records the
+  AFU-only result separately from BFU evidence;
 - shows the latest persistent root result in the launcher after unlock, without
   requiring BFU ADB;
 - after BFU root succeeds, probes `/data/local/debian` directory, shell mode, and
@@ -51,11 +54,24 @@ upstream `testkey_untrusted.jks` files:
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `DD8738EF50F9C573A00129629E75E2D832A2A290AEE01EC2CFEEB53AAD631C52` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `8A22D89D80338318DAD708C0BE2E218F0304559BA546AD966AD3468031B42E3D` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
 They verify with APK signature schemes v1 and v2.
+
+## Magisk authorization
+
+The Debian launcher requires root on every cold boot. Open Termux:Boot while
+Android is unlocked and press **Request / verify Magisk root permission**. In the
+Magisk prompt choose the permanent/forever duration. The button proves that root
+works at that moment; only the next locked-boot `bfu-root.log` entry proves that
+the saved policy is usable during BFU.
+
+Magisk policy is keyed by Linux UID. Because Termux and Termux:Boot use the
+shared UID `com.termux`, allowing this request grants root to every trusted,
+same-signature app installed under that UID, not only the Boot UI. The app lists
+those packages before requesting root.
 
 The APKs in `dist/` are local ignored build artifacts, not committed binaries.
 The upstream debug key is public and must not be treated as a private production

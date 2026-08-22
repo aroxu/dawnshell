@@ -24,8 +24,10 @@ pkg update
 pkg install debootstrap util-linux
 ```
 
-Then open Termux:Boot, keep **Enable Direct Boot Debian bootstrap** selected,
-and press **Install Debian 12 arm64 rootfs**. Confirm the root operation. The
+Then open Termux:Boot and press **Request / verify Magisk root permission**.
+Confirm that the package list contains only the trusted shared-UID apps and choose
+Magisk's permanent/forever allow duration. Keep **Enable Direct Boot Debian
+bootstrap** selected and press **Install Debian 12 arm64 rootfs**. The
 foreground service continues if the activity is backgrounded, but keeping the
 activity visible shows the newest 48 KiB of output with a one-second refresh.
 

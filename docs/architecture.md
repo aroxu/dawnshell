@@ -72,6 +72,7 @@ The PoC creates:
 ```text
 <DE filesDir>/bfu-boot.log
 <DE filesDir>/bfu-root.log
+<DE filesDir>/bfu-root-authorization.log
 <DE filesDir>/bfu-rootfs.log
 <DE filesDir>/debian-install.status
 <DE filesDir>/debian-install.log
@@ -100,6 +101,13 @@ whether the target-28 app domain can `execve()` a writable DE file on the target
 requires both exit status 0 and a `uid=0` identity. It records the user-unlocked
 state both before and after `su`, and fsyncs every result to `bfu-root.log`;
 failure does not stop the foreground service or AFU handoff.
+
+The launcher activity exposes a separate interactive authorization action. It is
+available only after unlock, allows up to 120 seconds for the Magisk UI, and
+executes only `su -c id`. Its result is fsynced to
+`bfu-root-authorization.log`, explicitly labelled as AFU setup rather than BFU
+evidence. The app cannot force Magisk to grant access or determine whether the
+operator selected a temporary or permanent duration.
 
 After—and only after—the same-boot root result succeeds entirely while locked,
 `probe-rootfs.sh` runs through the same bounded `su` helper. It checks the candidate

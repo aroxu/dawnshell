@@ -28,6 +28,17 @@ reboot. The BFU path must never wait indefinitely for an authorization UI; the
 probe is bounded and records only command path, exit status, timeout state, root
 verdict, and sanitized `id` output.
 
+Magisk stores superuser policy by numeric Linux UID. Since the installed Termux
+family declares shared UID `com.termux`, a permanent allow applies to Termux,
+Termux:Boot, and any other correctly signed package sharing that UID. The
+interactive button lists all packages Android reports for the current UID before
+calling `su`. Do not approve if an unexpected package appears. The button cannot
+write Magisk's policy database; the operator must select permanent/forever in the
+Magisk UI. A successful AFU check is never copied into `bfu-root.log` or treated
+as locked-boot proof.
+
+Reference: [Magisk superuser policy lookup keyed by UID](https://github.com/topjohnwu/Magisk/blob/99a6e2749f4d0e9da5d568208681561f90db4d61/native/src/core/su/db.rs).
+
 The root launcher must use exact, validated paths and make `/` recursively private
 before bind mounts. It must not bind DE over CE, weaken FBE/SELinux, remount Android
 cgroups globally, or treat a stale pid file as proof that Debian is running.

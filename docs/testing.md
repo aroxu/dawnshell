@@ -61,8 +61,11 @@ the nativeLibraryDir strategy tested next.
 
 ## Debian gate 1: BFU root
 
-Pre-authorize Magisk root for the Termux/Termux:Boot shared UID while unlocked,
-then run:
+Open Termux:Boot while unlocked and press **Request / verify Magisk root
+permission**. Verify the confirmation dialog lists only expected packages for
+the shared UID, then choose Magisk's permanent/forever allow duration. The app's
+AFU result must show `exit=0` and `root=true`; this is setup confirmation, not BFU
+evidence. Then run:
 
 ```sh
 ./scripts/test-root-bfu.sh
@@ -84,6 +87,10 @@ not attempt to make an approval UI appear during BFU.
 As a second read path, open Termux:Boot after unlock and press **Refresh BFU probe
 results**. It reads the same Device Protected logs; it does not rerun `su` and
 therefore cannot accidentally turn an AFU authorization into BFU evidence.
+
+The interactive authorization result is stored separately at
+`files/bfu-root-authorization.log`. Never use it as a substitute for the newest
+post-reboot line in `files/bfu-root.log`.
 
 ## Debian gate 2: rootfs accessibility
 
