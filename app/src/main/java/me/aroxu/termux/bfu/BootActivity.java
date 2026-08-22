@@ -220,6 +220,12 @@ public class BootActivity extends Activity {
         install.setOnClickListener(view -> confirmDebianInstall());
         content.addView(install, matchWrap());
 
+        Button removeRootfs = new Button(this);
+        removeRootfs.setText(R.string.bfu_remove_debian_rootfs);
+        removeRootfs.setTextColor(Color.rgb(255, 82, 82));
+        removeRootfs.setOnClickListener(view -> confirmDebianRootfsRemoval());
+        content.addView(removeRootfs, matchWrap());
+
         installStatus = createLogConsole(3, 7);
         addLogConsole(content, installStatus, dp(12));
 
@@ -518,7 +524,7 @@ public class BootActivity extends Activity {
         }
 
         int uid = Process.myUid();
-        String packages = packagesForSharedUid(uid);
+        String packages = packagesForUid(uid);
         new AlertDialog.Builder(this)
                 .setTitle(R.string.bfu_root_authorization_confirm_title)
                 .setMessage(getString(R.string.bfu_root_authorization_confirm_message,
@@ -617,7 +623,7 @@ public class BootActivity extends Activity {
         }
     }
 
-    private String packagesForSharedUid(int uid) {
+    private String packagesForUid(int uid) {
         String[] packages = getPackageManager().getPackagesForUid(uid);
         if (packages == null || packages.length == 0) return getPackageName();
         Arrays.sort(packages);
@@ -649,6 +655,50 @@ public class BootActivity extends Activity {
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.bfu_install_confirm_button,
                         (dialog, which) -> startDebianInstall())
+                .show();
+    }
+
+    private void confirmDebianRootfsRemoval() {
+        if (!isUserUnlocked()) {
+            recordOperation("DEBIAN_ROOTFS_REMOVE_REJECTED user_locked=true");
+            Toast.makeText(this, R.string.bfu_remove_rootfs_requires_unlock,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.bfu_remove_rootfs_confirm_title)
+                .setMessage(R.string.bfu_remove_rootfs_confirm_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.bfu_remove_rootfs_continue,
+                        (dialog, which) -> confirmTypedDebianRootfsRemoval())
+                .show();
+    }
+
+    private void confirmTypedDebianRootfsRemoval() {
+        EditText confirmation = new EditText(this);
+        confirmation.setSingleLine(true);
+        confirmation.setHint(R.string.bfu_remove_rootfs_type_hint);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.bfu_remove_rootfs_final_title)
+                .setMessage(R.string.bfu_remove_rootfs_final_message)
+                .setView(confirmation)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.bfu_remove_rootfs_button,
+                        (dialog, which) -> {
+                            String value = confirmation.getText().toString();
+                            confirmation.setText("");
+                            if (!"DELETE".equals(value)) {
+                                Toast.makeText(this,
+                                        R.string.bfu_remove_rootfs_confirmation_mismatch,
+                                        Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            BfuBootService.requestDebianRootfsRemoval(this);
+                            recordOperation("DEBIAN_ROOTFS_REMOVE_REQUESTED "
+                                    + "root=/data/local/debian");
+                            Toast.makeText(this, R.string.bfu_remove_rootfs_requested,
+                                    Toast.LENGTH_LONG).show();
+                        })
                 .show();
     }
 

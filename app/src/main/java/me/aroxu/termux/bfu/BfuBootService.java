@@ -34,6 +34,8 @@ public class BfuBootService extends Service {
             "me.aroxu.termux.bfu.action.STATUS_DEBIAN_SYSTEMD";
     static final String ACTION_DEBIAN_STOP =
             "me.aroxu.termux.bfu.action.STOP_DEBIAN_SYSTEMD";
+    static final String ACTION_REMOVE_DEBIAN_ROOTFS =
+            "me.aroxu.termux.bfu.action.REMOVE_DEBIAN_ROOTFS";
 
     private static final String TAG = "TermuxBFU";
     private static final String NOTIFICATION_CHANNEL_ID = "termux_bfu";
@@ -44,6 +46,7 @@ public class BfuBootService extends Service {
     private final AtomicBoolean rootfsInstallStarted = new AtomicBoolean(false);
     private final AtomicBoolean systemConfigurationStarted = new AtomicBoolean(false);
     private final AtomicBoolean lifecycleOperationStarted = new AtomicBoolean(false);
+    private final AtomicBoolean rootfsRemovalStarted = new AtomicBoolean(false);
 
     private final BroadcastReceiver userUnlockedReceiver = new BroadcastReceiver() {
         @Override
@@ -73,7 +76,8 @@ public class BfuBootService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? ACTION_START : intent.getAction();
         boolean disabledControlAllowed = ACTION_DEBIAN_STATUS.equals(action)
-                || ACTION_DEBIAN_STOP.equals(action);
+                || ACTION_DEBIAN_STOP.equals(action)
+                || ACTION_REMOVE_DEBIAN_ROOTFS.equals(action);
         if (!BfuPreferences.isEnabled(this) && !disabledControlAllowed) {
             Log.i(TAG, "BFU service stopped because BFU mode is disabled");
             stopSelf();
@@ -88,7 +92,17 @@ public class BfuBootService extends Service {
             Log.i(TAG, "BFU startup checks skipped because Android is already unlocked");
         }
 
-        if (ACTION_INSTALL_DEBIAN.equals(action)) {
+        if (ACTION_REMOVE_DEBIAN_ROOTFS.equals(action)) {
+            if (!userUnlocked) {
+                recordOperation("DEBIAN_ROOTFS_REMOVE_REJECTED user_locked=true");
+            } else if (rootfsInstallStarted.get() || systemConfigurationStarted.get()
+                    || lifecycleOperationStarted.get()
+                    || !rootfsRemovalStarted.compareAndSet(false, true)) {
+                recordOperation("DEBIAN_ROOTFS_REMOVE_REJECTED another_operation_running=true");
+            } else {
+                executor.execute(this::runDebianRootfsRemoval);
+            }
+        } else if (ACTION_INSTALL_DEBIAN.equals(action)) {
             if (!userUnlocked) {
                 Log.w(TAG, "Debian rootfs install rejected while CE is locked");
                 DebianRootfsInstaller.recordRejected(this,
@@ -142,6 +156,10 @@ public class BfuBootService extends Service {
 
     static void requestDebianSystemConfiguration(Context context) {
         startServiceAction(context, ACTION_CONFIGURE_DEBIAN);
+    }
+
+    static void requestDebianRootfsRemoval(Context context) {
+        startServiceAction(context, ACTION_REMOVE_DEBIAN_ROOTFS);
     }
 
     static void requestDebianLifecycle(Context context, DebianLauncher.Operation operation) {
@@ -292,6 +310,30 @@ public class BfuBootService extends Service {
                     "legacy supervisor check interrupted");
         } finally {
             systemConfigurationStarted.set(false);
+        }
+    }
+
+    private void runDebianRootfsRemoval() {
+        try {
+            BfuRuntime.Layout layout = BfuRuntime.provision(this);
+            DebianRootfsRemover.remove(this, layout);
+        } catch (IOException | IllegalStateException e) {
+            recordOperation("DEBIAN_ROOTFS_REMOVE_FAILED "
+                    + BfuSu.sanitize(e.getMessage()));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            recordOperation("DEBIAN_ROOTFS_REMOVE_FAILED interrupted=true");
+        } finally {
+            rootfsRemovalStarted.set(false);
+            if (!BfuPreferences.isEnabled(this)) stopSelf();
+        }
+    }
+
+    private void recordOperation(String message) {
+        try {
+            BfuOperationLog.append(this, message);
+        } catch (IOException e) {
+            Log.e(TAG, "Could not persist operation result", e);
         }
     }
 

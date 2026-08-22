@@ -47,6 +47,17 @@
     <string name="bfu_log_console_hint">Drag inside a console to scroll it. Long-press to select and copy. Live follow pauses while selected or scrolled up.</string>
     <string name="bfu_debian_install_explanation">Rootfs installation runs only after unlock. In Termux, first run: pkg install debootstrap util-linux mount-utils. The app downloads pinned official Debian artifacts, verifies SHA-256, and builds a staging tree before publishing /data/local/debian.</string>
     <string name="bfu_install_debian">Install Debian 13 Trixie arm64 rootfs</string>
+    <string name="bfu_remove_debian_rootfs">Permanently delete Debian rootfs</string>
+    <string name="bfu_remove_rootfs_requires_unlock">Unlock Android before deleting the Debian rootfs.</string>
+    <string name="bfu_remove_rootfs_confirm_title">Delete /data/local/debian?</string>
+    <string name="bfu_remove_rootfs_confirm_message">This first stops the standalone Debian supervisor, verifies that no systemd process remains, then permanently deletes exactly /data/local/debian. All Debian packages, users, password hashes, SSH host keys, and in-rootfs configuration will be lost. App DE settings and logs are retained.</string>
+    <string name="bfu_remove_rootfs_continue">Continue</string>
+    <string name="bfu_remove_rootfs_final_title">Final destructive confirmation</string>
+    <string name="bfu_remove_rootfs_final_message">Type DELETE exactly to authorize permanent rootfs removal.</string>
+    <string name="bfu_remove_rootfs_type_hint">DELETE</string>
+    <string name="bfu_remove_rootfs_button">Delete rootfs permanently</string>
+    <string name="bfu_remove_rootfs_confirmation_mismatch">Confirmation did not match DELETE. Nothing was removed.</string>
+    <string name="bfu_remove_rootfs_requested">Rootfs removal requested. Follow the live operation log.</string>
     <string name="bfu_install_requires_enabled">Enable Direct Boot Debian bootstrap before installing.</string>
     <string name="bfu_install_requires_unlock">Unlock Android before installing the Debian rootfs.</string>
     <string name="bfu_install_confirm_title">Install Debian 13 Trixie rootfs?</string>
