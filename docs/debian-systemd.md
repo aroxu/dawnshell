@@ -1,4 +1,4 @@
-# Debian systemd BFU plan
+# Debian 13 systemd BFU implementation
 
 ## End state
 
@@ -20,33 +20,42 @@ not stop or restart the BFU service, namespace, systemd, or Debian services.
 
 ## Storage
 
-Termux CE paths are forbidden. `/data/local/debian` is only a candidate until a
+Termux CE paths are forbidden. `/data/local/debian` is accepted only after a
 BFU root process proves its directories and `bin/sh` mode are readable and the
-rootfs can be written. If it fails, select another root-accessible device-encrypted path.
+rootfs can be written. The launcher rejects every other root path.
 The app-owned DE `files/bfu/` tree remains for bootstrap/control files and logs,
 not the full rootfs, so uninstalling Termux:Boot does not silently remove Debian.
 
 ## Launcher contract
 
-The current APK implements the destructive-state-free `probe` subset as a small
+The APK first implements a destructive-state-free `probe` as a small
 ARM64 Android-native helper. It exercises every namespace and mount operation,
 executes Debian `/bin/sh` as namespace PID 1, records the result in DE, and exits.
-It intentionally does not start systemd or leave mounts/processes behind. This
-separates launcher/kernel/SELinux failures from the next systemd/cgroup gate.
+This separates launcher/kernel/SELinux failures from the systemd gate.
 
-The future root helper exposes `start-debian`, `stop-debian`, `restart-debian`, and
-`status-debian`. Start must reject duplicate instances using live process identity
-and namespace evidence, not a pid file alone. Within a new mount namespace it must:
+The same helper exposes `start`, `status`, and `stop`. Start rejects duplicates
+using a lifetime advisory lock and live `/proc` identity (PID start ticks plus
+executable device/inode), not a pid file alone. Within a new mount namespace it:
 
 1. `mount --make-rprivate /`.
 2. Recursively bind `/dev` and `/sys` into the rootfs and mark those binds slave.
 3. mount `/proc` so it reflects the new PID namespace.
 4. mount a `mode=755,nosuid,nodev` tmpfs at `$ROOT/run` and create `/run/lock`.
-5. execute `env container=termux chroot "$ROOT" /sbin/init`.
+5. presents a private `name=systemd` cgroup-v1 subtree while hiding Android's
+   controller mounts;
+6. executes `env container=termux-bfu chroot "$ROOT" /sbin/init`.
 
-Host Android mount propagation and cgroup mounts must remain untouched. systemd's
-behavior against the device's mixed cgroup v1/unified topology is a separate gate.
-Stdout/stderr and lifecycle checkpoints must be persisted outside CE.
+Host Android mount propagation remains untouched. The helper never makes host
+mounts shared and never creates a network namespace. Lifecycle checkpoints and
+command results are persisted in DE. `USER_UNLOCKED` only schedules normal Termux
+boot scripts and does not issue `start`, `stop`, or `restart`.
+
+An AFU-only configurator installs `systemd`, `systemd-sysv`, `dbus`, and
+`openssh-server`, creates user `debian`, generates dedicated BFU host keys, copies
+validated public keys from app DE, and enables `ssh.service` at TCP 22. It masks
+units that would write Android-owned kernel, module, udev, sysctl, clock, or
+network state. The `.termux-bfu-systemd-ready` marker is written last and removed
+before any reconfiguration attempt, so a partial setup fails closed.
 
 ## Trixie systemd compatibility gate
 
@@ -54,14 +63,14 @@ Debian 13 ships systemd 257. Its upstream minimum Linux baseline is 3.15, so the
 target 4.4.302 kernel is not rejected solely by version, but kernels below the
 recommended 5.4 baseline are marked `old-kernel` and receive limited testing.
 More importantly, systemd 257 refuses to boot on legacy/hybrid cgroup v1 by
-default unless its documented legacy-force kernel-command-line conditions are
-met. The target Android cgroup topology must therefore be captured and tested
-inside the private namespace before `/sbin/init` is enabled.
+default unless its documented legacy-force conditions are met. The launcher sets
+both required flags through systemd's process-local `SYSTEMD_PROC_CMDLINE`
+override. It does not modify Android's actual kernel command line.
 
 The launcher must fail closed if it cannot provide a private, writable hierarchy
-acceptable to systemd. It must not change Android's global kernel command line,
-remount the host cgroup tree, or silently fall back to modifying host control
-groups. See the upstream [systemd v257 requirements](https://github.com/systemd/systemd/blob/v257/README)
+acceptable to systemd. It does not remount Android's cgroup controller tree or
+silently fall back to delegating it. Failure to mount the isolated named
+hierarchy is a hard start failure. See the upstream [systemd v257 requirements](https://github.com/systemd/systemd/blob/v257/README)
 and [v257 release notes](https://github.com/systemd/systemd/blob/v257/NEWS).
 
 ## Ordered device gates
@@ -76,6 +85,7 @@ and [v257 release notes](https://github.com/systemd/systemd/blob/v257/NEWS).
 6. D-Bus and `systemctl` work and the default target is reached.
 7. Enabled Debian `ssh.service` starts after cold boot before first unlock.
 
-Each gate requires physical-device evidence before implementing assumptions for the
-next. Gate 1 is proven. The current source implements the gate-2 probe and AFU
-rootfs installer; locked-boot evidence for the installed tree is still pending.
+Gates 1 and the Debian 13 rootfs installation have been proven on the target.
+The source implements every remaining gate. Gates 2 through 7 still require a
+fresh physical-device run of `scripts/test-systemd-ssh-bfu.sh`; implementation is
+not treated as proof of BFU SSH reachability.

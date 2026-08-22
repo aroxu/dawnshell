@@ -77,14 +77,21 @@ The PoC creates:
 <DE filesDir>/bfu-debian-runtime.log
 <DE filesDir>/debian-install.status
 <DE filesDir>/debian-install.log
+<DE filesDir>/debian-system-config.status
+<DE filesDir>/debian-system-config.log
+<DE filesDir>/debian-lifecycle.status
 bfu/
   bin/bfu-namespace-probe-arm64
-  etc/
+  etc/authorized_keys       # validated public keys only
   home/
   run/
+    debian-lifecycle.log
+    debian-supervisor.lock
+    debian-supervisor.state
   scripts/test.sh
   scripts/probe-rootfs.sh
   scripts/install-debian-rootfs.sh
+  scripts/configure-debian-systemd.sh
   downloads/              # checksum-pinned public Debian artifacts
   tmp/
 ```
@@ -125,6 +132,15 @@ a private mount namespace and atomically promotes `/data/local/debian.installing
 only after architecture, dpkg state, shell, version, and root ownership checks.
 No Termux path is embedded in the resulting Debian filesystem.
 
+The second AFU operation installs Debian's systemd, D-Bus, and OpenSSH packages
+inside that rootfs. It runs package management in a private mount namespace,
+blocks package post-install service startup with a temporary `policy-rc.d`, and
+configures an unprivileged `debian` SSH account. Password, keyboard-interactive,
+empty-password, and root login are disabled. The service binds wildcard IPv4 TCP
+22, so it can begin listening before Android finishes attaching an address. The
+validated public keys originate in DE; BFU-only host keys and the installed key
+copy live in the BFU-accessible Debian rootfs, never Termux CE.
+
 ## Lifecycle and idempotence
 
 - BFU is disabled by default and must be enabled once from the launcher activity.
@@ -140,12 +156,16 @@ No Termux path is embedded in the resulting Debian filesystem.
 - `BOOT_COMPLETED` idempotently requests the BFU service and rechecks
   `UserManager`; CE access is refused while locked.
 - `BootJobService` is not Direct-Boot-aware and is never called by the locked path.
+- `ACTION_USER_UNLOCKED` is registered dynamically by the foreground service;
+  Android documents this action as unavailable to manifest receivers.
+- The root supervisor is independent of the Android app process. Unlock, normal
+  Termux handoff, and app UI recreation do not signal or restart Debian PID 1.
 
 ## Debian launcher boundary
 
 The Android service remains a small lifecycle controller. Mount, namespace,
-chroot, and systemd setup belongs in a separately testable root launcher. The
-first implemented operation is a bounded `probe`: an ARM64 PIE copied from the
+chroot, and systemd setup belongs in a separately testable root launcher. Its
+bounded `probe` operation is an ARM64 PIE copied from the
 APK into DE, SHA-256 checked both at build time and at provisioning time, then
 executed through the already-proven BFU `su`. It depends only on Android's
 `/system/bin/linker64`, `libc.so`, and `libdl.so`, not Termux CE tools.
@@ -157,11 +177,20 @@ tmpfs `/run`, and executes Debian `/bin/sh` through `chroot`. Success requires t
 Debian shell to observe itself as PID 1 and `/proc/1/comm` as `sh`. The namespace
 and all temporary mounts disappear when the bounded probe exits.
 
-The later long-lived launcher will reuse the same setup but add identity-backed
-`start`, `stop`, `restart`, and `status` operations before executing
-`env container=termux-bfu chroot "$ROOT" /sbin/init`. Neither the probe nor the
-future launcher creates a network namespace. Full ordering, cgroup constraints,
-and milestone gates are in `debian-systemd.md`.
+The same helper now exposes `start`, `status`, and `stop`. Start acquires an
+exclusive lock for the supervisor lifetime, records both process start ticks and
+executable device/inode identity, rejects verified orphan PID 1 instances, and
+waits for `/sbin/init` to survive an initial grace period. Stop signals only an
+identity-verified supervisor; the supervisor asks systemd to halt with
+`SIGRTMIN+3` before a bounded forced cleanup.
+
+For systemd 257 on this cgroup-v1 kernel, the helper mounts a private
+`name=systemd` hierarchy, creates a dedicated `termux-bfu` child, moves only the
+future Debian PID 1 into it, enters a cgroup namespace rooted there, and bind
+mounts only that view at Debian `/sys/fs/cgroup/systemd`. Android controller
+mounts are hidden from systemd rather than delegated. A process-local
+`SYSTEMD_PROC_CMDLINE` enables systemd 257's explicit legacy-force path without
+changing Android `/proc/cmdline`. No operation creates a network namespace.
 
 ## Platform constraints
 

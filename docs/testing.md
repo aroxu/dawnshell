@@ -168,19 +168,45 @@ exact `stage=` such as `unshare_cgroup`, `proc_mount`, `chroot`, or
 This is a one-shot proof, not the long-running Debian service. Success completes
 the launcher/chroot gate; it does not prove systemd 257 compatibility.
 
-## Later Debian gates
+## Debian gates 4–7: systemd, D-Bus, and BFU SSH
 
-After BFU root is proven, validate these one at a time:
+While Android is unlocked, paste at least one dedicated public key into the BFU
+`authorized_keys` editor and press **Configure Debian 13 systemd + SSH**. The
+configuration status must become `SUCCEEDED`; its live selectable log must end in
+both `CONFIGURE_SUCCEEDED` lines. This operation stops a prior test instance,
+installs packages, validates `sshd`, enables `ssh.service`, publishes the ready
+marker, and starts systemd once for AFU validation.
 
-1. `/sbin/init` becomes namespace PID 1.
-2. D-Bus and `systemctl` work and the default target is reached.
-3. enabled Debian `ssh.service` is reachable after cold boot before unlock.
+Press **Refresh Debian systemd status**. A successful launcher status contains
+`BFU_DEBIAN_RUNNING`, an identity-valid supervisor, and an identity-valid init.
+Then confirm from another computer:
 
-Capture `/sys/fs/cgroup`, `/proc/cgroups`, `/proc/self/cgroup`, and
-`/proc/cmdline` before changing the launcher for systemd. Debian 13's systemd 257
-rejects cgroup v1 by default and treats this 4.4 kernel as older than its
-recommended baseline. Never repair a failure by remounting the host Android
-cgroup hierarchy; treat systemd compatibility as its own device gate.
+```sh
+ssh -p 22 -i /path/to/bfu_key debian@PHONE_IP
+systemctl is-system-running
+systemctl is-active ssh.service
+cat /proc/1/comm
+ss -ltn
+```
+
+The decisive cold-boot test is:
+
+```sh
+BFU_PHONE_HOST=PHONE_IP \
+BFU_SSH_KEY=/path/to/bfu_key \
+./scripts/test-systemd-ssh-bfu.sh
+```
+
+Do not unlock while it waits. Pass requires SSH on TCP 22, `/proc/1/comm` equal
+to `systemd`, `ssh.service` equal to `active`, and a listening `:22` socket. The
+script then asks for the first unlock and proves that PID 1 start ticks plus
+machine ID remain identical across `USER_UNLOCKED`.
+
+On failure, copy the **Debian systemd lifecycle log** before changing anything.
+Stages such as `cgroup_v1_name_systemd_mount`, `cgroup_move_pid1`,
+`cgroup_view_bind`, `exec_systemd`, or `systemd_early_exit` identify the exact
+gate. Debian 13's systemd 257 requires the explicit cgroup-v1 legacy-force path;
+never repair a failure by remounting or delegating Android's host controller tree.
 
 ## First unlock handoff
 
@@ -191,8 +217,7 @@ Unlock once while the BFU service is active, then verify:
 - each regular `~/.termux/boot/*` file is scheduled once in sorted order;
 - TermuxService starts only after `isUserUnlocked()` is true;
 - the BFU foreground service remains active;
-- once implemented, the same Debian systemd PID and namespace remain alive without
-  restart.
+- the same Debian systemd PID and namespace remain alive without restart.
 
 ## Reboot and isolation matrix
 

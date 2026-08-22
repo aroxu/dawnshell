@@ -4,22 +4,27 @@
 
 1. Termux CE storage is never accessed while `UserManager.isUserUnlocked()` is
    false.
-2. BFU data is created only from a Device Protected Context owned by Termux:Boot.
+2. App control data is created only from a Device Protected Context owned by
+   Termux:Boot; the separately proven Debian rootfs is fixed at `/data/local/debian`.
 3. No CE-to-DE automatic synchronization exists.
-4. DE must not contain private SSH keys, Termux user keys, API tokens, Tailscale
-   auth keys, password databases, cloud credentials, or personal secrets.
+4. DE and the BFU rootfs must not contain user/client private SSH keys, Termux
+   user keys, API tokens, Tailscale auth keys, reusable passwords, cloud
+   credentials, or personal secrets. Debian generates a dedicated BFU server
+   host key in its rootfs; it must not be reused as a client identity.
 5. Root is required for the Debian launcher but is never assumed: each boot must
    prove `su -c id` returned `uid=0`, and failure cannot crash the BFU controller.
-6. The Debian launcher must not create a network namespace or alter the host mount
-   propagation/cgroup topology outside its private mount namespace.
+6. The Debian launcher does not create a network namespace or expose Android's
+   controller mounts to systemd. Its named tracking cgroup and every bind mount
+   are visible only through the private mount/cgroup namespace view.
 
 ## DE exposure
 
 Device-encrypted storage is protected by verified-boot/device keys, not the user's
 PIN-derived CE key. Physical/offline and privileged compromise assumptions are
-therefore weaker than for normal Termux. DE contains only bootstrap/control files
-and operational logs. Debian service credentials belong inside the separately
-selected BFU-accessible rootfs and require their own threat review.
+therefore weaker than for normal Termux. DE contains only bootstrap/control files,
+public authorized keys, and operational logs. The BFU rootfs contains generated
+OpenSSH host keys and an installed copy of those public keys. Both areas are
+available before PIN entry and require their own physical/offline threat review.
 
 ## Root and namespace restrictions
 
@@ -39,19 +44,21 @@ as locked-boot proof.
 
 Reference: [Magisk superuser policy lookup keyed by UID](https://github.com/topjohnwu/Magisk/blob/99a6e2749f4d0e9da5d568208681561f90db4d61/native/src/core/su/db.rs).
 
-The root launcher must use exact, validated paths and make `/` recursively private
+The root launcher uses exact, validated paths and makes `/` recursively private
 before bind mounts. It must not bind DE over CE, weaken FBE/SELinux, remount Android
-cgroups globally, or treat a stale pid file as proof that Debian is running.
-Shutdown/reboot requests inside the Debian PID namespace must be tested to ensure
-they cannot unintentionally reboot the Android host.
+cgroups globally, or treat a stale pid file as proof that Debian is running. A
+lifetime `flock`, process start ticks, and executable inode identity protect
+start/stop against PID reuse. Explicit stop sends systemd's container halt signal;
+`USER_UNLOCKED` never reaches that path.
 
-The namespace probe is built for Android API 21/arm64 as PIE and has only Android
+The native helper is built for Android API 21/arm64 as PIE and has only Android
 system `libc.so`/`libdl.so` dependencies. Gradle verifies its pinned SHA-256 and the
 app verifies the same digest after copying it to owner-only DE storage. Root accepts
 only the exact, non-symlink, uid-0-owned, non-group/world-writable
-`/data/local/debian` root. The probe has
-independent native and Java timeouts, creates no network namespace, and exits after
-the chroot proof so every private mount namespace is reclaimed.
+`/data/local/debian` root. The bounded probe exits after the chroot proof. The
+long-running mode exposes only a private `name=systemd` cgroup subtree, rejects
+duplicate or identity-ambiguous instances, and keeps the supervisor independent
+of the Android app process. Neither mode creates a network namespace.
 
 The rootfs accessibility gate writes only a random-per-process marker named
 `.termux-bfu-access-probe.<pid>` at the rootfs top level, reads it back, and removes
@@ -73,6 +80,19 @@ atomic rename. Interrupted trees and stale locks are preserved under timestamped
 names for inspection. The operational log may reveal package names and paths but
 must never contain repository credentials, proxy secrets, passwords, or private
 keys.
+
+Systemd/OpenSSH configuration is also AFU-only. Package installation temporarily
+uses plain HTTP only for the first signed APT transaction when the minbase tree
+does not yet contain CA certificates; Debian Release signatures remain mandatory.
+After `ca-certificates` is installed, sources are replaced with HTTPS and updated
+again. Package service startup is blocked with a temporary, restored
+`policy-rc.d`. The BFU-ready marker is published only after `sshd -t`, effective
+public-key-only policy checks, host-key generation, and `ssh.service` enablement.
+
+The SSH account is non-root and has no usable password. Server policy denies
+password, keyboard-interactive, empty-password, and root authentication. Public
+keys are parsed in Java and revalidated with Debian `ssh-keygen`; key options are
+not accepted. The app logs only key counts, never key bodies.
 
 ## Signing boundary
 

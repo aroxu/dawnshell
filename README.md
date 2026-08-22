@@ -37,6 +37,21 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
 - streams installer stdout/stderr to a DE-persistent log shown in a selectable,
   console-style view; live follow pauses while selecting text or reading older
   lines;
+- validates bare SSH public-key lines in the app, rejects key options/private
+  material, and stores the normalized `authorized_keys` source only below
+  app-owned Device Protected Storage;
+- offers an AFU-only Debian 13 configurator that installs systemd 257, D-Bus, and
+  OpenSSH, creates the unprivileged `debian` account, disables password/root
+  authentication, enables `ssh.service` on TCP 22, and publishes a root-owned
+  BFU-ready marker only after validation;
+- provides an idempotent native `start/status/stop` supervisor protected by a
+  lifetime `flock` plus `/proc` start-time and executable-inode identity checks;
+- starts `/sbin/init` as PID 1 in private mount/PID/UTS/IPC/cgroup namespaces,
+  exposes only a dedicated cgroup-v1 `name=systemd` subtree, and deliberately
+  creates no network namespace;
+- starts that supervisor automatically after the locked-boot root, rootfs, and
+  namespace gates pass, while retaining explicit maintenance controls and live
+  DE lifecycle logs in the activity;
 - dynamically receives `USER_UNLOCKED` and hands off to the unchanged normal
   Termux boot-script scheduling path without stopping the BFU service;
 - also handles `BOOT_COMPLETED` as an AFU fallback and suppresses the unlock/boot
@@ -44,10 +59,10 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
 - stores BFU settings in Device Protected SharedPreferences.
 
 The former BFU Dropbear milestone has been superseded. Pre-authorized Magisk root
-during BFU is verified on-device, and Debian 13 Trixie installation has completed.
-The next cold boot verifies both BFU rootfs accessibility and the new one-shot
-namespace/chroot gate. Long-lived systemd remains disabled until that evidence
-passes. See
+during BFU and Debian 13 Trixie installation are verified on-device. The source
+now implements the long-lived systemd/OpenSSH stage; the remaining gate is a
+physical cold-boot test proving systemd, D-Bus, and SSH reachability before first
+unlock on the target kernel/ROM. See
 [rootfs installation](docs/rootfs-installation.md) and
 [Debian systemd plan](docs/debian-systemd.md).
 
@@ -59,7 +74,7 @@ files. Termux is unchanged from 2026-08-22; Termux:Boot was rebuilt on 2026-08-2
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / embedded arm64 BFU helper | `87BB870E00A45479DBAEC35BB8B941064A20E984A14E158BDEE88F33547AB0DC` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / embedded arm64 BFU helper | `CEF9B1DE5FA1B76F7FDC42E594DA7BB06B038D1D906BFD09F7BA054713E30C8E` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
