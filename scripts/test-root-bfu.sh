@@ -15,19 +15,15 @@ root_count_before="$(line_count "$root_log")"
 
 adb logcat -c
 adb reboot
+
+wait_seconds="${BFU_WAIT_SECONDS:-30}"
+echo "Keep the device locked for ${wait_seconds}s; BFU ADB is not expected on this ROM."
+sleep "$wait_seconds"
+echo "Now unlock the device once so ADB can reconnect and the DE logs can be read."
 adb wait-for-device
 
-echo "Do not unlock the device. Waiting for a fresh BFU root probe..."
-boot_count_after="$boot_count_before"
-root_count_after="$root_count_before"
-for _ in $(seq 1 60); do
-  boot_count_after="$(line_count "$boot_log")"
-  root_count_after="$(line_count "$root_log")"
-  if (( boot_count_after > boot_count_before && root_count_after > root_count_before )); then
-    break
-  fi
-  sleep 2
-done
+boot_count_after="$(line_count "$boot_log")"
+root_count_after="$(line_count "$root_log")"
 
 adb shell dumpsys user | grep -i unlocked || true
 adb shell run-as com.termux.boot cat "$boot_log"
@@ -40,6 +36,8 @@ latest_result="$(printf '%s\n' "$root_results" | tail -n 1 | tr -d '\r')"
 printf '%s\n' "$latest_result" | grep -q '^ROOT_PROBE '
 printf '%s\n' "$latest_result" | grep -q ' exit=0 '
 printf '%s\n' "$latest_result" | grep -q ' root=true '
+printf '%s\n' "$latest_result" | grep -q ' user_unlocked_before=false '
+printf '%s\n' "$latest_result" | grep -q ' user_unlocked_after=false '
 printf '%s\n' "$latest_result" | grep -q 'output=uid=0('
 
-echo "PASS: BFU su returned uid=0 and the result was persisted in DE storage."
+echo "PASS: su returned uid=0 entirely during BFU and the result persisted in DE storage."

@@ -68,16 +68,18 @@ then run:
 ./scripts/test-root-bfu.sh
 ```
 
-The script records line counts before reboot, leaves the device locked, and waits
-for a new entry in:
+The script records line counts before reboot, waits 30 seconds without ADB or an
+unlock, then asks the operator to unlock so it can reconnect and read:
 
 ```text
 /data/user_de/0/com.termux.boot/files/bfu-root.log
 ```
 
-Pass requires the newest line to contain `exit=0`, `root=true`, and
-`output=uid=0(`. A timeout or denial is a real failed gate; do not attempt to make
-an approval UI appear during BFU.
+Pass requires the newest line to contain `exit=0`, `root=true`,
+`user_unlocked_before=false`, `user_unlocked_after=false`, and `output=uid=0(`.
+Those state fields prove the probe completed during BFU even though this ROM does
+not expose ADB until first unlock. A timeout or denial is a real failed gate; do
+not attempt to make an approval UI appear during BFU.
 
 ## Later Debian gates
 

@@ -40,7 +40,7 @@ upstream `testkey_untrusted.jks` files:
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `78BE1637EBA6DC25925EFDA245807A04F04F04E96FC4C78621F5CA32792FA920` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `4CC5D0F31EC7A099C5600ED88EFADE2E069C81492E705881F1102647E07BACE6` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.

@@ -91,8 +91,9 @@ and is invoked directly, not as `/system/bin/sh test.sh`. This intentionally tes
 whether the target-28 app domain can `execve()` a writable DE file on the target ROM.
 
 `BfuRootProbe` runs `su -c id` without a shell, enforces a 15-second timeout, and
-requires both exit status 0 and a `uid=0` identity. Every result is fsynced to
-`bfu-root.log`; failure does not stop the foreground service or AFU handoff.
+requires both exit status 0 and a `uid=0` identity. It records the user-unlocked
+state both before and after `su`, and fsyncs every result to `bfu-root.log`;
+failure does not stop the foreground service or AFU handoff.
 
 ## Lifecycle and idempotence
 

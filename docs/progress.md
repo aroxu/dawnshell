@@ -46,7 +46,7 @@ A portable Temurin JDK 17 and checksummed Android command-line tools were placed
 the ignored `.tools` directory. After explicit user acceptance, Platform 34 and
 Build Tools 34.0.0 were installed. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `78BE1637EBA6DC25925EFDA245807A04F04F04E96FC4C78621F5CA32792FA920`.
+SHA-256 `4CC5D0F31EC7A099C5600ED88EFADE2E069C81492E705881F1102647E07BACE6`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. The newly added Magisk root probe still requires a fresh BFU
@@ -56,5 +56,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-78BE1637EBA6DC25925EFDA245807A04F04F04E96FC4C78621F5CA32792FA920  termux-boot_0.8.1_bfu_debug.apk
+4CC5D0F31EC7A099C5600ED88EFADE2E069C81492E705881F1102647E07BACE6  termux-boot_0.8.1_bfu_debug.apk
 ```
