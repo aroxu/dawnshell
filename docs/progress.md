@@ -30,7 +30,7 @@
 - [x] Verify PID, mount, IPC, UTS, and cgroup namespace creation on kernel 4.4.302.
 - [x] Verify a `--mount-proc` PID-namespace helper becomes PID 1 with an isolated
   `/proc` process view.
-- [x] Replace the BFU Dropbear milestone with the Debian 12/systemd boot target.
+- [x] Replace the BFU Dropbear milestone with the Debian/systemd boot target.
 - [x] Add bounded BFU `su -c id` probing and DE-persistent root result logging.
 - [x] Add an unlock-time UI reader for the last DE root result; it never reruns the
   probe or substitutes AFU output for BFU evidence.
@@ -45,6 +45,8 @@
   a BFU root, DE, or SELinux regression.
 - [x] Add an AFU-only upstream Debian rootfs installer with pinned artifacts,
   signature enforcement, private mounts, staging validation, and no overwrite.
+- [x] Switch the fresh-install target to Debian 13 Trixie arm64 with release-native
+  debootstrap/keyring pins and explicit suite/version validation.
 - [x] Add a DE-persistent installer status/log and a one-second live tail in the
   Termux:Boot activity.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
@@ -59,7 +61,7 @@ A portable Temurin JDK 17 and checksummed Android command-line tools were placed
 the ignored `.tools` directory. After explicit user acceptance, Platform 34 and
 Build Tools 34.0.0 were installed. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `8A22D89D80338318DAD708C0BE2E218F0304559BA546AD966AD3468031B42E3D`.
+SHA-256 `3C83F938F9C716E69C8E8676E117735ADF357C6F1EF4DCC23B0261E80516D1CC`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. Magisk root was subsequently proven entirely during BFU; the
@@ -70,5 +72,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-8A22D89D80338318DAD708C0BE2E218F0304559BA546AD966AD3468031B42E3D  termux-boot_0.8.1_bfu_debug.apk
+3C83F938F9C716E69C8E8676E117735ADF357C6F1EF4DCC23B0261E80516D1CC  termux-boot_0.8.1_bfu_debug.apk
 ```

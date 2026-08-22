@@ -27,7 +27,7 @@ pkg install debootstrap util-linux
 Then open Termux:Boot and press **Request / verify Magisk root permission**.
 Confirm that the package list contains only the trusted shared-UID apps and choose
 Magisk's permanent/forever allow duration. Keep **Enable Direct Boot Debian
-bootstrap** selected and press **Install Debian 12 arm64 rootfs**. The
+bootstrap** selected and press **Install Debian 13 Trixie arm64 rootfs**. The
 foreground service continues if the activity is backgrounded, but keeping the
 activity visible shows the newest 48 KiB of output with a one-second refresh.
 
@@ -38,11 +38,11 @@ artifacts:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `debootstrap_1.0.144.tar.gz` | `3e1bafd4bb813cf4d6c17a0adca449ca07603263a8ea40a67257d2d60c186f9a` |
-| `debian-archive-keyring_2023.3+deb12u2_all.deb` | `f699e2f88dca05212f2a452b58475f2993cb6993dfbafb1d0205a3291eb8b4b8` |
+| `debootstrap_1.0.141.tar.gz` | `232ec755f4b1f445f829996885846abba6f1b6fd55d049476ab26ddd8c4b4e1b` |
+| `debian-archive-keyring_2025.1_all.deb` | `9ea7778e443144ca490668737a8ab22dd3e748bb99e805e22ec055abeb3c7fac` |
 
 Java verifies each download before publishing it into the app-owned DE cache.
-The root helper verifies both digests again, extracts the Bookworm archive
+The root helper verifies both digests again, extracts the Trixie archive
 keyring, and invokes debootstrap with `--force-check-sig`. A checksum or Debian
 Release-signature failure is fatal.
 
@@ -59,15 +59,16 @@ Installation runs as pre-authorized Magisk root inside a private mount namespace
 ```text
 verified downloads in <DE filesDir>/bfu/downloads/
   -> /data/local/debian.installing
-  -> validate Bookworm, arm64, dpkg database, /bin/sh, root ownership
+  -> validate Debian 13/Trixie, arm64, dpkg database, /bin/sh, root ownership
   -> write .termux-bfu-rootfs metadata marker
   -> atomic rename to /data/local/debian
 ```
 
 The helper calls `mount --make-rprivate /` before debootstrap can create any
 temporary mounts. It never overwrites an existing `/data/local/debian`. A valid
-existing BFU rootfs is reported as `ALREADY_INSTALLED`; an unrecognized target
-is left untouched and causes a hard failure.
+existing Trixie BFU rootfs is reported as `ALREADY_INSTALLED`; a rootfs marked
+for another suite and any unrecognized target are left untouched and cause a
+hard failure. The installer never performs an in-place Debian release upgrade.
 
 `/data/local/.termux-bfu-debian-install.lock` prevents concurrent root
 installers. A lock whose recorded host PID still belongs to this installer is

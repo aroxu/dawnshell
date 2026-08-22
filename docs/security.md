@@ -54,8 +54,8 @@ services, mounts, or CE storage.
 
 Rootfs installation is allowed only after `UserManager.isUserUnlocked()` is
 true. Termux CE binaries are disposable AFU build tools, never BFU runtime
-dependencies. The installer pins the SHA-256 of upstream debootstrap and the
-Bookworm Debian archive-keyring package, restricts downloads to HTTPS on
+dependencies. The installer pins the SHA-256 of Trixie's debootstrap source and
+Debian archive-keyring package, restricts downloads to HTTPS on
 `deb.debian.org`, rechecks both digests as root, and requires Debian Release
 signature validation. It never offers a "skip verification" path.
 

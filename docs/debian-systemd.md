@@ -9,7 +9,7 @@ Android init (host PID 1)
   -> pre-authorized Magisk su
   -> root start-debian helper
   -> mount + PID + UTS + IPC + cgroup namespaces
-  -> Debian 12 Bookworm arm64 chroot
+  -> Debian 13 Trixie arm64 chroot
   -> /sbin/init (PID 1 in the Debian PID namespace)
   -> enabled systemd services
 ```
@@ -41,6 +41,22 @@ and namespace evidence, not a pid file alone. Within a new mount namespace it mu
 Host Android mount propagation and cgroup mounts must remain untouched. systemd's
 behavior against the device's mixed cgroup v1/unified topology is a separate gate.
 Stdout/stderr and lifecycle checkpoints must be persisted outside CE.
+
+## Trixie systemd compatibility gate
+
+Debian 13 ships systemd 257. Its upstream minimum Linux baseline is 3.15, so the
+target 4.4.302 kernel is not rejected solely by version, but kernels below the
+recommended 5.4 baseline are marked `old-kernel` and receive limited testing.
+More importantly, systemd 257 refuses to boot on legacy/hybrid cgroup v1 by
+default unless its documented legacy-force kernel-command-line conditions are
+met. The target Android cgroup topology must therefore be captured and tested
+inside the private namespace before `/sbin/init` is enabled.
+
+The launcher must fail closed if it cannot provide a private, writable hierarchy
+acceptable to systemd. It must not change Android's global kernel command line,
+remount the host cgroup tree, or silently fall back to modifying host control
+groups. See the upstream [systemd v257 requirements](https://github.com/systemd/systemd/blob/v257/README)
+and [v257 release notes](https://github.com/systemd/systemd/blob/v257/NEWS).
 
 ## Ordered device gates
 

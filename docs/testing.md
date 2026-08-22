@@ -102,7 +102,8 @@ pkg install debootstrap util-linux
 
 Watch **Debian installation log (live)** until the status is `SUCCEEDED`. Confirm
 the log contains both SHA-256 checks, a valid Debian Release signature, rootfs
-validation, and `INSTALL_SUCCEEDED`. Then reboot and run:
+validation for Debian 13/Trixie arm64, and `INSTALL_SUCCEEDED`. Also verify
+`/data/local/debian/.termux-bfu-rootfs` contains `suite=trixie`. Then reboot and run:
 
 ```sh
 ./scripts/test-rootfs-bfu.sh
@@ -136,9 +137,11 @@ After BFU root is proven, validate these one at a time:
 4. D-Bus and `systemctl` work and the default target is reached.
 5. enabled Debian `ssh.service` is reachable after cold boot before unlock.
 
-Capture `/sys/fs/cgroup`, `/proc/cgroups`, and `/proc/self/cgroup` before changing
-the launcher for systemd. Never repair a failure by remounting the host Android
-cgroup hierarchy.
+Capture `/sys/fs/cgroup`, `/proc/cgroups`, `/proc/self/cgroup`, and
+`/proc/cmdline` before changing the launcher for systemd. Debian 13's systemd 257
+rejects cgroup v1 by default and treats this 4.4 kernel as older than its
+recommended baseline. Never repair a failure by remounting the host Android
+cgroup hierarchy; treat systemd compatibility as its own device gate.
 
 ## First unlock handoff
 

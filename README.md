@@ -1,6 +1,6 @@
 # Termux BFU
 
-Direct Boot bootstrap for starting a root-owned Debian 12 arm64 environment with
+Direct Boot bootstrap for starting a root-owned Debian 13 Trixie arm64 environment with
 systemd before the first user unlock. Normal Termux remains an AFU management
 frontend, not the server runtime.
 
@@ -28,7 +28,7 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
   requiring BFU ADB;
 - after BFU root succeeds, probes `/data/local/debian` directory, shell mode, and
   temporary read/write access and records `files/bfu-rootfs.log`;
-- offers an AFU-only, checksum-pinned Debian 12 arm64 rootfs installer that uses
+- offers an AFU-only, checksum-pinned Debian 13 Trixie arm64 rootfs installer that uses
   a private mount namespace and publishes only a fully validated staging tree;
 - streams installer stdout/stderr to a DE-persistent log that the launcher tails
   every second;
@@ -54,7 +54,7 @@ upstream `testkey_untrusted.jks` files:
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `8A22D89D80338318DAD708C0BE2E218F0304559BA546AD966AD3468031B42E3D` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `3C83F938F9C716E69C8E8676E117735ADF357C6F1EF4DCC23B0261E80516D1CC` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
