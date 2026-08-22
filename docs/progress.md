@@ -32,6 +32,8 @@
   `/proc` process view.
 - [x] Replace the BFU Dropbear milestone with the Debian 12/systemd boot target.
 - [x] Add bounded BFU `su -c id` probing and DE-persistent root result logging.
+- [x] Add an unlock-time UI reader for the last DE root result; it never reruns the
+  probe or substitutes AFU output for BFU evidence.
 - [x] Remove unlock-time BFU service shutdown; unlock now performs AFU handoff only.
 - [ ] Verify Debian gate 1: BFU root probe returns `uid=0` on the physical Note 8.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
@@ -46,7 +48,7 @@ A portable Temurin JDK 17 and checksummed Android command-line tools were placed
 the ignored `.tools` directory. After explicit user acceptance, Platform 34 and
 Build Tools 34.0.0 were installed. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `4CC5D0F31EC7A099C5600ED88EFADE2E069C81492E705881F1102647E07BACE6`.
+SHA-256 `3B1F01BC212ECBC8947B72626E7CD0277C41B2218F9AB15483052CDB88585812`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. The newly added Magisk root probe still requires a fresh BFU
@@ -56,5 +58,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-4CC5D0F31EC7A099C5600ED88EFADE2E069C81492E705881F1102647E07BACE6  termux-boot_0.8.1_bfu_debug.apk
+3B1F01BC212ECBC8947B72626E7CD0277C41B2218F9AB15483052CDB88585812  termux-boot_0.8.1_bfu_debug.apk
 ```

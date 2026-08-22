@@ -81,6 +81,10 @@ Those state fields prove the probe completed during BFU even though this ROM doe
 not expose ADB until first unlock. A timeout or denial is a real failed gate; do
 not attempt to make an approval UI appear during BFU.
 
+As a second read path, open Termux:Boot after unlock and press **Refresh last BFU
+root result**. It reads the same Device Protected log; it does not rerun `su` and
+therefore cannot accidentally turn an AFU authorization into BFU evidence.
+
 ## Later Debian gates
 
 After BFU root is proven, validate these one at a time:
