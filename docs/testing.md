@@ -81,21 +81,46 @@ Those state fields prove the probe completed during BFU even though this ROM doe
 not expose ADB until first unlock. A timeout or denial is a real failed gate; do
 not attempt to make an approval UI appear during BFU.
 
-As a second read path, open Termux:Boot after unlock and press **Refresh last BFU
-root result**. It reads the same Device Protected log; it does not rerun `su` and
+As a second read path, open Termux:Boot after unlock and press **Refresh BFU probe
+results**. It reads the same Device Protected logs; it does not rerun `su` and
 therefore cannot accidentally turn an AFU authorization into BFU evidence.
+
+## Debian gate 2: rootfs accessibility
+
+Prepare a Debian 12 Bookworm arm64 rootfs at the candidate
+`/data/local/debian`, install the new APK, and run:
+
+```sh
+./scripts/test-rootfs-bfu.sh
+```
+
+After the 30-second locked interval and first unlock, the newest
+`bfu-rootfs.log` entry must include:
+
+```text
+rootfs=/data/local/debian
+exit=0
+accessible=true
+user_unlocked_before=false
+user_unlocked_after=false
+output=Debian-rootfs-access-ok root=/data/local/debian shell=/data/local/debian/bin/sh rw=true
+```
+
+The probe checks storage access only. It deliberately does not directly execute
+the Debian shell because its ELF interpreter and libraries require the later
+chroot setup. On failure, preserve the `stage=...` output before changing the
+candidate path or filesystem policy.
 
 ## Later Debian gates
 
 After BFU root is proven, validate these one at a time:
 
-1. `/data/local/debian/bin/sh` executes and the rootfs read/write probe passes.
-2. mount/PID/UTS/IPC/cgroup namespaces are created without a network namespace;
+1. mount/PID/UTS/IPC/cgroup namespaces are created without a network namespace;
    namespace PID 1 sees a matching private `/proc`.
-3. `chroot` executes Debian `/bin/sh`.
-4. `/sbin/init` becomes namespace PID 1.
-5. D-Bus and `systemctl` work and the default target is reached.
-6. enabled Debian `ssh.service` is reachable after cold boot before unlock.
+2. `chroot` executes Debian `/bin/sh`.
+3. `/sbin/init` becomes namespace PID 1.
+4. D-Bus and `systemctl` work and the default target is reached.
+5. enabled Debian `ssh.service` is reachable after cold boot before unlock.
 
 Capture `/sys/fs/cgroup`, `/proc/cgroups`, and `/proc/self/cgroup` before changing
 the launcher for systemd. Never repair a failure by remounting the host Android

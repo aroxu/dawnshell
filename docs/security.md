@@ -34,6 +34,11 @@ cgroups globally, or treat a stale pid file as proof that Debian is running.
 Shutdown/reboot requests inside the Debian PID namespace must be tested to ensure
 they cannot unintentionally reboot the Android host.
 
+The rootfs accessibility gate writes only a random-per-process marker named
+`.termux-bfu-access-probe.<pid>` at the rootfs top level, reads it back, and removes
+it through an EXIT/signal trap. It does not modify Debian configuration, users,
+services, mounts, or CE storage.
+
 ## Signing boundary
 
 The Android shared UID makes signing part of the security architecture. F-Droid,

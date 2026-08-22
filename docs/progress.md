@@ -35,7 +35,10 @@
 - [x] Add an unlock-time UI reader for the last DE root result; it never reruns the
   probe or substitutes AFU output for BFU evidence.
 - [x] Remove unlock-time BFU service shutdown; unlock now performs AFU handoff only.
-- [ ] Verify Debian gate 1: BFU root probe returns `uid=0` on the physical Note 8.
+- [x] Verify Debian gate 1 on-device: `/system/xbin/su`, `exit=0`, `uid=0(root)`,
+  Magisk SELinux context, and locked state before/after the probe.
+- [x] Implement gated `/data/local/debian` directory, shell-mode, and temporary
+  read/write probe with a DE-persistent result.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Implement and verify namespace/mount launcher and Debian chroot.
 - [ ] Start systemd as namespace PID 1 and verify D-Bus/systemctl.
@@ -48,7 +51,7 @@ A portable Temurin JDK 17 and checksummed Android command-line tools were placed
 the ignored `.tools` directory. After explicit user acceptance, Platform 34 and
 Build Tools 34.0.0 were installed. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `3B1F01BC212ECBC8947B72626E7CD0277C41B2218F9AB15483052CDB88585812`.
+SHA-256 `3351A2472AECB8A948A51DC407EF833B14EA424B555D18EC2AA6750353487DBF`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
 the device owner. The newly added Magisk root probe still requires a fresh BFU
@@ -58,5 +61,5 @@ The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-3B1F01BC212ECBC8947B72626E7CD0277C41B2218F9AB15483052CDB88585812  termux-boot_0.8.1_bfu_debug.apk
+3351A2472AECB8A948A51DC407EF833B14EA424B555D18EC2AA6750353487DBF  termux-boot_0.8.1_bfu_debug.apk
 ```

@@ -23,15 +23,17 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
   `files/bfu-root.log`;
 - shows the latest persistent root result in the launcher after unlock, without
   requiring BFU ADB;
+- after BFU root succeeds, probes `/data/local/debian` directory, shell mode, and
+  temporary read/write access and records `files/bfu-rootfs.log`;
 - dynamically receives `USER_UNLOCKED` and hands off to the unchanged normal
   Termux boot-script scheduling path without stopping the BFU service;
 - also handles `BOOT_COMPLETED` as an AFU fallback and suppresses the unlock/boot
   race for 60 seconds;
 - stores BFU settings in Device Protected SharedPreferences.
 
-The former BFU Dropbear milestone has been superseded. The next device gate is
-pre-authorized Magisk root during BFU; only after that passes will the launcher
-probe `/data/local/debian`, namespaces, chroot, and systemd in order. See
+The former BFU Dropbear milestone has been superseded. Pre-authorized Magisk root
+during BFU is verified on-device; the current gate is `/data/local/debian` storage
+access. Only after it passes will namespaces, chroot, and systemd follow. See
 [Debian systemd plan](docs/debian-systemd.md).
 
 ## Built APK pair
@@ -42,7 +44,7 @@ upstream `testkey_untrusted.jks` files:
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `3B1F01BC212ECBC8947B72626E7CD0277C41B2218F9AB15483052CDB88585812` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `3351A2472AECB8A948A51DC407EF833B14EA424B555D18EC2AA6750353487DBF` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.

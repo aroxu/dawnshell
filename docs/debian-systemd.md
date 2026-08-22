@@ -21,8 +21,8 @@ not stop or restart the BFU service, namespace, systemd, or Debian services.
 ## Storage
 
 Termux CE paths are forbidden. `/data/local/debian` is only a candidate until a
-BFU root process proves `/data/local/debian/bin/sh` can execute and the rootfs can
-be read/written. If it fails, select another root-accessible device-encrypted path.
+BFU root process proves its directories and `bin/sh` mode are readable and the
+rootfs can be written. If it fails, select another root-accessible device-encrypted path.
 The app-owned DE `files/bfu/` tree remains for bootstrap/control files and logs,
 not the full rootfs, so uninstalling Termux:Boot does not silently remove Debian.
 
@@ -45,7 +45,8 @@ Stdout/stderr and lifecycle checkpoints must be persisted outside CE.
 ## Ordered device gates
 
 1. BFU `su -c id` returns `uid=0` and persists the result in DE.
-2. BFU root can execute and write-test the selected Debian rootfs.
+2. BFU root validates the selected Debian rootfs structure, shell mode, and
+   temporary read/write access.
 3. Root helper creates mount/PID/UTS/IPC/cgroup namespaces and PID 1 sees its own
    `/proc`.
 4. `chroot` executes Debian `/bin/sh`.
@@ -54,4 +55,4 @@ Stdout/stderr and lifecycle checkpoints must be persisted outside CE.
 7. Enabled Debian `ssh.service` starts after cold boot before first unlock.
 
 Each gate requires physical-device evidence before implementing assumptions for the
-next. The current source implements gate 1 only.
+next. The current source implements gates 1 and 2; gate 2 still needs device evidence.

@@ -72,12 +72,14 @@ The PoC creates:
 ```text
 <DE filesDir>/bfu-boot.log
 <DE filesDir>/bfu-root.log
+<DE filesDir>/bfu-rootfs.log
 bfu/
   bin/
   etc/
   home/
   run/
   scripts/test.sh
+  scripts/probe-rootfs.sh
   tmp/
 ```
 
@@ -94,6 +96,13 @@ whether the target-28 app domain can `execve()` a writable DE file on the target
 requires both exit status 0 and a `uid=0` identity. It records the user-unlocked
 state both before and after `su`, and fsyncs every result to `bfu-root.log`;
 failure does not stop the foreground service or AFU handoff.
+
+After—and only after—the same-boot root result succeeds entirely while locked,
+`probe-rootfs.sh` runs through the same bounded `su` helper. It checks the candidate
+`/data/local/debian`, `etc`, and readable/executable `bin/sh`, then creates, reads,
+and removes an owner-private temporary marker in the rootfs. It does not execute a
+Debian ELF or enter chroot, keeping storage accessibility separate from the later
+dynamic-loader/chroot gate.
 
 ## Lifecycle and idempotence
 
