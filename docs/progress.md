@@ -39,6 +39,12 @@
   Magisk SELinux context, and locked state before/after the probe.
 - [x] Implement gated `/data/local/debian` directory, shell-mode, and temporary
   read/write probe with a DE-persistent result.
+- [x] Confirm on-device gate-2 probe failure is exactly `stage=root_missing`, not
+  a BFU root, DE, or SELinux regression.
+- [x] Add an AFU-only upstream Debian rootfs installer with pinned artifacts,
+  signature enforcement, private mounts, staging validation, and no overwrite.
+- [x] Add a DE-persistent installer status/log and a one-second live tail in the
+  Termux:Boot activity.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Implement and verify namespace/mount launcher and Debian chroot.
 - [ ] Start systemd as namespace PID 1 and verify D-Bus/systemctl.
@@ -51,15 +57,16 @@ A portable Temurin JDK 17 and checksummed Android command-line tools were placed
 the ignored `.tools` directory. After explicit user acceptance, Platform 34 and
 Build Tools 34.0.0 were installed. The generated debug APK is
 `termux-boot/app/build/outputs/apk/debug/termux-boot-app_v0.8.1+debug.apk` with
-SHA-256 `3351A2472AECB8A948A51DC407EF833B14EA424B555D18EC2AA6750353487DBF`.
+SHA-256 `DD8738EF50F9C573A00129629E75E2D832A2A290AEE01EC2CFEEB53AAD631C52`.
 
 The Direct Boot and namespace foundation was validated on the physical target by
-the device owner. The newly added Magisk root probe still requires a fresh BFU
-device run.
+the device owner. Magisk root was subsequently proven entirely during BFU; the
+next physical-device action is running the new AFU rootfs installer and repeating
+the locked-boot rootfs accessibility probe.
 
 The local install pair is staged under ignored `dist/` with these hashes:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk
-3351A2472AECB8A948A51DC407EF833B14EA424B555D18EC2AA6750353487DBF  termux-boot_0.8.1_bfu_debug.apk
+DD8738EF50F9C573A00129629E75E2D832A2A290AEE01EC2CFEEB53AAD631C52  termux-boot_0.8.1_bfu_debug.apk
 ```

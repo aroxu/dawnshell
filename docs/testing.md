@@ -87,8 +87,15 @@ therefore cannot accidentally turn an AFU authorization into BFU evidence.
 
 ## Debian gate 2: rootfs accessibility
 
-Prepare a Debian 12 Bookworm arm64 rootfs at the candidate
-`/data/local/debian`, install the new APK, and run:
+While unlocked, install Termux prerequisites, then use the in-app installer:
+
+```sh
+pkg install debootstrap util-linux
+```
+
+Watch **Debian installation log (live)** until the status is `SUCCEEDED`. Confirm
+the log contains both SHA-256 checks, a valid Debian Release signature, rootfs
+validation, and `INSTALL_SUCCEEDED`. Then reboot and run:
 
 ```sh
 ./scripts/test-rootfs-bfu.sh

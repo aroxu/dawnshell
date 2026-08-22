@@ -39,6 +39,22 @@ The rootfs accessibility gate writes only a random-per-process marker named
 it through an EXIT/signal trap. It does not modify Debian configuration, users,
 services, mounts, or CE storage.
 
+## Rootfs supply chain
+
+Rootfs installation is allowed only after `UserManager.isUserUnlocked()` is
+true. Termux CE binaries are disposable AFU build tools, never BFU runtime
+dependencies. The installer pins the SHA-256 of upstream debootstrap and the
+Bookworm Debian archive-keyring package, restricts downloads to HTTPS on
+`deb.debian.org`, rechecks both digests as root, and requires Debian Release
+signature validation. It never offers a "skip verification" path.
+
+The final rootfs path is not recursively deleted or overwritten. Installation
+uses a staging sibling on the same filesystem, validates it, and performs an
+atomic rename. Interrupted trees and stale locks are preserved under timestamped
+names for inspection. The operational log may reveal package names and paths but
+must never contain repository credentials, proxy secrets, passwords, or private
+keys.
+
 ## Signing boundary
 
 The Android shared UID makes signing part of the security architecture. F-Droid,

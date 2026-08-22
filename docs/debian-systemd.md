@@ -55,4 +55,5 @@ Stdout/stderr and lifecycle checkpoints must be persisted outside CE.
 7. Enabled Debian `ssh.service` starts after cold boot before first unlock.
 
 Each gate requires physical-device evidence before implementing assumptions for the
-next. The current source implements gates 1 and 2; gate 2 still needs device evidence.
+next. Gate 1 is proven. The current source implements the gate-2 probe and AFU
+rootfs installer; locked-boot evidence for the installed tree is still pending.

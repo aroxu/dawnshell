@@ -73,6 +73,8 @@ The PoC creates:
 <DE filesDir>/bfu-boot.log
 <DE filesDir>/bfu-root.log
 <DE filesDir>/bfu-rootfs.log
+<DE filesDir>/debian-install.status
+<DE filesDir>/debian-install.log
 bfu/
   bin/
   etc/
@@ -80,6 +82,8 @@ bfu/
   run/
   scripts/test.sh
   scripts/probe-rootfs.sh
+  scripts/install-debian-rootfs.sh
+  downloads/              # checksum-pinned public Debian artifacts
   tmp/
 ```
 
@@ -103,6 +107,14 @@ After—and only after—the same-boot root result succeeds entirely while locke
 and removes an owner-private temporary marker in the rootfs. It does not execute a
 Debian ELF or enter chroot, keeping storage accessibility separate from the later
 dynamic-loader/chroot gate.
+
+Rootfs preparation is a separate AFU operation launched explicitly from the
+activity. A foreground-service worker downloads pinned public Debian artifacts,
+streams child output into DE, and invokes a root helper. The helper borrows the
+unlocked Termux prefix only as a host toolchain. It runs upstream debootstrap in
+a private mount namespace and atomically promotes `/data/local/debian.installing`
+only after architecture, dpkg state, shell, version, and root ownership checks.
+No Termux path is embedded in the resulting Debian filesystem.
 
 ## Lifecycle and idempotence
 

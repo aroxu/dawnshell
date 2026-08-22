@@ -25,6 +25,10 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
   requiring BFU ADB;
 - after BFU root succeeds, probes `/data/local/debian` directory, shell mode, and
   temporary read/write access and records `files/bfu-rootfs.log`;
+- offers an AFU-only, checksum-pinned Debian 12 arm64 rootfs installer that uses
+  a private mount namespace and publishes only a fully validated staging tree;
+- streams installer stdout/stderr to a DE-persistent log that the launcher tails
+  every second;
 - dynamically receives `USER_UNLOCKED` and hands off to the unchanged normal
   Termux boot-script scheduling path without stopping the BFU service;
 - also handles `BOOT_COMPLETED` as an AFU fallback and suppresses the unlock/boot
@@ -32,8 +36,11 @@ Android 16. The `bfu/direct-boot-poc` branch in `termux-boot` currently:
 - stores BFU settings in Device Protected SharedPreferences.
 
 The former BFU Dropbear milestone has been superseded. Pre-authorized Magisk root
-during BFU is verified on-device; the current gate is `/data/local/debian` storage
-access. Only after it passes will namespaces, chroot, and systemd follow. See
+during BFU is verified on-device. The latest physical-device probe correctly
+reported `stage=root_missing`; the app now provides the rootfs preparation path,
+but gate 2 remains open until the resulting tree passes a fresh locked-boot
+probe. Only after it passes will namespaces, chroot, and systemd follow. See
+[rootfs installation](docs/rootfs-installation.md) and
 [Debian systemd plan](docs/debian-systemd.md).
 
 ## Built APK pair
@@ -44,7 +51,7 @@ upstream `testkey_untrusted.jks` files:
 | APK | Target/ABI | SHA-256 |
 | --- | --- | --- |
 | `dist/termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk` | target 28 / arm64-v8a | `31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6` |
-| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `3351A2472AECB8A948A51DC407EF833B14EA424B555D18EC2AA6750353487DBF` |
+| `dist/termux-boot_0.8.1_bfu_debug.apk` | target 28 / no native ABI | `DD8738EF50F9C573A00129629E75E2D832A2A290AEE01EC2CFEEB53AAD631C52` |
 
 Both APKs declare `sharedUserId=com.termux` and have signing-certificate SHA-256
 `B6DA01480EEFD5FBF2CD3771B8D1021EC791304BDD6C4BF41D3FAABAD48EE5E1`.
@@ -94,5 +101,5 @@ Before replacing an F-Droid installation:
    Termux. Never restore CE credentials into the BFU DE tree.
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
-[testing](docs/testing.md), [Debian systemd plan](docs/debian-systemd.md), and
-[progress](docs/progress.md).
+[testing](docs/testing.md), [rootfs installation](docs/rootfs-installation.md),
+[Debian systemd plan](docs/debian-systemd.md), and [progress](docs/progress.md).
