@@ -54,6 +54,7 @@ grep -Fq 'Never mount one USB storage filesystem from both systems' "$strings"
 
 grep -Fq '"c 189:* rwm\n"' "$native_launcher"
 grep -Fq 'BPF_PROG_TYPE_CGROUP_DEVICE' "$native_launcher"
+test "$(grep -Fc 'attributes.attach_flags = BPF_F_ALLOW_MULTI' "$native_launcher")" -eq 2
 grep -Fq 'move_self_to_delegated_command(control_dir, cgroup_mode)' "$native_launcher"
 grep -Fq 'command_moved_to_cgroup_v2_leaf' "$native_launcher"
 grep -Fq '/dawnshell-command' "$native_launcher"

@@ -1063,6 +1063,7 @@ static int probe_cgroup_device_bpf(const char *child_path) {
     attributes.target_fd = (uint32_t) cgroup_fd;
     attributes.attach_bpf_fd = (uint32_t) program_fd;
     attributes.attach_type = BPF_CGROUP_DEVICE;
+    attributes.attach_flags = BPF_F_ALLOW_MULTI;
     int result = (int) syscall(__NR_bpf, BPF_PROG_ATTACH,
                                &attributes, sizeof(attributes));
     if (result != 0) {
@@ -1089,7 +1090,8 @@ static int probe_cgroup_device_bpf(const char *child_path) {
         return fail_errno("cgroup_v2_device_probe_rmdir", 114);
     }
     dprintf(STDERR_FILENO,
-            "[%lld] BFU_DEBIAN_STAGE cgroup_v2_device_bpf_verified\n",
+            "[%lld] BFU_DEBIAN_STAGE cgroup_v2_device_bpf_verified "
+            "attach_mode=allow_multi\n",
             (long long) realtime_seconds());
     return 0;
 #else
@@ -1151,6 +1153,7 @@ static int apply_host_usb_v2_policy(const char *payload_path,
     attributes.target_fd = (uint32_t) cgroup_fd;
     attributes.attach_bpf_fd = (uint32_t) program_fd;
     attributes.attach_type = BPF_CGROUP_DEVICE;
+    attributes.attach_flags = BPF_F_ALLOW_MULTI;
     int result = (int) syscall(__NR_bpf, BPF_PROG_ATTACH,
                                &attributes, sizeof(attributes));
     int saved_errno = errno;
@@ -1162,7 +1165,8 @@ static int apply_host_usb_v2_policy(const char *payload_path,
     }
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_USB policy=off cgroup_backend=v2_bpf "
-            "usbfs_major=189 action=deny_rwm delegated_subtree_only=true\n",
+            "usbfs_major=189 action=deny_rwm delegated_subtree_only=true "
+            "attach_mode=allow_multi\n",
             (long long) realtime_seconds());
     return 0;
 #else
