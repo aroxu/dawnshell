@@ -23,11 +23,23 @@
 #include <time.h>
 #include <unistd.h>
 
+#if defined(__aarch64__)
+#define DAWNSHELL_DEBIAN_ARCH "arm64"
+#elif defined(__arm__)
+#define DAWNSHELL_DEBIAN_ARCH "armhf"
+#elif defined(__x86_64__)
+#define DAWNSHELL_DEBIAN_ARCH "amd64"
+#else
+#error "DawnShell supports only ARMv7, ARM64, and x86_64"
+#endif
+
 #ifndef CLONE_NEWCGROUP
 #define CLONE_NEWCGROUP 0x02000000
 #endif
 
 static const char *const kAllowedRoot = "/data/local/debian";
+static const char *const kArchitectureMarker =
+        "architecture=" DAWNSHELL_DEBIAN_ARCH;
 static const char *const kReadyMarker = ".dawnshell-systemd-ready";
 static const char *const kLockName = "debian-supervisor.lock";
 static const char *const kStateName = "debian-supervisor.state";
@@ -367,9 +379,9 @@ static int validate_rootfs(const char *root, bool require_systemd) {
     if (joined_path(path, sizeof(path), root, ".dawnshell-rootfs") != 0
             || !is_safe_root_marker(path)
             || !file_has_exact_line(path, "suite=trixie")
-            || !file_has_exact_line(path, "architecture=arm64")) {
+            || !file_has_exact_line(path, kArchitectureMarker)) {
         return fail_message("rootfs_marker",
-                            "missing_or_unsafe_Trixie_arm64_marker", 26);
+                            "missing_or_unsafe_Trixie_architecture_marker", 26);
     }
     if (joined_path(path, sizeof(path), root, "bin/sh") != 0
             || !is_regular_executable(path)) {
@@ -392,7 +404,7 @@ static int validate_rootfs(const char *root, bool require_systemd) {
         if (joined_path(path, sizeof(path), root, kReadyMarker) != 0
                 || !is_safe_root_marker(path)
                 || !file_has_exact_line(path, "suite=trixie")
-                || !file_has_exact_line(path, "architecture=arm64")
+                || !file_has_exact_line(path, kArchitectureMarker)
                 || !file_has_exact_line(path, "ssh_service=ssh.service")
                 || !file_has_exact_line(path,
                                         "boot_proof_service=dawnshell-boot-proof.service")
@@ -1749,7 +1761,8 @@ static int enter_debian_probe(const char *root) {
             "IFS= read -r proc1 < /proc/1/comm || fail proc1_read; "
             "[ \"$proc1\" = sh ] || fail proc1_not_debian_shell; "
             "arch=$(/usr/bin/dpkg --print-architecture) || fail dpkg_arch; "
-            "[ \"$arch\" = arm64 ] || fail architecture_not_arm64; "
+            "[ \"$arch\" = " DAWNSHELL_DEBIAN_ARCH
+            " ] || fail architecture_mismatch; "
             "version=$(/usr/bin/cut -d. -f1 /etc/debian_version) || fail debian_version_read; "
             "[ \"$version\" = 13 ] || fail debian_version_not_13; "
             "if [ -x /sbin/init ]; then init=present; else init=absent; fi; "

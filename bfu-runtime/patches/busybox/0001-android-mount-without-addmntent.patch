@@ -1,0 +1,10 @@
+--- a/util-linux/mount.c
++++ b/util-linux/mount.c
+@@ -184,4 +184,7 @@
+ #include <mntent.h>
++#ifdef __ANDROID__
++#define addmntent(stream, mount_entry) (1)
++#endif
+ #if ENABLE_FEATURE_SYSLOG
+ #include <syslog.h>
+ #endif

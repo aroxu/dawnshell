@@ -9,15 +9,28 @@ dist_dir="$root_dir/dist"
 ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/29.0.14206865}"
 export ANDROID_NDK_HOME
 
-"$root_dir/scripts/build-bfu-namespace-probe.sh"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    # The OpenSSH interoperability unit test runs Windows ssh-keygen. MSYS2's
+    # default PATH contains System32 but not its OpenSSH subdirectory.
+    windows_openssh=/c/Windows/System32/OpenSSH
+    if [[ -x "$windows_openssh/ssh-keygen.exe" ]]; then
+      export PATH="$windows_openssh:$PATH"
+    fi
+    ;;
+esac
+
+if [[ "${DAWNSHELL_SKIP_BOOTSTRAP_SOURCE_BUILD:-0}" != 1 ]]; then
+  "$root_dir/scripts/build-bootstrap-runtime.sh"
+fi
 "$root_dir/scripts/test-compatibility-policy.sh"
 "$root_dir/gradlew" -p "$root_dir" \
   clean :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
 
 mkdir -p "$dist_dir"
-cp "$root_dir/app/build/outputs/apk/debug/dawnshell-app_v0.1.0+debug.apk" \
-   "$dist_dir/dawnshell_0.1.0_debug.apk"
+cp "$root_dir/app/build/outputs/apk/debug/dawnshell-app_v0.2.0+debug.apk" \
+   "$dist_dir/dawnshell_0.2.0_debug.apk"
 
-sha256sum "$dist_dir/dawnshell_0.1.0_debug.apk"
+sha256sum "$dist_dir/dawnshell_0.2.0_debug.apk"
 echo "Package: me.aroxu.dawnshell"
 echo "Debug APK uses a public development key; use a private key for production."

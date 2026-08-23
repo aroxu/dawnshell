@@ -1,0 +1,10 @@
+--- a/src/Makefile.in
++++ b/src/Makefile.in
+@@ -587,6 +587,6 @@
+ @INSTALL_GPG_ERROR_CONFIG_FALSE@bin_SCRIPTS = gpgrt-config
+ @INSTALL_GPG_ERROR_CONFIG_TRUE@bin_SCRIPTS = gpgrt-config gpg-error-config
+-@INSTALL_GPG_ERROR_CONFIG_FALSE@noinst_SCRIPTS = gpg-error-config
++@INSTALL_GPG_ERROR_CONFIG_FALSE@noinst_SCRIPTS =
+ m4datadir = $(datadir)/aclocal
+ m4data_DATA = gpg-error.m4 gpgrt.m4
+ pkgconfigdir = $(libdir)/pkgconfig

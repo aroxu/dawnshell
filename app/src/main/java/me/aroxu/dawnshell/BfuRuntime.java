@@ -1,10 +1,9 @@
 package me.aroxu.dawnshell;
 
 import android.content.Context;
-import android.os.Build;
-
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,6 +21,7 @@ final class BfuRuntime {
 
     static final class Layout {
         final File root;
+        final BfuArchitecture architecture;
         final File bin;
         final File etc;
         final File home;
@@ -33,15 +33,21 @@ final class BfuRuntime {
         final File testScript;
         final File rootfsProbeScript;
         final File namespaceProbeBinary;
+        final File toolboxBinary;
+        final File gpgvBinary;
+        final File pkgdetailsBinary;
         final File rootfsInstallerScript;
         final File systemdConfiguratorScript;
         final File dockerNetworkConfiguratorScript;
         final File lifecycleLog;
         final File debootstrapArchive;
         final File archiveKeyringPackage;
+        final File sourceLock;
+        final File runtimeProperties;
 
-        Layout(File root) {
+        Layout(File root, BfuArchitecture architecture) {
             this.root = root;
+            this.architecture = architecture;
             bin = new File(root, "bin");
             etc = new File(root, "etc");
             home = new File(root, "home");
@@ -52,7 +58,13 @@ final class BfuRuntime {
             authorizedKeys = new File(etc, "authorized_keys");
             testScript = new File(scripts, "test.sh");
             rootfsProbeScript = new File(scripts, "probe-rootfs.sh");
-            namespaceProbeBinary = new File(bin, "bfu-namespace-probe-arm64");
+            namespaceProbeBinary = new File(bin, "bfu-namespace-probe");
+            // BusyBox dispatches subcommands only when argv[0] begins with
+            // "busybox". Keep the APK artifact descriptive but provision it
+            // with the canonical runtime basename.
+            toolboxBinary = new File(bin, "busybox");
+            gpgvBinary = new File(bin, "gpgv");
+            pkgdetailsBinary = new File(bin, "pkgdetails");
             rootfsInstallerScript = new File(scripts, "install-debian-rootfs.sh");
             systemdConfiguratorScript = new File(scripts,
                     "configure-debian-systemd.sh");
@@ -62,14 +74,17 @@ final class BfuRuntime {
             debootstrapArchive = new File(downloads, "debootstrap_1.0.141.tar.gz");
             archiveKeyringPackage = new File(downloads,
                     "debian-archive-keyring_2025.1_all.deb");
+            sourceLock = new File(downloads, "SOURCES.lock");
+            runtimeProperties = new File(etc, "bootstrap-runtime.properties");
         }
     }
 
     private BfuRuntime() {}
 
-    static Layout layout(Context context) {
+    static Layout layout(Context context) throws IOException {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
-        return new Layout(new File(deContext.getFilesDir(), "bfu"));
+        return new Layout(new File(deContext.getFilesDir(), "bfu"),
+                BfuArchitecture.detect());
     }
 
     static Layout provision(Context context) throws IOException {
@@ -86,9 +101,28 @@ final class BfuRuntime {
 
         writePrivateFile(layout.testScript, TEST_SCRIPT, true);
         copyPrivateAsset(deContext, "bfu/probe-rootfs.sh", layout.rootfsProbeScript, true);
-        requireArm64();
-        copyPrivateAsset(deContext, "bfu/bin/bfu-namespace-probe-arm64",
+        String abiAssets = layout.architecture.assetDirectory();
+        copyPrivateAsset(deContext, abiAssets + "/bfu-namespace-probe",
                 layout.namespaceProbeBinary, true);
+        copyPrivateAsset(deContext, abiAssets + "/dawnshell-toolbox",
+                layout.toolboxBinary, true);
+        copyPrivateAsset(deContext, abiAssets + "/gpgv",
+                layout.gpgvBinary, true);
+        copyPrivateAsset(deContext, abiAssets + "/pkgdetails",
+                layout.pkgdetailsBinary, true);
+        copyPrivateAsset(deContext, abiAssets + "/runtime.properties",
+                layout.runtimeProperties, false);
+        verifyRuntimeProperties(layout.runtimeProperties, layout.architecture);
+        // AAPT treats a .gz asset specially and strips the suffix. Keep the
+        // APK entry as .tgz, then provision the verified bytes under the
+        // conventional .tar.gz runtime filename.
+        copyPrivateAsset(deContext, "bfu/bootstrap/debootstrap_1.0.141.tgz",
+                layout.debootstrapArchive, false);
+        copyPrivateAsset(deContext,
+                "bfu/bootstrap/debian-archive-keyring_2025.1_all.deb",
+                layout.archiveKeyringPackage, false);
+        copyPrivateAsset(deContext, "bfu/bootstrap/SOURCES.lock",
+                layout.sourceLock, false);
         copyPrivateAsset(deContext, "bfu/install-debian-rootfs.sh",
                 layout.rootfsInstallerScript, true);
         copyPrivateAsset(deContext, "bfu/configure-debian-systemd.sh",
@@ -161,6 +195,29 @@ final class BfuRuntime {
         setPrivateMode(file, false);
     }
 
+    private static void verifyRuntimeProperties(File file,
+                                                BfuArchitecture architecture)
+            throws IOException {
+        StringBuilder value = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (value.length() > 4_096) {
+                    throw new IOException("BFU runtime metadata is unexpectedly large");
+                }
+                value.append(line).append('\n');
+            }
+        }
+        String metadata = value.toString();
+        if (!metadata.contains("android_abi=" + architecture.androidAbi + "\n")
+                || !metadata.contains("debian_architecture="
+                + architecture.debianArchitecture + "\n")
+                || !metadata.contains("android_api=24\n")) {
+            throw new IOException("BFU runtime metadata does not match the device ABI");
+        }
+    }
+
     private static void copyPrivateAsset(Context context, String assetPath, File file,
                                          boolean executable) throws IOException {
         File temporary = new File(file.getParentFile(), file.getName() + ".new");
@@ -179,13 +236,6 @@ final class BfuRuntime {
             throw new IOException("Failed to install " + file);
         }
         setPrivateMode(file, executable);
-    }
-
-    private static void requireArm64() throws IOException {
-        for (String abi : Build.SUPPORTED_ABIS) {
-            if ("arm64-v8a".equals(abi)) return;
-        }
-        throw new IOException("BFU namespace helper currently supports only arm64-v8a");
     }
 
     @SuppressWarnings("ResultOfMethodCallIgnored")

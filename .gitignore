@@ -7,6 +7,7 @@
 *.aab
 local.properties
 test-results/
+.build-*.log
 termux-app/
 termux-boot/
 termux-packages/
