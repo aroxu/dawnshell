@@ -18,9 +18,10 @@
 5. Root is required for the Debian launcher but is never assumed: each boot must
    prove `su -c id` returned `uid=0`, and failure cannot crash the BFU controller.
 6. The Debian launcher intentionally shares Android's network namespace for
-   native-NIC performance. It does not expose Android's controller mounts to
-   systemd. Its named tracking cgroup and every bind mount are visible only
-   through the private mount/cgroup namespace view.
+   native-NIC performance. It does not expose an Android cgroup hierarchy root
+   to systemd. Only dedicated `dawnshell` children of the `name=systemd` and
+   devices-v1 hierarchies are visible through the private mount/cgroup namespace
+   view; Android tasks remain outside those children.
 7. The locked-boot standalone app process must prove that its provisioned CE sentinel
    content is unreadable before the rootfs/namespace launcher runs. The fixed
    sentinel path and verdict may be logged, but no user filename or content is.
@@ -65,9 +66,15 @@ system `libc.so`/`libdl.so` dependencies. The build requires a non-empty helper
 asset, and provisioning copies it to owner-only DE storage. Root accepts
 only the exact, non-symlink, uid-0-owned, non-group/world-writable
 `/data/local/debian` root. The bounded probe exits after the chroot proof. The
-long-running mode exposes only a private `name=systemd` cgroup subtree, rejects
-duplicate or identity-ambiguous instances, and keeps the supervisor independent
-of the Android app process. The chroot root is a separate private bind mount.
+long-running mode exposes only delegated `dawnshell` children for `name=systemd`
+and devices-v1, rejects duplicate or identity-ambiguous instances, and keeps the
+supervisor independent of the Android app process. Attaching a v1 controller to
+a hierarchy is kernel-global, but the launcher never changes the root devices
+allowlist and never moves Android tasks into the delegated child. The child can
+only retain or remove permissions granted by its parent. The hierarchy root is
+not bind-mounted into Debian. Shutdown recursively removes Docker/systemd
+descendant cgroups and each delegated child before unmounting the private source
+mount. The chroot root is a separate private bind mount.
 That private mount clears Android `/data`'s `nosuid` flag so Debian `su` can use
 its normal setuid binary, while retaining `nodev`; the host `/data` mount is never
 remounted. Consequently, a Debian root shell has device-level root authority and
@@ -87,8 +94,10 @@ The host manager accepts only the literal `ANDROID_REBOOT` token. A successful
 request reboots the entire Android device and is not namespace-isolated.
 
 Health and shutdown-test operations enter only namespace descriptors belonging to
-the identity-verified live PID 1. Health runs a fixed, bounded set of local
-systemd/D-Bus/socket checks. Shutdown-test accepts only `poweroff`, `reboot`, or
+the identity-verified live PID 1. Their helper is moved into the delegated
+systemd/devices children before joining PID 1's cgroup namespace. Health runs a
+fixed, bounded set of local systemd/D-Bus/socket/devices-cgroup checks.
+Shutdown-test accepts only `poweroff`, `reboot`, or
 the literal `shutdown` selector; that selector maps only to a fixed
 `/usr/sbin/shutdown --poweroff --no-wall now` invocation. It exists for ADB/root
 validation and does not expose arbitrary command execution. Only the external
@@ -171,6 +180,12 @@ store a reusable enrollment auth key in DE or the BFU rootfs. Interactive login
 is preferred. Once enrolled, `/var/lib/tailscale/tailscaled.state` is necessarily
 available during BFU and must be treated as a device credential with weaker
 at-rest protection than CE data.
+
+Docker is not a security boundary in the current shared-network design. This
+devices-cgroup delegation prevents Docker from walking upward into Android's
+cgroup root, but Docker-created bridges, routes, forwarding rules, and iptables
+state would still affect Android's global network namespace. Those mutations
+must be separately constrained before enabling Docker networking.
 
 The target's IPC namespace is a documented compatibility exception, not a
 container-security boundary. A captured kernel panic proves that Samsung's

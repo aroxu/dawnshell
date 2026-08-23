@@ -216,7 +216,8 @@ once for AFU validation.
 Press **Refresh Debian systemd status**. A successful launcher status contains
 `BFU_DEBIAN_RUNNING`, identity-valid supervisor/init, valid namespace topology,
 `network_namespace=android-shared network_mode=shared-nic`, and a native health
-line proving D-Bus, `ssh.service`, and TCP 22. With an uplink, host inspection
+line proving D-Bus, `ssh.service`, TCP 22, and
+`devices_cgroup=delegated devices_path=/`. With an uplink, host inspection
 must show priority 5200 matching `fwmark 0x80000/0xff0000` and looking up Android's
 selected table. It must show no `tbfu-host`, `TBFU_NAT`, or `TBFU_FWD`. After an
 explicit stop, the priority-5200 IPv4/IPv6 rules must be absent.
@@ -233,6 +234,9 @@ test -f /run/dawnshell-enabled-service.ready
 busctl --system --no-pager list
 cat /proc/1/comm
 ss -ltn
+awk '$1 == "devices" { print }' /proc/cgroups
+awk -F: '$2 == "devices" { print }' /proc/self/cgroup
+test -r /sys/fs/cgroup/devices/devices.list
 ```
 
 For a same-phone AFU client, scroll to the bottom of DawnShell. Tap **Copy
@@ -255,18 +259,29 @@ BFU_SSH_KEY=/path/to/bfu_key \
 Do not unlock while it waits. Pass requires SSH on TCP 22, `/proc/1/comm` equal
 to `systemd`, working D-Bus, configured and active `multi-user.target`,
 `ssh.service=active`, and a listening `:22` socket. It additionally requires the
-enabled boot-proof service
-and its private `/run` marker. The script then asks for the first unlock, proves
+enabled boot-proof service, its private `/run` marker, an attached devices-v1
+hierarchy, and a readable delegated devices view. The native root health helper
+must also prove the view writable while located at cgroup-namespace path `/`.
+The script then asks for the first unlock, proves
 PID 1 start ticks plus machine ID remain identical, and requires exactly one fresh
 same-cycle DE record for `LOCKED_BOOT_COMPLETED`, BFU root, CE isolation, rootfs,
 namespace/chroot, and lifecycle health, plus unchanged systemd identity after
 unlock. No normal Termux boot script is created or executed.
 
 On failure, copy the **Debian systemd lifecycle log** before changing anything.
-Stages such as `cgroup_v1_name_systemd_mount`, `cgroup_move_pid1`,
-`cgroup_view_bind`, `exec_systemd`, or `systemd_early_exit` identify the exact
-gate. Debian 13's systemd 257 requires the explicit cgroup-v1 legacy-force path;
-never repair a failure by remounting or delegating Android's host controller tree.
+Stages such as `cgroup_v1_devices_mount`, `devices_cgroup_move_pid1`,
+`cgroup_view_devices_bind`, `namespace_command_setns_cgroup`, `exec_systemd`, or
+`systemd_early_exit` identify the exact gate. The log snapshot
+`host_cgroup_v2_controllers` records the host unified-controller file or its read
+error before Debian overlays `/sys/fs/cgroup`. If a mount is denied, collect the
+last kernel denial lines as root:
+
+```sh
+su root -c 'dmesg | tail -n 100 | grep -Ei "avc:|denied|cgroup|devices" || true'
+```
+
+Debian 13's systemd 257 requires the explicit cgroup-v1 legacy-force path. Never
+repair a failure by bind-mounting Android's hierarchy root into Debian.
 
 For network-mode validation, start with no uplink and confirm systemd/sshd stay
 running. Enable Wi-Fi and require outbound IPv4 plus SSH to the phone address
@@ -277,6 +292,11 @@ and outbound connectivity. The lifecycle log must record a new
 Kernel-mode Tailscale validation requires `tailscale0` in the shared netns and
 successful IPv4 control-plane access; an unavailable IPv6 uplink may still log
 IPv6 fallback failures.
+
+The devices-cgroup gate does not authorize unrestricted Docker networking.
+Because Debian intentionally shares Android's network namespace, Docker bridge,
+iptables, route, and forwarding changes are host-global and require a separate
+restriction milestone.
 
 After reconfiguration, `su root -c '/usr/local/sbin/reboot --check'` must print
 `Android host reboot bridge ready`, while the same command as `debian` must fail.

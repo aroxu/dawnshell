@@ -61,10 +61,17 @@ health_command='set -eu
 [ "$(systemctl is-active multi-user.target)" = active ]
 busctl --system --no-pager list >/dev/null
 ss -H -ltn | awk '\''$4 ~ /:22$/ { found=1 } END { exit !found }'\''
-printf "pid1_start_ticks=%s machine_id=%s proof_state=%s proof_marker=present target_state=%s\n" \
+devices_hierarchy="$(awk '\''$1 == "devices" { print $2 }'\'' /proc/cgroups)"
+[ "${devices_hierarchy:-0}" -gt 0 ]
+[ -r /sys/fs/cgroup/devices/devices.list ]
+devices_path="$(awk -F: '\''$2 == "devices" { print $3 }'\'' /proc/self/cgroup)"
+case "$devices_path" in /*) ;; *) exit 1 ;; esac
+printf "pid1_start_ticks=%s machine_id=%s proof_state=%s proof_marker=present target_state=%s devices_cgroup=delegated devices_hierarchy=%s devices_path=%s\n" \
   "$(awk '\''{print $22}'\'' /proc/1/stat)" "$(cat /etc/machine-id)" \
   "$(systemctl is-active dawnshell-boot-proof.service)" \
-  "$(systemctl is-active multi-user.target)"'
+  "$(systemctl is-active multi-user.target)" \
+  "$devices_hierarchy" \
+  "$devices_path"'
 
 wait_for_ssh() {
   local deadline=$((SECONDS + wait_seconds))
@@ -138,6 +145,8 @@ restarted_health="$(wait_for_ssh)" || {
 echo "PASS: restart-debian replaced Debian PID 1 without rebooting Android."
 
 echo "Testing explicit graceful stop-debian helper..."
+lifecycle_before_stop="$(adb exec-out run-as me.aroxu.dawnshell \
+  cat "$lifecycle_log" 2>/dev/null | tr -d '\r' | wc -l | tr -d ' ')"
 stop_output="$(timeout 45 adb shell su -c \
   "$helper stop $rootfs $control" | tr -d '\r')"
 printf '%s\n' "$stop_output"
@@ -150,6 +159,17 @@ grep -Fq 'wait_status=0' <<<"$stopped_status"
 grep -Fq 'systemd_manager_exit_queued' \
   < <(adb exec-out run-as me.aroxu.dawnshell cat "$lifecycle_log" 2>/dev/null \
       | tr -d '\r')
+cleanup_log="$(adb exec-out run-as me.aroxu.dawnshell \
+  cat "$lifecycle_log" 2>/dev/null | tr -d '\r' \
+  | sed -n "$((lifecycle_before_stop + 1)),\$p")"
+printf '%s\n' "$cleanup_log"
+grep -Fq 'cgroup_subtree_removed label=devices' <<<"$cleanup_log"
+grep -Fq 'mount_detached label=devices' <<<"$cleanup_log"
+grep -Fq 'cgroup_subtree_removed label=systemd' <<<"$cleanup_log"
+if grep -Fq 'cleanup_cgroup_subtree_failed' <<<"$cleanup_log"; then
+  echo "FAIL: delegated cgroup cleanup reported a residual subtree" >&2
+  exit 6
+fi
 if ssh "${ssh_args[@]}" "$ssh_user@$BFU_PHONE_HOST" true 2>/dev/null; then
   echo "FAIL: SSH still accepted a session after stop-debian completed" >&2
   exit 6

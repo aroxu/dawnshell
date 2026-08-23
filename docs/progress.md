@@ -14,14 +14,20 @@
   rootfs markers, systemd units, runtime controls, hostname, and SSH artifacts.
 - [x] Preserve Debian 13 systemd/OpenSSH, local password controls, private-rootfs
   setuid, persistent-after-unlock behavior, and the existing `/data/local/debian`.
+- [x] Attach the devices-v1 controller before the private cgroup namespace,
+  delegate only a `dawnshell` child alongside `name=systemd`, move Debian PID 1
+  and namespace helpers into both children, and clean descendants before unmount.
+- [x] Make native health and the cold-boot SSH harness require the delegated
+  devices view; record host cgroup-v2-controller availability in the lifecycle log.
 - [x] Build and lint successfully with JDK 17; verify target SDK 28,
   `LOCKED_BOOT_COMPLETED`, Direct-Boot-aware receiver/service, no manifest shared
   UID, and APK signature schemes v1/v2.
-- [ ] Perform the manual migration and five-cycle physical validation.
+- [ ] Validate devices-v1 delegation and Docker's cgroup startup on the physical
+  target, then perform the five-cycle BFU session.
 
 Staged APK: `dist/dawnshell_0.1.0_debug.apk`
 
-SHA-256: `485D9E675EC30AEB9858E96610BAAE3D1F1A7687A39A999E6D218EE1F51DF913`
+SHA-256: `FA1BF08BE4D914EEE642DE12AD42C89067CAF985EF92722F188548466319D0B7`
 
 The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 
@@ -131,7 +137,8 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 - [x] Add explicit restart control, a private rootfs bind mount, read-only `/sys`,
   and boot-ID-scoped normal Termux handoff deduplication.
 - [x] Add restricted Debian poweroff/reboot/shutdown isolation tests and a
-  ten-cycle final BFU harness that records boot/process/RSS evidence and requires
+  configurable final BFU harness (five cycles by default) that records
+  boot/process/RSS evidence and requires
   fresh same-cycle evidence for every locked-boot gate.
 - [x] Prevent an AFU `BOOT_COMPLETED` service recreation from rerunning BFU probes
   and contaminating the locked-only evidence stream.
@@ -166,13 +173,15 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
   logs into a live index plus dedicated full-screen selectable/copyable readers.
 - [x] Remove AndroidX automatic startup/profile components introduced by the UI
   stack so the locked-boot process remains receiver/service-only.
+- [x] Add a private-mount-namespace devices-v1 hierarchy, delegate only its
+  `dawnshell` child into Debian, require it in health, and add ordered teardown.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Verify the namespace/mount/PID-1 Debian chroot probe on the target.
 - [x] Promote the setup into an idempotent long-lived Debian launcher.
 - [x] Start systemd as namespace PID 1 and verify D-Bus/systemctl.
 - [x] Cold-boot enabled Debian SSH before first unlock.
 - [ ] Run the agreed single physical validation session covering all remaining
-  gates, ten cold cycles, unlock continuity, normal Termux handoff, and shutdown
+  gates, five cold cycles, unlock continuity, normal Termux handoff, and shutdown
   isolation.
 
 ## Build environment note

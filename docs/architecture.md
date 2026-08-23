@@ -227,10 +227,12 @@ Android's kernel halt path.
 The rootfs is first bind-mounted onto itself and made private, so systemd shutdown
 can remount or detach its own chroot root without changing Android's `/data`
 mount. `/sys` and `/proc/sys` are read-only in the Debian view. Health opens the
-already-verified PID and mount namespace descriptors, revalidates identities to
-close PID-reuse races, joins them, forks a child in the Debian PID namespace, and
-checks PID 1, D-Bus service/bus access, the default target, `ssh.service`, and a
-TCP 22 listener. It also requires the independent boot-proof service to be active
+already-verified PID, mount, and cgroup namespace descriptors, revalidates
+identities to close PID-reuse races, moves its fixed helper into the delegated
+cgroup subtrees, joins those namespaces, and forks a child in the Debian PID
+namespace. It checks PID 1, D-Bus service/bus access, the default target,
+`ssh.service`, TCP 22, and the delegated devices-controller view. It also
+requires the independent boot-proof service to be active
 and its volatile `/run` marker to exist. Both the configured default-target name
 and the active state of `multi-user.target` are required, so configuration is not
 mistaken for target reachability. Only fixed commands are accepted.
@@ -242,13 +244,32 @@ now` command inside those same verified namespaces. Each path waits for the
 supervisor lock to be released. The host test script separately compares Android
 boot IDs; the helper never claims Android isolation by itself.
 
-For systemd 257 on this cgroup-v1 kernel, the helper mounts a private
-`name=systemd` hierarchy, creates a dedicated `dawnshell` child, moves only the
-future Debian PID 1 into it, enters a cgroup namespace rooted there, and bind
-mounts only that view at Debian `/sys/fs/cgroup/systemd`. Android controller
-mounts are hidden from systemd rather than delegated. A process-local
-`SYSTEMD_PROC_CMDLINE` enables systemd 257's explicit legacy-force path without
-changing Android `/proc/cmdline`.
+For systemd 257 on this cgroup-v1 kernel, the helper first enters a private mount
+namespace. Before `CLONE_NEWCGROUP`, it attaches `devices` to a v1 hierarchy and
+mounts the private `name=systemd` hierarchy. Each hierarchy gets one dedicated
+`dawnshell` child. The future Debian PID 1 is moved into both children before its
+cgroup namespace is created. Only those child roots are bind-mounted at Debian
+`/sys/fs/cgroup/devices` and `/sys/fs/cgroup/systemd`; neither hierarchy root nor
+Android tasks are reachable from the chroot.
+
+Controller-to-hierarchy attachment is kernel-global in cgroup v1 even though the
+mount is visible only in the launcher's private mount namespace. Existing Android
+tasks remain at the devices hierarchy root and their allow-all root policy is not
+changed. Debian and Docker descendants can only narrow the permissions inherited
+from the delegated child; they cannot grant a device denied by its parent. On
+stop, the supervisor detaches the two Debian views, recursively removes descendant
+cgroups, removes both `dawnshell` children, and then unmounts the source
+hierarchies. This order avoids leaving an unmounted but still-active v1 hierarchy.
+A process-local `SYSTEMD_PROC_CMDLINE` enables systemd 257's explicit legacy-force
+path without changing Android `/proc/cmdline`.
+
+This implements the devices-cgroup prerequisite only. Docker bridge, iptables,
+and forwarding policy run in Android's intentionally shared network namespace and
+need a separate restriction design before Docker networking is considered safe.
+
+References: [Linux cgroup-v1 devices controller](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/devices.html),
+[Linux cgroup-v1 hierarchy lifecycle](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/cgroups.html),
+and [Docker cgroup metrics/runtime notes](https://docs.docker.com/engine/containers/runmetrics/).
 
 ## Platform constraints
 

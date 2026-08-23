@@ -59,6 +59,8 @@ LOCKED_BOOT_COMPLETED
   -> /data/local/debian rootfs gate
   -> private mount/PID/UTS/cgroup namespaces
      (Android IPC and network retained for Samsung Linux 4.4 compatibility)
+  -> delegated cgroup-v1 systemd + devices subtrees
+     (Android tasks and the global devices policy remain outside Debian's view)
   -> direct shared-NIC networking with a managed Tailscale fwmark route shim
   -> Debian 13 systemd as namespace PID 1
   -> D-Bus + ssh.service + boot-proof service
@@ -128,7 +130,9 @@ BFU_EXPECT_CE_READABLE_OVERRIDE=1 \
 
 It verifies BFU SSH/systemd health, unlock continuity, one systemd instance,
 provisioned-helper equality with the staged APK, process memory evidence, and
-poweroff/reboot/shutdown namespace isolation. It does not test normal
+poweroff/reboot/shutdown namespace isolation. Health also requires an attached
+devices-v1 hierarchy and the delegated view at `/sys/fs/cgroup/devices`. It does
+not test normal
 Termux:Boot handoff because that belongs to the separate upstream app.
 
 The network manager follows the table selected by Android and routes Tailscale's
