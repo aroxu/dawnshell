@@ -28,9 +28,9 @@ fi
   clean :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
 
 mkdir -p "$dist_dir"
-cp "$root_dir/app/build/outputs/apk/debug/dawnshell-app_v0.2.0+debug.apk" \
-   "$dist_dir/dawnshell_0.2.0_debug.apk"
+cp "$root_dir/app/build/outputs/apk/debug/dawnshell-app_v0.2.1+debug.apk" \
+   "$dist_dir/dawnshell_0.2.1_debug.apk"
 
-sha256sum "$dist_dir/dawnshell_0.2.0_debug.apk"
+sha256sum "$dist_dir/dawnshell_0.2.1_debug.apk"
 echo "Package: me.aroxu.dawnshell"
 echo "Debug APK uses a public development key; use a private key for production."

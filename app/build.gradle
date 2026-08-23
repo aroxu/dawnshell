@@ -1,21 +1,58 @@
 apply plugin: 'com.android.application'
 
+def releaseStorePath = System.getenv('DAWNSHELL_RELEASE_STORE_FILE') ?: ''
+def releaseKeyAlias = System.getenv('DAWNSHELL_RELEASE_KEY_ALIAS') ?: ''
+def releaseStorePassword = System.getenv('DAWNSHELL_RELEASE_STORE_PASSWORD') ?: ''
+def releaseKeyPassword = System.getenv('DAWNSHELL_RELEASE_KEY_PASSWORD') ?: ''
+def releaseSigningValues = [
+        releaseStorePath, releaseKeyAlias, releaseStorePassword, releaseKeyPassword]
+def releaseSigningConfigured = releaseSigningValues.every { !it.isEmpty() }
+if (releaseSigningValues.any { !it.isEmpty() } && !releaseSigningConfigured) {
+    throw new GradleException('Release signing is partially configured. Set all DAWNSHELL_RELEASE_* variables.')
+}
+
+def sourceRevision = System.getenv('DAWNSHELL_SOURCE_REVISION') ?: ''
+if (sourceRevision.isEmpty()) {
+    try {
+        def process = new ProcessBuilder('git', 'rev-parse', 'HEAD')
+                .directory(rootDir)
+                .redirectErrorStream(true)
+                .start()
+        def output = process.inputStream.getText('UTF-8').trim()
+        if (process.waitFor() == 0 && output ==~ /[0-9a-fA-F]{40}/) {
+            sourceRevision = output.toLowerCase(Locale.ROOT)
+        }
+    } catch (Exception ignored) {
+        // A source offer without an exact revision is rejected before packaging.
+    }
+}
+
+def generatedLicenseAssetsDir = layout.buildDirectory.dir(
+        'generated/openSourceLicenseAssets')
+
 android {
     namespace "me.aroxu.dawnshell"
 
     compileSdk project.properties.compileSdkVersion.toInteger()
 
     def appVersionName = System.getenv("DAWNSHELL_APP_BUILD__APP_VERSION_NAME") ?: ""
+    def appVersionCode = System.getenv("DAWNSHELL_APP_BUILD__APP_VERSION_CODE") ?: ""
     def apkVersionTag = System.getenv("DAWNSHELL_APP_BUILD__APK_VERSION_TAG") ?: ""
 
     defaultConfig {
         applicationId "me.aroxu.dawnshell"
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
-        versionCode 2
-        versionName "0.2.0"
+        versionCode 3
+        versionName "0.2.1"
 
         if (appVersionName) versionName = appVersionName
+        if (appVersionCode) {
+            if (!(appVersionCode ==~ /[1-9][0-9]*/)) {
+                throw new GradleException("Invalid Android versionCode: ${appVersionCode}")
+            }
+            versionCode appVersionCode.toInteger()
+        }
         validateVersionName(versionName)
     }
 
@@ -26,6 +63,14 @@ android {
             storePassword 'xrj45yWGLbsO7W0v'
             keyPassword 'xrj45yWGLbsO7W0v'
         }
+        if (releaseSigningConfigured) {
+            release {
+                storeFile file(releaseStorePath)
+                keyAlias releaseKeyAlias
+                storePassword releaseStorePassword
+                keyPassword releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -33,6 +78,7 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (releaseSigningConfigured) signingConfig signingConfigs.release
         }
 
         debug {
@@ -43,6 +89,10 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main.assets.srcDir generatedLicenseAssetsDir
     }
 
     applicationVariants.all { variant ->
@@ -76,6 +126,7 @@ bfuBootstrapAbis.each { abi ->
     bfuBootstrapExecutables.each { executable ->
         bfuBootstrapAssets.add(file("src/main/assets/bfu/bin/${abi}/${executable}"))
     }
+
     bfuBootstrapAssets.add(file("src/main/assets/bfu/bin/${abi}/runtime.properties"))
 }
 bfuBootstrapAssets.add(file(
@@ -83,6 +134,77 @@ bfuBootstrapAssets.add(file(
 bfuBootstrapAssets.add(file(
         'src/main/assets/bfu/bootstrap/debian-archive-keyring_2025.1_all.deb'))
 bfuBootstrapAssets.add(file('src/main/assets/bfu/bootstrap/SOURCES.lock'))
+
+def requiredLicenseFiles = [
+        'README.md',
+        'ANDROID_DEPENDENCIES.md',
+        'DawnShell-MIT.txt',
+        'Apache-2.0.txt',
+        'CC0-1.0.txt',
+        'Expat.txt',
+        'GPL-2.0-only.txt',
+        'GPL-2.0-or-later.txt',
+        'GPL-3.0-or-later.txt',
+        'LGPL-2.1-or-later.txt',
+        'LGPL-3.0-or-later.txt',
+        'base-installer-1.226-copyright.txt',
+        'debian-archive-keyring-2025.1-copyright.txt',
+        'GnuPG-2.4.9-additional-notices.txt',
+        'Libgcrypt-1.12.1-additional-notices.txt']
+
+tasks.register('syncOpenSourceLicenses', Sync) {
+    from file("${rootDir}/LICENSES")
+    from file("${rootDir}/bfu-runtime/THIRD_PARTY_NOTICES.md")
+    into generatedLicenseAssetsDir.map { it.dir('open_source_licenses') }
+    inputs.property('sourceRevision', sourceRevision)
+    doFirst {
+        if (!(sourceRevision ==~ /[0-9a-f]{40}/)) {
+            throw new GradleException('Cannot determine the exact Git source revision for the APK source offer.')
+        }
+    }
+    doLast {
+        def offer = generatedLicenseAssetsDir.get()
+                .file('open_source_licenses/SOURCE_OFFER.txt').asFile
+        offer.setText("""DawnShell corresponding source
+
+This APK was built from Git commit:
+${sourceRevision}
+
+Exact source snapshot:
+https://github.com/aroxu/dawnshell/archive/${sourceRevision}.tar.gz
+
+Repository and build instructions:
+https://github.com/aroxu/dawnshell/tree/${sourceRevision}
+
+Official releases attach a dawnshell-*-corresponding-source.tar.gz archive
+beside the APK. That archive includes the pinned upstream source archives,
+Android patches, configuration, and scripts used to control compilation and
+installation. No password or fee is required to obtain it.
+""", 'UTF-8')
+    }
+}
+
+tasks.register('verifyOpenSourceLicenses') {
+    inputs.files(requiredLicenseFiles.collect { file("${rootDir}/LICENSES/${it}") })
+    inputs.file(file("${rootDir}/bfu-runtime/THIRD_PARTY_NOTICES.md"))
+    doLast {
+        requiredLicenseFiles.each { name ->
+            def license = file("${rootDir}/LICENSES/${name}")
+            if (!license.isFile() || license.length() == 0) {
+                throw new GradleException("Missing open-source license document: ${license}")
+            }
+        }
+        def sourceLock = file("${rootDir}/bfu-runtime/sources/SOURCES.lock").text
+        [
+                'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-or-later',
+                'LGPL-2.1-or-later', 'LGPL-3.0-or-later', 'Expat'
+        ].each { identifier ->
+            if (!sourceLock.contains(identifier)) {
+                throw new GradleException("SOURCES.lock is missing license identifier: ${identifier}")
+            }
+        }
+    }
+}
 
 tasks.register('verifyBfuBootstrapRuntime') {
     inputs.files(bfuBootstrapAssets)
@@ -100,6 +222,8 @@ tasks.register('verifyBfuBootstrapRuntime') {
 
 tasks.named('preBuild').configure {
     dependsOn tasks.named('verifyBfuBootstrapRuntime')
+    dependsOn tasks.named('verifyOpenSourceLicenses')
+    dependsOn tasks.named('syncOpenSourceLicenses')
 }
 
 def validateVersionName(String versionName) {

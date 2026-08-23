@@ -152,6 +152,11 @@
     <string name="bfu_notification_title">DawnShell bootstrap</string>
     <string name="bfu_notification_text">Direct Boot Debian supervisor active; USER_UNLOCKED does not stop it</string>
     <string name="dawnshell_logs">Logs</string>
+    <string name="dawnshell_open_source_licenses">Open-source licenses</string>
+    <string name="dawnshell_licenses_description">License texts, required copyright notices, the exact source revision, and corresponding-source download instructions included in this APK. Long-press to select text.</string>
+    <string name="dawnshell_copy_all_licenses">Copy all licenses</string>
+    <string name="dawnshell_licenses_copied">License bundle copied to the clipboard.</string>
+    <string name="dawnshell_licenses_read_failed">Could not read the packaged license bundle: %1$s</string>
     <string name="dawnshell_open_live_logs">Open live logs</string>
     <string name="dawnshell_view_setup_logs">View setup logs</string>
     <string name="dawnshell_view_runtime_log">View runtime log</string>

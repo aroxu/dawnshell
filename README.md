@@ -94,7 +94,7 @@ Requirements:
 - JDK 17
 - Android SDK Platform 34
 - Android NDK `29.0.14206865`
-- Bash, GNU make, a C compiler, Autoconf, Automake, libtool, Bison, GNU gettext,
+- Git, Bash, GNU make, a C compiler, Autoconf, Automake, libtool, Bison, GNU gettext,
   GNU awk, patch, sed, tar, and coreutils
 - MSYS2 with those tools when building on Windows
 
@@ -106,7 +106,7 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 ```
 
 Compilation defaults to `make -j"$(nproc)"`. Set `DAWNSHELL_BUILD_JOBS` to cap
-parallelism. The default output is `dist/dawnshell_0.2.0_debug.apk`.
+parallelism. The default output is `dist/dawnshell_0.2.1_debug.apk`.
 
 The public debug key is for development only. Production APKs require a private
 signing key; see [Google's app-signing guide](https://developer.android.com/studio/publish/app-signing).
@@ -126,8 +126,8 @@ require these Actions secrets:
 - `DAWNSHELL_RELEASE_KEY_PASSWORD`
 
 ```sh
-git tag -s v0.2.0 -m "DawnShell 0.2.0"
-git push origin v0.2.0
+git tag -s v0.2.1 -m "DawnShell 0.2.1"
+git push origin v0.2.1
 ```
 
 DawnShell code is MIT licensed. Bundled tools retain their upstream licenses;

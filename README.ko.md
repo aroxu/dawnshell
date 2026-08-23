@@ -113,7 +113,7 @@ Docker 기본값은 **안전한 호스트 네트워크만 사용**입니다. 이
 - JDK 17
 - Android SDK Platform 34
 - Android NDK `29.0.14206865`
-- Bash, GNU make, C 컴파일러, Autoconf, Automake, libtool, Bison, GNU gettext,
+- Git, Bash, GNU make, C 컴파일러, Autoconf, Automake, libtool, Bison, GNU gettext,
   GNU awk, patch, sed, tar, coreutils
 - Windows에서는 위 도구가 설치된 MSYS2
 
@@ -125,7 +125,7 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 ```
 
 빌드는 기본적으로 `make -j"$(nproc)"`를 사용합니다. 작업 수를 제한하려면
-`DAWNSHELL_BUILD_JOBS`를 설정합니다. 기본 APK는 `dist/dawnshell_0.2.0_debug.apk`에
+`DAWNSHELL_BUILD_JOBS`를 설정합니다. 기본 APK는 `dist/dawnshell_0.2.1_debug.apk`에
 생성됩니다.
 
 공개 debug 키는 개발과 시험에만 사용해 주세요. 배포용 APK는 개인 서명 키로
@@ -147,8 +147,8 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 - `DAWNSHELL_RELEASE_KEY_PASSWORD`
 
 ```sh
-git tag -s v0.2.0 -m "DawnShell 0.2.0"
-git push origin v0.2.0
+git tag -s v0.2.1 -m "DawnShell 0.2.1"
+git push origin v0.2.1
 ```
 
 DawnShell 코드는 MIT 라이선스입니다. 내장 명령행 도구는 각 원저작자의

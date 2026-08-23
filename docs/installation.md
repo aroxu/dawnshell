@@ -50,7 +50,7 @@ shasum -a 256 -c SHA256SUMS
 On Windows PowerShell:
 
 ```powershell
-Get-FileHash .\dawnshell-0.2.0.apk -Algorithm SHA256
+Get-FileHash .\dawnshell-0.2.1.apk -Algorithm SHA256
 Get-Content .\SHA256SUMS
 ```
 

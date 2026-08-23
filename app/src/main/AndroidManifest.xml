@@ -28,6 +28,9 @@
         <activity
             android:name=".LogDetailActivity"
             android:exported="false" />
+        <activity
+            android:name=".OpenSourceLicensesActivity"
+            android:exported="false" />
         <receiver
             android:name=".BootReceiver"
             android:directBootAware="true"

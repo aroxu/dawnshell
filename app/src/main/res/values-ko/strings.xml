@@ -152,6 +152,11 @@
     <string name="bfu_notification_title">DawnShell 부트스트랩</string>
     <string name="bfu_notification_text">다이렉트 부트 Debian 감독 프로세스 실행 중 · USER_UNLOCKED 이후에도 유지됨</string>
     <string name="dawnshell_logs">로그</string>
+    <string name="dawnshell_open_source_licenses">오픈소스 라이선스</string>
+    <string name="dawnshell_licenses_description">이 APK에 포함된 라이선스 전문, 필수 저작권 고지, 정확한 소스 리비전 및 대응 소스 다운로드 안내입니다. 길게 눌러 텍스트를 선택할 수 있습니다.</string>
+    <string name="dawnshell_copy_all_licenses">라이선스 전체 복사</string>
+    <string name="dawnshell_licenses_copied">라이선스 묶음을 클립보드에 복사했습니다.</string>
+    <string name="dawnshell_licenses_read_failed">내장 라이선스 묶음을 읽지 못했습니다: %1$s</string>
     <string name="dawnshell_open_live_logs">실시간 로그 열기</string>
     <string name="dawnshell_view_setup_logs">설정 로그 보기</string>
     <string name="dawnshell_view_runtime_log">런타임 로그 보기</string>

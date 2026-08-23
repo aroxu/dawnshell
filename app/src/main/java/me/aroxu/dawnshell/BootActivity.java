@@ -179,6 +179,10 @@ public class BootActivity extends AppCompatActivity {
                 openLogs();
                 return true;
             }
+            if (item.getItemId() == R.id.action_licenses) {
+                startActivity(new Intent(this, OpenSourceLicensesActivity.class));
+                return true;
+            }
             return false;
         });
 
