@@ -305,8 +305,12 @@ use `--network host`.
 
 Bridge tests are optional and destructive to network state. With a recovery path
 available, select auto bridge and require the log to try native nftables,
-iptables-nft, then legacy in order. On Docker 29 plus modern kernels the resolved
-backend may be `native-nft`; on the Samsung 4.4 target it may resolve to legacy.
+iptables-nft, then legacy in order. The two iptables probes must report failures
+when `addrtype`, `MASQUERADE`, or `conntrack` is missing. On Docker 29 plus modern
+kernels the resolved backend may be `native-nft`; an older kernel with complete
+xtables support may resolve to `legacy`. If none is complete, auto must succeed
+with `resolved_backend=none`, disable bridge/firewall management, and print the
+`--network host` usage notice.
 Verify Wi-Fi, mobile data, USB Ethernet, VPN/Tailscale, and SSH after Docker
 starts and again after it stops. Every forced backend must
 fail closed when their exact read-only NAT-table probe fails. An existing

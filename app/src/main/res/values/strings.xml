@@ -196,7 +196,7 @@
     <string name="dawnshell_cgroup_policy_warning">This selection takes effect on the next Debian start or restart. Automatic mode adopts v2 only after a dedicated cgroup2 subtree in a private mount view and cgroup-device BPF attach both succeed. Force v2 disables the known-good v1 fallback and can prevent Debian from booting. Force v1 skips modern isolation and attaches the legacy devices controller to a hierarchy; Android tasks remain outside DawnShell’s delegated child, but this is still a kernel-global controller attachment.</string>
     <string name="dawnshell_docker_policy_title">Docker networking</string>
     <string name="dawnshell_docker_policy_host">Safe host network only (recommended)</string>
-    <string name="dawnshell_docker_policy_auto">Automatic bridge: native nftables → iptables-nft → legacy</string>
+    <string name="dawnshell_docker_policy_auto">Automatic: native nftables → iptables-nft → legacy → safe host</string>
     <string name="dawnshell_docker_policy_nft">Force native nftables (Docker 29+, experimental)</string>
     <string name="dawnshell_docker_policy_iptables_nft">Force iptables-nft bridge</string>
     <string name="dawnshell_docker_policy_legacy">Force legacy iptables bridge (older kernels)</string>

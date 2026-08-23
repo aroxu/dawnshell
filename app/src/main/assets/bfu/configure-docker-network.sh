@@ -152,9 +152,40 @@ if [ -s "$daemon_json" ]; then
     }
 fi
 
+probe_iptables_check() {
+    binary="$1"
+    label="$2"
+    shift 2
+    set +e
+    output="$("$binary" -w 1 "$@" 2>&1)"
+    status=$?
+    set -e
+    if [ "$status" -eq 0 ]; then
+        return 0
+    fi
+    case "$output" in
+        *"Bad rule"*|*"does a matching rule exist"*)
+            # -C is deliberately read-only. A missing exact rule proves that
+            # the kernel parsed its match/target even though no rule matched.
+            return 0
+            ;;
+    esac
+    clean_output="$(printf '%s' "$output" | tr '\r\n' '  ')"
+    echo "PROBE: $label rejected status=$status output=$clean_output"
+    return 1
+}
+
 probe_iptables_backend() {
     binary="$1"
-    [ -x "$binary" ] && "$binary" -w 1 -t nat -S >/dev/null 2>&1
+    [ -x "$binary" ] || return 1
+    "$binary" -w 1 -t nat -S >/dev/null 2>&1 || return 1
+    probe_iptables_check "$binary" addrtype \
+        -t nat -C PREROUTING -m addrtype --dst-type LOCAL -j ACCEPT || return 1
+    probe_iptables_check "$binary" masquerade \
+        -t nat -C POSTROUTING -j MASQUERADE || return 1
+    probe_iptables_check "$binary" conntrack \
+        -t filter -C FORWARD -m conntrack \
+        --ctstate RELATED,ESTABLISHED -j ACCEPT || return 1
 }
 
 probe_native_nft() {
@@ -195,11 +226,13 @@ case "$policy" in
                 backend=iptables-nft
             else
                 echo "PROBE: iptables-nft unavailable or incompatible; trying iptables-legacy"
-                probe_iptables_backend /usr/sbin/iptables-legacy || {
-                    echo "ERROR: native nftables, iptables-nft, and legacy NAT backends all failed"
-                    exit 33
-                }
-                backend=legacy
+                if probe_iptables_backend /usr/sbin/iptables-legacy; then
+                    backend=legacy
+                else
+                    echo "WARNING: no bridge firewall backend has Docker's required addrtype, masquerade, and conntrack capabilities"
+                    echo "FALLBACK: using safe host-network-only mode"
+                    backend=none
+                fi
             fi
         fi
         ;;
@@ -245,7 +278,7 @@ esac
     echo "WARNING: bridge mode can mutate Android-global firewall, NAT, routes, and forwarding"
 
 temporary="$docker_dir/.daemon.json.dawnshell.$$"
-if [ "$policy" = host ]; then
+if [ "$backend" = none ]; then
     cat > "$temporary" <<'EOF_HOST'
 {
   "bridge": "none",
@@ -299,7 +332,7 @@ format=1
 requested_policy=$policy
 resolved_backend=$backend
 network_namespace=android-shared
-bridge_mutates_android_global_netfilter=$([ "$policy" = host ] && echo false || echo true)
+bridge_mutates_android_global_netfilter=$([ "$backend" = none ] && echo false || echo true)
 configured_epoch=$(date +%s)
 EOF_RECORD
 chown 0:0 "${policy_record}.new"
@@ -308,7 +341,7 @@ mv "${policy_record}.new" "$policy_record"
 sync
 
 echo "DOCKER_POLICY_SUCCEEDED: requested=$policy resolved_backend=$backend"
-if [ "$policy" = host ]; then
+if [ "$backend" = none ]; then
     echo "USAGE: start containers with --network host"
 fi
 DEBIAN_POLICY

@@ -277,8 +277,11 @@ path without changing Android `/proc/cmdline`.
 
 Docker bridge and firewall management are disabled by the default
 host-network-only policy. Optional native-nftables/iptables-nft/legacy
-negotiation and forced bridge policies are explicit AFU operator actions with
-persistent warnings because all rules affect Android's intentionally shared network namespace. The policy writer
+negotiation verifies the iptables `addrtype`, `MASQUERADE`, and `conntrack`
+features with read-only rule checks. Automatic mode falls back to safe host
+networking when no complete bridge backend exists; forced bridge policies fail
+closed. Every bridge policy is an explicit AFU operator action with persistent
+warnings because all rules affect Android's intentionally shared network namespace. The policy writer
 preserves unmanaged daemon configuration instead of merging or overwriting it.
 
 References: [Linux cgroup-v1 devices controller](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/devices.html),

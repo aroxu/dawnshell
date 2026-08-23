@@ -186,11 +186,13 @@ at-rest protection than CE data.
 Docker is not a security boundary in the shared-network design. The default
 managed policy disables Docker bridge, iptables/ip6tables, IP forwarding, and
 masquerading and requires `--network host`. Explicit bridge modes first perform
-read-only nft/legacy frontend probes, but successful startup necessarily permits
-Docker-created bridges, routes, forwarding, NAT, and firewall rules to affect
-Android globally. The UI labels every bridge mode dangerous and leaves host-only
-as the default. Bridge testing requires a recovery path that does not depend on
-the same network connection.
+read-only nft frontend and iptables rule-capability probes. Automatic mode
+returns to safe host networking if `addrtype`, `MASQUERADE`, `conntrack`, or all
+native nftables support is unavailable. A successful bridge selection still
+necessarily permits Docker-created bridges, routes, forwarding, NAT, and
+firewall rules to affect Android globally. The UI labels every bridge mode
+dangerous and leaves host-only as the default. Bridge testing requires a
+recovery path that does not depend on the same network connection.
 
 The AFU policy writer refuses a pre-existing unmanaged
 `/etc/docker/daemon.json`. Once it creates a managed file, the recorded SHA-256

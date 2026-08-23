@@ -151,8 +151,11 @@ it only from the explicit AFU button. `host` publishes a managed
 `/etc/docker/daemon.json` with bridge, firewall, forwarding, masquerading, and
 userland proxy disabled. `auto` first validates Docker 29's experimental native
 nftables backend and performs a read-only nft ruleset query, then probes
-`iptables-nft`, then `iptables-legacy`. All three bridge backends can be forced
-and fail closed. Bridge modes intentionally leave
+`iptables-nft`, then `iptables-legacy`. Both iptables probes issue read-only
+`-C` checks for `addrtype`, `MASQUERADE`, and `conntrack`, which Docker's bridge
+startup requires. If all bridge probes fail, `auto` publishes the safe host-only
+configuration with `resolved_backend=none`; all three bridge backends can be
+forced and fail closed. Bridge modes intentionally leave
 IPv6 Docker firewall management disabled because Android kernel support varies.
 
 Applying while Debian is running records its state, stops the identity-verified

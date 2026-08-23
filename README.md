@@ -102,7 +102,10 @@ Docker networking defaults to **safe host-network-only**. Its managed daemon
 configuration disables Docker bridge, iptables/ip6tables, forwarding, and
 masquerading, so containers must use `--network host`. Automatic bridge mode
 probes Docker 29's experimental native nftables backend, then `iptables-nft`,
-then `iptables-legacy`; each backend can also be forced. These modes are
+then `iptables-legacy`. The iptables candidates must also pass read-only checks
+for Docker's `addrtype`, `MASQUERADE`, and `conntrack` requirements. If every
+bridge backend fails, automatic mode resolves to safe host networking; each
+bridge backend can still be forced and then fails closed. Bridge modes are
 dangerous because Debian shares Android's
 network namespace: Docker can alter Android-global firewall, NAT, routes, and
 forwarding and disrupt Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, or SSH.

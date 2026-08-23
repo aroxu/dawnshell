@@ -30,7 +30,7 @@
 
 Staged APK: `dist/dawnshell_0.1.0_debug.apk`
 
-SHA-256: `D919C19D5D75CB94B6313405A1D78F90B42C13DC1695662CB8BFDD6E0E659FE1`
+SHA-256: `17CD4CB29DD3092B76589C00E60390289D1A6CB87AB7809AA346666AAE7D7469`
 
 The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 
@@ -188,6 +188,10 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 - [x] Preserve unmanaged or externally modified Docker daemon configuration,
   provide a separate live compatibility log, and pin fallback order/defaults in
   build-time regression tests.
+- [x] Tighten iptables compatibility probes after the physical kernel rejected
+  Docker's `addrtype` jump rule; verify `addrtype`, `MASQUERADE`, and `conntrack`
+  read-only and make automatic mode end at safe host networking when no bridge
+  backend is complete.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Verify the namespace/mount/PID-1 Debian chroot probe on the target.
 - [x] Promote the setup into an idempotent long-lived Debian launcher.
@@ -203,7 +207,7 @@ The host defaults to JDK 26, so the reproducible build uses the repository's JDK
 17 toolchain. Clean Java compilation, DEX packaging, native-helper verification,
 lint, unit tests, and APK assembly pass. The current standalone artifact is
 `dist/dawnshell_0.1.0_debug.apk` with SHA-256
-`D919C19D5D75CB94B6313405A1D78F90B42C13DC1695662CB8BFDD6E0E659FE1`.
+`17CD4CB29DD3092B76589C00E60390289D1A6CB87AB7809AA346666AAE7D7469`.
 Whole debug APK hashes are build-specific because clean D8 runs can vary
 synthetic-lambda metadata; the final harness therefore records the local hash and
 requires the installed APK to match it. The BFU helper is rebuilt from the
