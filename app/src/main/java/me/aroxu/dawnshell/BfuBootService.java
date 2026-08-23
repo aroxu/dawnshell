@@ -40,6 +40,8 @@ public class BfuBootService extends Service {
             "me.aroxu.dawnshell.action.REMOVE_DEBIAN_ROOTFS";
     static final String ACTION_APPLY_DOCKER_NETWORK_POLICY =
             "me.aroxu.dawnshell.action.APPLY_DOCKER_NETWORK_POLICY";
+    static final String ACTION_APPLY_HOST_USB_POLICY =
+            "me.aroxu.dawnshell.action.APPLY_HOST_USB_POLICY";
 
     private static final String TAG = "DawnShell";
     private static final String NOTIFICATION_CHANNEL_ID = "dawnshell";
@@ -103,7 +105,13 @@ public class BfuBootService extends Service {
             Log.i(TAG, "BFU startup checks skipped because Android is already unlocked");
         }
 
-        if (ACTION_APPLY_DOCKER_NETWORK_POLICY.equals(action)) {
+        if (ACTION_APPLY_HOST_USB_POLICY.equals(action)) {
+            if (!userUnlocked) {
+                recordOperation("HOST_USB_POLICY_REJECTED user_locked=true");
+            } else {
+                requestHostUsbPolicyApplication();
+            }
+        } else if (ACTION_APPLY_DOCKER_NETWORK_POLICY.equals(action)) {
             String policy = BfuPreferences.dockerNetworkPolicy(this);
             boolean hostIpcCompatibility =
                     BfuPreferences.dockerHostIpcCompatibility(this);
@@ -192,6 +200,10 @@ public class BfuBootService extends Service {
 
     static void requestDockerNetworkPolicy(Context context) {
         startServiceAction(context, ACTION_APPLY_DOCKER_NETWORK_POLICY);
+    }
+
+    static void requestHostUsbPolicy(Context context) {
+        startServiceAction(context, ACTION_APPLY_HOST_USB_POLICY);
     }
 
     static void requestDebianLifecycle(Context context, DebianLauncher.Operation operation) {
@@ -470,6 +482,49 @@ public class BfuBootService extends Service {
                         }
                     }
                     if (!BfuPreferences.isEnabled(this)) stopSelf();
+                }
+            });
+        }
+    }
+
+    private void requestHostUsbPolicyApplication() {
+        synchronized (lifecycleLock) {
+            if (managementOperationRunning()
+                    || (lifecycleFuture != null && !lifecycleFuture.isDone())) {
+                recordOperation("HOST_USB_POLICY_REJECTED "
+                        + "reason=another_operation_running");
+                return;
+            }
+            urgentControlGeneration.incrementAndGet();
+            final long requestId = ++lifecycleRequestId;
+            lifecycleOperationStarted.set(true);
+            activeLifecycleOperation = null;
+            lifecycleFuture = lifecycleExecutor.submit(() -> {
+                try {
+                    BfuRuntime.Layout layout = BfuRuntime.provision(this);
+                    if (!HostUsbProvisioner.apply(this, layout)) return;
+                    boolean wasRunning = DebianLauncher.isRunning(layout);
+                    recordOperation("HOST_USB_POLICY_APPLIED mode="
+                            + BfuPreferences.usbPassthroughMode(this)
+                            + " debian_was_running=" + wasRunning);
+                    if (wasRunning) {
+                        runDebianLifecycleNow(layout,
+                                DebianLauncher.Operation.RESTART,
+                                "AFU_host_USB_policy_applied");
+                    }
+                } catch (IOException | IllegalStateException e) {
+                    recordOperation("HOST_USB_POLICY_FAILED "
+                            + BfuSu.sanitize(e.getMessage()));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    recordOperation("HOST_USB_POLICY_FAILED interrupted=true");
+                } finally {
+                    synchronized (lifecycleLock) {
+                        if (lifecycleRequestId == requestId) {
+                            lifecycleOperationStarted.set(false);
+                            activeLifecycleOperation = null;
+                        }
+                    }
                 }
             });
         }

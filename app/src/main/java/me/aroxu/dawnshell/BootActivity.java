@@ -230,6 +230,8 @@ public class BootActivity extends AppCompatActivity {
                 .setOnClickListener(view -> confirmSystemConfiguration());
         findViewById(R.id.apply_docker_policy_button)
                 .setOnClickListener(view -> confirmDockerNetworkPolicy());
+        findViewById(R.id.apply_host_usb_policy_button)
+                .setOnClickListener(view -> confirmHostUsbPolicy());
         findViewById(R.id.open_compatibility_log_button).setOnClickListener(view ->
                 startActivity(LogDetailActivity.createIntent(
                         this, DawnShellLogRepository.COMPATIBILITY)));
@@ -1158,6 +1160,47 @@ public class BootActivity extends AppCompatActivity {
                 .setPositiveButton(R.string.dawnshell_docker_policy_confirm_button,
                         (dialog, which) -> startDockerNetworkPolicy())
                 .show();
+    }
+
+    private void confirmHostUsbPolicy() {
+        if (!enableBfu.isChecked()) {
+            recordOperation("HOST_USB_POLICY_REJECTED bfu_disabled=true");
+            Toast.makeText(this, R.string.bfu_install_requires_enabled,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!isUserUnlocked()) {
+            recordOperation("HOST_USB_POLICY_REJECTED user_locked=true");
+            Toast.makeText(this, R.string.dawnshell_host_usb_requires_unlock,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dawnshell_host_usb_confirm_title)
+                .setMessage(R.string.dawnshell_host_usb_confirm_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.dawnshell_apply_host_usb_policy,
+                        (dialog, which) -> startHostUsbPolicy())
+                .show();
+    }
+
+    private void startHostUsbPolicy() {
+        try {
+            savePreferences();
+            BfuRuntime.provision(this);
+            BfuBootService.requestHostUsbPolicy(this);
+            recordOperation("HOST_USB_POLICY_REQUESTED mode="
+                    + selectedUsbPassthroughMode()
+                    + " device_ids="
+                    + BfuPreferences.usbExclusiveDeviceIds(this));
+            Toast.makeText(this, R.string.dawnshell_host_usb_policy_requested,
+                    Toast.LENGTH_LONG).show();
+        } catch (IOException | IllegalStateException e) {
+            recordOperation("HOST_USB_POLICY_REQUEST_FAILED "
+                    + BfuSu.sanitize(e.getMessage()));
+            Toast.makeText(this, getString(R.string.bfu_provision_failed,
+                    e.getMessage()), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void startDockerNetworkPolicy() {

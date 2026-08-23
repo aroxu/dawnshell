@@ -115,8 +115,14 @@ Prepare a separate recovery path before enabling a forced bridge backend.
 ### USB passthrough
 
 USB passthrough is disabled by default and takes effect on the next Debian start
-or restart. USB Ethernet does not require this setting because Debian already
-shares Android's network namespace.
+or when **Apply USB sharing policy** restarts a running Debian. A stopped Debian
+is not started by the apply action. USB Ethernet does not require this setting
+because Debian already shares Android's network namespace.
+
+On old kernels, Debian 13 `lsusb -t` may query newer `rx_lanes` and `tx_lanes`
+sysfs attributes that do not exist. DawnShell installs a managed compatibility
+wrapper when the USB policy is applied. It suppresses only those expected
+`ENOENT` messages and preserves other USB diagnostics.
 
 - **Direct passthrough** exposes `/dev/bus/usb`, propagates hot-plug, and leaves
   Android kernel drivers attached. Use this first for ordinary libusb inspection.

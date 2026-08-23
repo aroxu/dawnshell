@@ -39,6 +39,7 @@ final class BfuRuntime {
         final File rootfsInstallerScript;
         final File systemdConfiguratorScript;
         final File dockerNetworkConfiguratorScript;
+        final File hostUsbConfiguratorScript;
         final File lifecycleLog;
         final File debootstrapArchive;
         final File archiveKeyringPackage;
@@ -70,6 +71,8 @@ final class BfuRuntime {
                     "configure-debian-systemd.sh");
             dockerNetworkConfiguratorScript = new File(scripts,
                     "configure-docker-network.sh");
+            hostUsbConfiguratorScript = new File(scripts,
+                    "configure-host-usb.sh");
             lifecycleLog = new File(run, "debian-lifecycle.log");
             debootstrapArchive = new File(downloads, "debootstrap_1.0.141.tar.gz");
             archiveKeyringPackage = new File(downloads,
@@ -129,6 +132,8 @@ final class BfuRuntime {
                 layout.systemdConfiguratorScript, true);
         copyPrivateAsset(deContext, "bfu/configure-docker-network.sh",
                 layout.dockerNetworkConfiguratorScript, true);
+        copyPrivateAsset(deContext, "bfu/configure-host-usb.sh",
+                layout.hostUsbConfiguratorScript, true);
         ensurePrivateFile(layout.lifecycleLog);
         return layout;
     }

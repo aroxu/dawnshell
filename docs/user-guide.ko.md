@@ -158,9 +158,15 @@ Tailscale, 현재 SSH 연결이 끊길 수 있습니다. 별도 복구 방법이
 
 ### USB 패스스루
 
-USB 패스스루는 기본적으로 꺼져 있고 다음 Debian 시작 또는 재시작부터
-적용됩니다. USB Ethernet은 Debian이 Android network namespace를 이미 공유하므로
+USB 패스스루는 기본적으로 꺼져 있습니다. **USB 공유 정책 적용**을 누르면 실행
+중인 Debian만 재시작하고, 중지 상태라면 임의로 시작하지 않고 다음 시작부터
+적용합니다. USB Ethernet은 Debian이 Android network namespace를 이미 공유하므로
 이 설정이 필요하지 않습니다.
+
+구형 커널에서 Debian 13의 `lsusb -t`는 커널에 없는 최신 `rx_lanes`와
+`tx_lanes` sysfs 속성을 조회할 수 있습니다. DawnShell은 USB 정책 적용 때 관리형
+호환 래퍼를 설치하여 이 속성의 예상된 `ENOENT` 메시지만 숨기고 다른 USB 오류는
+그대로 표시합니다.
 
 - **직접 패스스루**는 `/dev/bus/usb`를 노출하고 hot-plug를 반영하되 Android
   커널 드라이버 연결을 유지합니다. 일반 libusb 확인에는 먼저 이 모드를 씁니다.

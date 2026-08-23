@@ -4,9 +4,10 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 system_configurator="$repo_dir/app/src/main/assets/bfu/configure-debian-systemd.sh"
 docker_configurator="$repo_dir/app/src/main/assets/bfu/configure-docker-network.sh"
+host_usb_configurator="$repo_dir/app/src/main/assets/bfu/configure-host-usb.sh"
 remover="$repo_dir/app/src/main/java/me/aroxu/dawnshell/DebianRootfsRemover.java"
 
-for script in "$system_configurator" "$docker_configurator"; do
+for script in "$system_configurator" "$docker_configurator" "$host_usb_configurator"; do
     grep -Fq 'RESOLVED_ROOT="$(cd -P "$ROOT" 2>/dev/null && pwd -P)"' "$script"
     grep -Fq '[ "$RESOLVED_ROOT" = "$ROOT" ] || fail 13 "rootfs resolves elsewhere"' "$script"
     if grep -Eq 'readlink[[:space:]]+-f' "$script"; then
