@@ -216,8 +216,8 @@ once for AFU validation.
 Press **Refresh Debian systemd status**. A successful launcher status contains
 `BFU_DEBIAN_RUNNING`, identity-valid supervisor/init, valid namespace topology,
 `network_namespace=android-shared network_mode=shared-nic`, and a native health
-line proving D-Bus, `ssh.service`, TCP 22, and
-`devices_cgroup=delegated devices_path=/`. With an uplink, host inspection
+ line proving D-Bus, `ssh.service`, TCP 22, and
+ `cgroup_delegation=delegated` with `cgroup_mode=v2` or `v1`. With an uplink, host inspection
 must show priority 5200 matching `fwmark 0x80000/0xff0000` and looking up Android's
 selected table. It must show no `tbfu-host`, `TBFU_NAT`, or `TBFU_FWD`. After an
 explicit stop, the priority-5200 IPv4/IPv6 rules must be absent.
@@ -234,9 +234,12 @@ test -f /run/dawnshell-enabled-service.ready
 busctl --system --no-pager list
 cat /proc/1/comm
 ss -ltn
-awk '$1 == "devices" { print }' /proc/cgroups
-awk -F: '$2 == "devices" { print }' /proc/self/cgroup
-test -r /sys/fs/cgroup/devices/devices.list
+if test -r /sys/fs/cgroup/cgroup.controllers; then
+  awk -F: '$1 == "0" && $2 == "" { print }' /proc/self/cgroup
+else
+  awk '$1 == "devices" { print }' /proc/cgroups
+  test -r /sys/fs/cgroup/devices/devices.list
+fi
 ```
 
 For a same-phone AFU client, scroll to the bottom of DawnShell. Tap **Copy
@@ -259,9 +262,9 @@ BFU_SSH_KEY=/path/to/bfu_key \
 Do not unlock while it waits. Pass requires SSH on TCP 22, `/proc/1/comm` equal
 to `systemd`, working D-Bus, configured and active `multi-user.target`,
 `ssh.service=active`, and a listening `:22` socket. It additionally requires the
-enabled boot-proof service, its private `/run` marker, an attached devices-v1
-hierarchy, and a readable delegated devices view. The native root health helper
-must also prove the view writable while located at cgroup-namespace path `/`.
+ enabled boot-proof service, its private `/run` marker, and either a delegated
+ unified-v2 root or an attached/delegated devices-v1 view. The native root health
+ helper must prove the resolved view writable at cgroup-namespace path `/`.
 The script then asks for the first unlock, proves
 PID 1 start ticks plus machine ID remain identical, and requires exactly one fresh
 same-cycle DE record for `LOCKED_BOOT_COMPLETED`, BFU root, CE isolation, rootfs,
@@ -269,7 +272,8 @@ namespace/chroot, and lifecycle health, plus unchanged systemd identity after
 unlock. No normal Termux boot script is created or executed.
 
 On failure, copy the **Debian systemd lifecycle log** before changing anything.
-Stages such as `cgroup_v1_devices_mount`, `devices_cgroup_move_pid1`,
+Stages such as `cgroup_v2_mount`, `cgroup_v2_device_bpf_attach`,
+`cgroup_v1_devices_mount`, `devices_cgroup_move_pid1`,
 `cgroup_view_devices_bind`, `namespace_command_setns_cgroup`, `exec_systemd`, or
 `systemd_early_exit` identify the exact gate. The log snapshot
 `host_cgroup_v2_controllers` records the host unified-controller file or its read
@@ -280,8 +284,9 @@ last kernel denial lines as root:
 su root -c 'dmesg | tail -n 100 | grep -Ei "avc:|denied|cgroup|devices" || true'
 ```
 
-Debian 13's systemd 257 requires the explicit cgroup-v1 legacy-force path. Never
-repair a failure by bind-mounting Android's hierarchy root into Debian.
+Debian 13's systemd 257 uses native unified mode after a successful v2 probe and
+the explicit legacy-force path after v1 fallback. Never repair a failure by
+bind-mounting Android's hierarchy root into Debian.
 
 For network-mode validation, start with no uplink and confirm systemd/sshd stay
 running. Enable Wi-Fi and require outbound IPv4 plus SSH to the phone address
@@ -293,10 +298,19 @@ Kernel-mode Tailscale validation requires `tailscale0` in the shared netns and
 successful IPv4 control-plane access; an unavailable IPv6 uplink may still log
 IPv6 fallback failures.
 
-The devices-cgroup gate does not authorize unrestricted Docker networking.
-Because Debian intentionally shares Android's network namespace, Docker bridge,
-iptables, route, and forwarding changes are host-global and require a separate
-restriction milestone.
+Before Docker testing, select **Safe host network only**, press **Apply Docker
+network policy**, and require the compatibility log to end with
+`requested=host resolved_backend=none`. `dockerd` must start and containers must
+use `--network host`.
+
+Bridge tests are optional and destructive to network state. With a recovery path
+available, select auto bridge and require the log to try native nftables,
+iptables-nft, then legacy in order. On Docker 29 plus modern kernels the resolved
+backend may be `native-nft`; on the Samsung 4.4 target it may resolve to legacy.
+Verify Wi-Fi, mobile data, USB Ethernet, VPN/Tailscale, and SSH after Docker
+starts and again after it stops. Every forced backend must
+fail closed when their exact read-only NAT-table probe fails. An existing
+unmanaged `/etc/docker/daemon.json` must be preserved with a visible failure.
 
 After reconfiguration, `su root -c '/usr/local/sbin/reboot --check'` must print
 `Android host reboot bridge ready`, while the same command as `debian` must fail.

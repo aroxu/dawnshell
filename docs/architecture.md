@@ -83,6 +83,8 @@ The PoC creates:
 <DE filesDir>/debian-system-config.status
 <DE filesDir>/debian-system-config.log
 <DE filesDir>/debian-lifecycle.status
+<DE filesDir>/docker-network-policy.status
+<DE filesDir>/docker-network-policy.log
 <DE filesDir>/bfu-operation.log
 bfu/
   bin/bfu-namespace-probe-arm64
@@ -96,6 +98,7 @@ bfu/
   scripts/probe-rootfs.sh
   scripts/install-debian-rootfs.sh
   scripts/configure-debian-systemd.sh
+  scripts/configure-docker-network.sh
   downloads/              # checksum-pinned public Debian artifacts
   tmp/
 ```
@@ -244,13 +247,22 @@ now` command inside those same verified namespaces. Each path waits for the
 supervisor lock to be released. The host test script separately compares Android
 boot IDs; the helper never claims Android isolation by itself.
 
-For systemd 257 on this cgroup-v1 kernel, the helper first enters a private mount
-namespace. Before `CLONE_NEWCGROUP`, it attaches `devices` to a v1 hierarchy and
-mounts the private `name=systemd` hierarchy. Each hierarchy gets one dedicated
+The default launcher policy negotiates capabilities instead of parsing a kernel
+version. In a private mount namespace it first mounts cgroup v2, creates a
+dedicated `dawnshell/payload` subtree, enables only controllers already delegated
+by the parent, and loads/attaches/detaches a temporary allow-only
+`BPF_PROG_TYPE_CGROUP_DEVICE` program in an empty probe child. Only after all of
+those operations succeed is future Debian PID 1 moved into `payload`, given a
+private cgroup namespace, and shown that payload as `/sys/fs/cgroup`. The global
+unified hierarchy and Android tasks are not exposed.
+
+If a v2 mount, delegation, or cgroup-device BPF operation fails, automatic mode
+removes the probe subtree and mount before entering the compatibility path.
+Before `CLONE_NEWCGROUP`, that path attaches `devices` to a v1 hierarchy and
+mounts a private `name=systemd` hierarchy. Each hierarchy gets one dedicated
 `dawnshell` child. The future Debian PID 1 is moved into both children before its
 cgroup namespace is created. Only those child roots are bind-mounted at Debian
-`/sys/fs/cgroup/devices` and `/sys/fs/cgroup/systemd`; neither hierarchy root nor
-Android tasks are reachable from the chroot.
+`/sys/fs/cgroup/devices` and `/sys/fs/cgroup/systemd`.
 
 Controller-to-hierarchy attachment is kernel-global in cgroup v1 even though the
 mount is visible only in the launcher's private mount namespace. Existing Android
@@ -263,12 +275,15 @@ hierarchies. This order avoids leaving an unmounted but still-active v1 hierarch
 A process-local `SYSTEMD_PROC_CMDLINE` enables systemd 257's explicit legacy-force
 path without changing Android `/proc/cmdline`.
 
-This implements the devices-cgroup prerequisite only. Docker bridge, iptables,
-and forwarding policy run in Android's intentionally shared network namespace and
-need a separate restriction design before Docker networking is considered safe.
+Docker bridge and firewall management are disabled by the default
+host-network-only policy. Optional native-nftables/iptables-nft/legacy
+negotiation and forced bridge policies are explicit AFU operator actions with
+persistent warnings because all rules affect Android's intentionally shared network namespace. The policy writer
+preserves unmanaged daemon configuration instead of merging or overwriting it.
 
 References: [Linux cgroup-v1 devices controller](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/devices.html),
 [Linux cgroup-v1 hierarchy lifecycle](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/cgroups.html),
+[Linux cgroup v2](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html),
 and [Docker cgroup metrics/runtime notes](https://docs.docker.com/engine/containers/runmetrics/).
 
 ## Platform constraints

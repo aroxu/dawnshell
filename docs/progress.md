@@ -14,20 +14,23 @@
   rootfs markers, systemd units, runtime controls, hostname, and SSH artifacts.
 - [x] Preserve Debian 13 systemd/OpenSSH, local password controls, private-rootfs
   setuid, persistent-after-unlock behavior, and the existing `/data/local/debian`.
-- [x] Attach the devices-v1 controller before the private cgroup namespace,
-  delegate only a `dawnshell` child alongside `name=systemd`, move Debian PID 1
-  and namespace helpers into both children, and clean descendants before unmount.
-- [x] Make native health and the cold-boot SSH harness require the delegated
-  devices view; record host cgroup-v2-controller availability in the lifecycle log.
+- [x] Negotiate cgroups by capability: try a delegated cgroup-v2 subtree plus a
+  real cgroup-device BPF attach first, clean it completely on failure, then fall
+  back to delegated devices-v1 and `name=systemd` children.
+- [x] Make native health and the cold-boot SSH harness accept only a verified v2
+  unified view or verified v1 devices view, and persist the resolved mode.
 - [x] Build and lint successfully with JDK 17; verify target SDK 28,
   `LOCKED_BOOT_COMPLETED`, Direct-Boot-aware receiver/service, no manifest shared
   UID, and APK signature schemes v1/v2.
-- [ ] Validate devices-v1 delegation and Docker's cgroup startup on the physical
-  target, then perform the five-cycle BFU session.
+- [x] Validate devices-v1 delegation far enough for Docker/containerd to pass
+  cgroup initialization on the physical target; the next observed failure was
+  Docker's incompatible nftables firewall frontend.
+- [ ] Validate the new network-backend negotiation and perform the five-cycle BFU
+  session on the physical target.
 
 Staged APK: `dist/dawnshell_0.1.0_debug.apk`
 
-SHA-256: `FA1BF08BE4D914EEE642DE12AD42C89067CAF985EF92722F188548466319D0B7`
+SHA-256: `7AF78C24468F506D28F4EE3D77EDF9E4A81008A54D791F1F94F88452ECE758DC`
 
 The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 
@@ -175,6 +178,16 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
   stack so the locked-boot process remains receiver/service-only.
 - [x] Add a private-mount-namespace devices-v1 hierarchy, delegate only its
   `dawnshell` child into Debian, require it in health, and add ordered teardown.
+- [x] Replace kernel-version assumptions with cgroup capability negotiation:
+  delegated v2 plus a real cgroup-device BPF attach probe first, then complete
+  cleanup and the verified v1 devices/name=systemd fallback.
+- [x] Add DE-backed auto/force-v2/force-v1 controls and persist the resolved mode
+  in lifecycle state, status, health, helper namespace entry, and teardown.
+- [x] Add safe host-network-only Docker policy plus explicit nft-first,
+  force-nft, and force-legacy bridge modes with Android-global network warnings.
+- [x] Preserve unmanaged or externally modified Docker daemon configuration,
+  provide a separate live compatibility log, and pin fallback order/defaults in
+  build-time regression tests.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Verify the namespace/mount/PID-1 Debian chroot probe on the target.
 - [x] Promote the setup into an idempotent long-lived Debian launcher.
@@ -186,11 +199,11 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 
 ## Build environment note
 
-The host currently defaults to JDK 26. Clean Java compilation, DEX packaging,
-native-helper verification, and APK assembly pass; Android lint requires a
-compatible JDK because this older lint/UAST stack fails under JDK 26. The currently staged local test
-APK is `dist/termux-boot_0.8.1_bfu_debug.apk` with SHA-256
-`C60438F14B363CAE9D398F3493BA0279B86E0D3511C9850E6B7027FA9491DC06`.
+The host defaults to JDK 26, so the reproducible build uses the repository's JDK
+17 toolchain. Clean Java compilation, DEX packaging, native-helper verification,
+lint, unit tests, and APK assembly pass. The current standalone artifact is
+`dist/dawnshell_0.1.0_debug.apk` with SHA-256
+`7AF78C24468F506D28F4EE3D77EDF9E4A81008A54D791F1F94F88452ECE758DC`.
 Whole debug APK hashes are build-specific because clean D8 runs can vary
 synthetic-lambda metadata; the final harness therefore records the local hash and
 requires the installed APK to match it. The BFU helper is rebuilt from the
@@ -203,7 +216,8 @@ Debian 13 rootfs installation completed. Per the agreed order, the next device
 action is the single integrated `scripts/test-final-bfu.sh` session after this APK
 is installed; no intermediate device result is required for source completion.
 
-The local install pair is staged under ignored `dist/` with these hashes:
+The former Termux/Termux:Boot install pair below is retained only as historical
+PoC evidence and is not required by the standalone DawnShell APK:
 
 ```text
 31B9A5166CC0C3912D3840D5F14A640C841E1F259886372A5173B0FF88E0A1C6  termux-app_0.118.0_apt-android-7_arm64-v8a_debug.apk

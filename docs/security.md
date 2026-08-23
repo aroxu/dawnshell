@@ -19,9 +19,10 @@
    prove `su -c id` returned `uid=0`, and failure cannot crash the BFU controller.
 6. The Debian launcher intentionally shares Android's network namespace for
    native-NIC performance. It does not expose an Android cgroup hierarchy root
-   to systemd. Only dedicated `dawnshell` children of the `name=systemd` and
-   devices-v1 hierarchies are visible through the private mount/cgroup namespace
-   view; Android tasks remain outside those children.
+   to systemd. Automatic mode prefers a dedicated cgroup-v2
+   `dawnshell/payload` only after a cgroup-device BPF attach probe succeeds, then
+   falls back to dedicated `dawnshell` children of the `name=systemd` and
+   devices-v1 hierarchies. Android tasks remain outside every delegated child.
 7. The locked-boot standalone app process must prove that its provisioned CE sentinel
    content is unreadable before the rootfs/namespace launcher runs. The fixed
    sentinel path and verdict may be logged, but no user filename or content is.
@@ -66,8 +67,9 @@ system `libc.so`/`libdl.so` dependencies. The build requires a non-empty helper
 asset, and provisioning copies it to owner-only DE storage. Root accepts
 only the exact, non-symlink, uid-0-owned, non-group/world-writable
 `/data/local/debian` root. The bounded probe exits after the chroot proof. The
-long-running mode exposes only delegated `dawnshell` children for `name=systemd`
-and devices-v1, rejects duplicate or identity-ambiguous instances, and keeps the
+long-running mode exposes only the resolved delegated v2 payload or v1
+`name=systemd`/devices children, rejects duplicate or identity-ambiguous
+instances, and keeps the
 supervisor independent of the Android app process. Attaching a v1 controller to
 a hierarchy is kernel-global, but the launcher never changes the root devices
 allowlist and never moves Android tasks into the delegated child. The child can
@@ -181,11 +183,19 @@ is preferred. Once enrolled, `/var/lib/tailscale/tailscaled.state` is necessaril
 available during BFU and must be treated as a device credential with weaker
 at-rest protection than CE data.
 
-Docker is not a security boundary in the current shared-network design. This
-devices-cgroup delegation prevents Docker from walking upward into Android's
-cgroup root, but Docker-created bridges, routes, forwarding rules, and iptables
-state would still affect Android's global network namespace. Those mutations
-must be separately constrained before enabling Docker networking.
+Docker is not a security boundary in the shared-network design. The default
+managed policy disables Docker bridge, iptables/ip6tables, IP forwarding, and
+masquerading and requires `--network host`. Explicit bridge modes first perform
+read-only nft/legacy frontend probes, but successful startup necessarily permits
+Docker-created bridges, routes, forwarding, NAT, and firewall rules to affect
+Android globally. The UI labels every bridge mode dangerous and leaves host-only
+as the default. Bridge testing requires a recovery path that does not depend on
+the same network connection.
+
+The AFU policy writer refuses a pre-existing unmanaged
+`/etc/docker/daemon.json`. Once it creates a managed file, the recorded SHA-256
+must still match before replacement. This avoids destroying an operator's custom
+configuration but does not make a dangerous bridge policy safe.
 
 The target's IPC namespace is a documented compatibility exception, not a
 container-security boundary. A captured kernel panic proves that Samsung's

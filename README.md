@@ -59,8 +59,8 @@ LOCKED_BOOT_COMPLETED
   -> /data/local/debian rootfs gate
   -> private mount/PID/UTS/cgroup namespaces
      (Android IPC and network retained for Samsung Linux 4.4 compatibility)
-  -> delegated cgroup-v1 systemd + devices subtrees
-     (Android tasks and the global devices policy remain outside Debian's view)
+  -> capability-negotiated cgroups
+     (delegated v2 + device-BPF first, isolated v1 systemd/devices fallback)
   -> direct shared-NIC networking with a managed Tailscale fwmark route shim
   -> Debian 13 systemd as namespace PID 1
   -> D-Bus + ssh.service + boot-proof service
@@ -88,6 +88,29 @@ the earlier BFU-enabled Termux:Boot build. Its package, DE/CE state, rootfs
 markers, systemd units, hostname, control files, SSH identity, and APK names all
 use the DawnShell namespace. Stop the old supervisor before performing a manual
 migration; never start two supervisors against the same `/data/local/debian`.
+
+## Kernel and Docker compatibility policies
+
+DawnShell never selects a backend from `uname` or a kernel-version table. The
+default cgroup policy tries a private delegated cgroup-v2 subtree first and
+accepts it only after a temporary cgroup-device BPF program can be loaded and
+attached. An unavailable mount, delegation, or BPF capability is cleaned up
+before fallback to the cgroup-v1 `devices` plus `name=systemd` implementation.
+The UI also exposes fail-closed force-v2 and force-v1 modes for diagnostics.
+
+Docker networking defaults to **safe host-network-only**. Its managed daemon
+configuration disables Docker bridge, iptables/ip6tables, forwarding, and
+masquerading, so containers must use `--network host`. Automatic bridge mode
+probes Docker 29's experimental native nftables backend, then `iptables-nft`,
+then `iptables-legacy`; each backend can also be forced. These modes are
+dangerous because Debian shares Android's
+network namespace: Docker can alter Android-global firewall, NAT, routes, and
+forwarding and disrupt Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, or SSH.
+
+Applying Docker policy is a separate AFU action; saving the preference alone
+does not mutate networking. DawnShell refuses to overwrite an unmanaged
+`/etc/docker/daemon.json` and replaces its own file only while the recorded
+SHA-256 still matches. The operation has a separate selectable live log.
 
 ## Build
 
@@ -130,9 +153,9 @@ BFU_EXPECT_CE_READABLE_OVERRIDE=1 \
 
 It verifies BFU SSH/systemd health, unlock continuity, one systemd instance,
 provisioned-helper equality with the staged APK, process memory evidence, and
-poweroff/reboot/shutdown namespace isolation. Health also requires an attached
-devices-v1 hierarchy and the delegated view at `/sys/fs/cgroup/devices`. It does
-not test normal
+poweroff/reboot/shutdown namespace isolation. Health requires either the
+delegated unified-v2 root or the delegated v1 devices view and records the
+resolved mode. It does not test normal
 Termux:Boot handoff because that belongs to the separate upstream app.
 
 The network manager follows the table selected by Android and routes Tailscale's

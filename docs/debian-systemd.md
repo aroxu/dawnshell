@@ -59,9 +59,10 @@ executable device/inode), not a pid file alone. Within a new mount namespace it:
    `/dev` and `/sys`, mark those binds slave, and make Debian `/sys` read-only.
 3. mount `/proc` so it reflects the new PID namespace.
 4. mount a `mode=755,nosuid,nodev` tmpfs at `$ROOT/run` and create `/run/lock`.
-5. before creating the cgroup namespace, mounts cgroup-v1 `name=systemd` and
-   `devices` hierarchies, moves Debian PID 1 into dedicated `dawnshell` children,
-   and exposes only those two delegated children in the chroot;
+5. before creating the cgroup namespace, attempts a delegated cgroup-v2 payload
+   and cgroup-device BPF probe; if unavailable in automatic mode, mounts
+   cgroup-v1 `name=systemd` and `devices` hierarchies instead. Debian PID 1 moves
+   into only the resolved delegated subtree and sees no Android hierarchy root;
 6. executes `env container=dawnshell chroot "$ROOT" /sbin/init`.
 
 Host Android mount propagation remains untouched. The helper never makes host
@@ -105,9 +106,9 @@ and rejects the instance unless PID/mount/UTS/cgroup are private while IPC and
 network match Android. Java then polls the fixed native `health` operation until it
 proves systemd PID 1, active D-Bus service and bus, `multi-user.target`, active
 `ssh.service`, an active independent boot-proof service with its `/run` marker,
-a TCP 22 listener, and a writable delegated devices-cgroup root. The health
-helper first moves itself into the same two children and joins PID 1's cgroup
-namespace, so `devices_path=/` is evidence from the delegated view. It checks
+a TCP 22 listener, and a writable delegated cgroup root. The health helper first
+moves itself into the resolved v2 payload or v1 children and joins PID 1's cgroup
+namespace, so `/proc/self/cgroup` reports `/` from the delegated view. It checks
 both that `multi-user.target` is configured as default and that the target unit
 is actually active. The locked/unlocked state surrounding that health proof is
 written to DE.
@@ -130,26 +131,43 @@ default unless its documented legacy-force conditions are met. The launcher sets
 both required flags through systemd's process-local `SYSTEMD_PROC_CMDLINE`
 override. It does not modify Android's actual kernel command line.
 
-The launcher must fail closed if it cannot provide private, writable delegated
-views acceptable to systemd. It does not bind Android's hierarchy root into
-Debian or move/restrict Android tasks. On this target `devices` initially has
-`hierarchy=0`; the launcher attaches it before `CLONE_NEWCGROUP`, creates one
-child, and exposes only that child. Because v1 controller attachment is global,
-cleanup removes all Debian descendants and the child before unmount. Failure at
-any of these steps is a hard start failure. See the upstream
+The launcher must fail closed if it cannot provide a private, writable delegated
+view acceptable to systemd and Docker. Automatic mode first probes cgroup v2,
+including an actual cgroup-device BPF attach, then cleans it completely before a
+v1 fallback. Force-v2 and force-v1 skip fallback by design. On the 4.4 target,
+`devices` initially has `hierarchy=0`; the fallback attaches it before
+`CLONE_NEWCGROUP`, creates one child, and exposes only that child. Because v1
+controller attachment is global, cleanup removes all Debian descendants and the
+child before unmount. It never binds Android's hierarchy root into Debian or
+moves/restricts Android tasks. See the upstream
 [systemd v257 requirements](https://github.com/systemd/systemd/blob/v257/README),
 [Linux devices-controller delegation rules](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/devices.html),
 and [v257 release notes](https://github.com/systemd/systemd/blob/v257/NEWS).
+
+## Docker network compatibility
+
+The app stores the selected policy in Device Protected preferences, but applies
+it only from the explicit AFU button. `host` publishes a managed
+`/etc/docker/daemon.json` with bridge, firewall, forwarding, masquerading, and
+userland proxy disabled. `auto` first validates Docker 29's experimental native
+nftables backend and performs a read-only nft ruleset query, then probes
+`iptables-nft`, then `iptables-legacy`. All three bridge backends can be forced
+and fail closed. Bridge modes intentionally leave
+IPv6 Docker firewall management disabled because Android kernel support varies.
+
+Applying while Debian is running records its state, stops the identity-verified
+PID 1, writes policy in a private AFU mount namespace, then restores the previous
+running state. Existing unmanaged daemon configuration and externally modified
+managed configuration are preserved and reported as failures.
 
 ## Ordered device gates
 
 1. BFU `su -c id` returns `uid=0` and persists the result in DE.
 2. BFU root validates the selected Debian rootfs structure, shell mode, and
    temporary read/write access.
-3. Root helper creates mount/PID/UTS/cgroup namespaces, prepares delegated
-   `name=systemd` and `devices` children before the cgroup namespace, retains
-   Android IPC and network, starts the bypass-mark watcher, and PID 1 sees its
-   own `/proc`.
+3. Root helper creates mount/PID/UTS/cgroup namespaces, negotiates v2 then v1
+   delegated cgroups before the cgroup namespace, retains Android IPC and
+   network, starts the bypass-mark watcher, and PID 1 sees its own `/proc`.
 4. `chroot` executes Debian `/bin/sh` as namespace PID 1.
 5. `/sbin/init` becomes namespace PID 1.
 6. D-Bus and `systemctl` work and the default target is reached.
