@@ -175,6 +175,12 @@ USB 패스스루는 기본적으로 꺼져 있습니다. **USB 공유 정책 적
   이상이 필수입니다. 새로 연결된 일치 장치도 감시하고 Debian 종료 때 분리한
   드라이버 복원을 시도합니다.
 
+**끄기**는 정확히 raw USBFS 정책입니다. `/dev/bus/usb`를 가리고 문자 장치 major
+189를 거부하지만 Android 커널의 USB 감지를 중단하지는 않으므로 공유 sysfs에서
+장치가 계속 보일 수 있습니다. 또한 커널 드라이버가 만든 `/dev/block/sd*`, USB
+Ethernet, `ttyUSB`/`ttyACM`, input, video, audio 같은 파생 자원은 raw USBFS 정책
+범위 밖이며 장치 class별 추가 격리가 필요합니다.
+
 ```sh
 ls -l /dev/bus/usb/*/* 2>/dev/null
 lsusb 2>/dev/null || true

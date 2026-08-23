@@ -131,6 +131,13 @@ wrapper when the USB policy is applied. It suppresses only those expected
   `0403:6001, 10c4:ea60`. At least one ID is mandatory. DawnShell scans for new
   matching devices and tries to restore detached drivers when Debian stops.
 
+The **Off** setting is specifically a raw USBFS policy: it masks
+`/dev/bus/usb` and denies character-device major 189. It does not stop Android's
+kernel from enumerating USB hardware, so shared sysfs may still show the device.
+Kernel drivers can also expose derived resources such as `/dev/block/sd*`, USB
+Ethernet, `ttyUSB`/`ttyACM`, input, video, or audio nodes. Those resources are
+outside the raw USBFS policy and require separate device-class isolation.
+
 Inside Debian, inspect a connected device with:
 
 ```sh
