@@ -31,7 +31,9 @@ for tool in awk cat chmod chown grep id mkdir mv pwd rm sed sha256sum stat; do
 done
 
 [ "$(id -u)" = 0 ] || fail 11 "USB policy did not obtain uid 0"
-[ -d "$ROOT" ] && [ ! -L "$ROOT" ] || fail 13 "rootfs is missing or is a symlink"
+if [ ! -d "$ROOT" ] || [ -L "$ROOT" ]; then
+    fail 13 "rootfs is missing or is a symlink"
+fi
 RESOLVED_ROOT="$(cd -P "$ROOT" 2>/dev/null && pwd -P)" || fail 13 "rootfs path could not be resolved"
 [ "$RESOLVED_ROOT" = "$ROOT" ] || fail 13 "rootfs resolves elsewhere"
 [ "$(stat -c '%u:%g' "$ROOT")" = "0:0" ] || fail 13 "rootfs is not root-owned"
@@ -45,19 +47,23 @@ for parent in "$ROOT/usr" "$ROOT/usr/local" "$ROOT/etc"; do
 done
 mkdir -p "$ROOT/usr/local/bin" "$ROOT/etc/dawnshell"
 for parent in "$ROOT/usr/local/bin" "$ROOT/etc/dawnshell"; do
-    [ -d "$parent" ] && [ ! -L "$parent" ] || \
+    if [ ! -d "$parent" ] || [ -L "$parent" ]; then
         fail 19 "rootfs management directory is unsafe: $parent"
+    fi
     [ "$(stat -c '%u:%g' "$parent")" = "0:0" ] || \
         fail 19 "rootfs management directory is not root-owned: $parent"
 done
 
 if [ -e "$wrapper" ]; then
-    [ -f "$wrapper" ] && [ ! -L "$wrapper" ] || fail 20 "existing non-regular /usr/local/bin/lsusb was preserved"
+    if [ ! -f "$wrapper" ] || [ -L "$wrapper" ]; then
+        fail 20 "existing non-regular /usr/local/bin/lsusb was preserved"
+    fi
     [ -f "$wrapper_hash" ] || fail 20 "existing unmanaged /usr/local/bin/lsusb was preserved"
     expected="$(sed -n '1p' "$wrapper_hash")"
     actual="$(sha256sum "$wrapper" | awk '{print $1}')"
-    [ -n "$expected" ] && [ "$actual" = "$expected" ] || \
+    if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then
         fail 20 "managed lsusb wrapper was modified; refusing to overwrite it"
+    fi
 fi
 
 temporary="${wrapper}.dawnshell.$$"
