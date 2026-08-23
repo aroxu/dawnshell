@@ -21,18 +21,25 @@
   unified view or verified v1 devices view, and persist the resolved mode.
 - [x] Build and lint successfully with JDK 17; verify target SDK 28,
   `LOCKED_BOOT_COMPLETED`, Direct-Boot-aware receiver/service, no manifest shared
-  UID, and APK signature schemes v1/v2.
+  UID, and APK Signature Scheme v2.
 - [x] Add complete Korean resources for all 214 translatable UI strings while
   keeping the launcher/app name fixed as `DawnShell`.
+- [x] Remove the rootfs installer and management scripts' Termux `$PREFIX`
+  dependency; provision every host tool from app-owned Device Protected Storage.
+- [x] Pin and vendor upstream BusyBox, debootstrap, base-installer, GnuPG and its
+  libraries, plus the Debian archive-keyring artifact with SHA-256 records and
+  third-party license notices.
+- [x] Add reproducible source builds and APK runtime selection for Android
+  `armeabi-v7a`/Debian `armhf`, `arm64-v8a`/`arm64`, and `x86_64`/`amd64`.
 - [x] Validate devices-v1 delegation far enough for Docker/containerd to pass
   cgroup initialization on the physical target; the next observed failure was
   Docker's incompatible nftables firewall frontend.
 - [ ] Validate the new network-backend negotiation and perform the five-cycle BFU
   session on the physical target.
 
-Staged APK: `dist/dawnshell_0.1.0_debug.apk`
+Staged APK: `dist/dawnshell_0.2.0_debug.apk`
 
-SHA-256: `4CCF1ACC36EB74106AC6D487AD33EB05A509EF21B64DD8225947FA35FC1488D4`
+SHA-256: `5631AA1152FC7F41910B07D6F30996E0F80BB0D7DDFEDBAFF5FA429F3AFD815F`
 
 The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 
@@ -208,8 +215,8 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 The host defaults to JDK 26, so the reproducible build uses the repository's JDK
 17 toolchain. Clean Java compilation, DEX packaging, native-helper verification,
 lint, unit tests, and APK assembly pass. The current standalone artifact is
-`dist/dawnshell_0.1.0_debug.apk` with SHA-256
-`4CCF1ACC36EB74106AC6D487AD33EB05A509EF21B64DD8225947FA35FC1488D4`.
+`dist/dawnshell_0.2.0_debug.apk` with SHA-256
+`5631AA1152FC7F41910B07D6F30996E0F80BB0D7DDFEDBAFF5FA429F3AFD815F`.
 Whole debug APK hashes are build-specific because clean D8 runs can vary
 synthetic-lambda metadata; the final harness therefore records the local hash and
 requires the installed APK to match it. The BFU helper is rebuilt from the

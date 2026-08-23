@@ -1,8 +1,11 @@
 # DawnShell
 
 Standalone Android Direct Boot controller for a root-owned Debian 13 Trixie
-arm64 environment. Its Android package is `me.aroxu.dawnshell` and its launcher
+environment. Its Android package is `me.aroxu.dawnshell` and its launcher
 name is **DawnShell**.
+
+Android 7.0/API 24 is the minimum because Direct Boot and the bundled native
+bootstrap runtime both target the first platform release that provides it.
 
 The app starts Debian systemd and public-key-only OpenSSH before the first Android
 unlock. Debian remains alive after `USER_UNLOCKED`. It does not execute normal
@@ -20,33 +23,30 @@ Termux:Boot app separately if those AFU features are needed.
 - AFU-only controls may set local `debian` and `root` passwords. `su root` then
   works through a setuid-enabled private rootfs mount; the Android host `/data`
   mount is never remounted.
-- The initial rootfs installer currently uses an existing Termux `$PREFIX` only
-  for AFU `debootstrap`, `mount`, and related bootstrap tools. BFU boot and the
-  running Debian/systemd/OpenSSH environment do not depend on Termux CE storage.
+- Rootfs installation and all management operations use the app's source-built,
+  ABI-specific Android bootstrap runtime in DE. They never execute another
+  package's binaries or read Termux CE storage.
 
-## Termux requirement
+## Standalone bootstrap runtime
 
-**A working normal Termux installation is required by the currently supported
-setup and management workflow.** DawnShell is a separate Android package and
-its locked-boot runtime is independent, but the app currently uses tools from
-`/data/data/com.termux/files/usr` for:
+Termux is not required to install, configure, boot, recover, or remove Debian.
+The universal APK selects one of these mappings from `Build.SUPPORTED_ABIS`:
 
-- the first Debian rootfs installation;
-- Debian systemd/OpenSSH package installation and reconfiguration;
-- localhost SSH access and operational diagnostics from the phone.
+| Android ABI | Debian architecture |
+| --- | --- |
+| `armeabi-v7a` | `armhf` |
+| `arm64-v8a` | `arm64` |
+| `x86_64` | `amd64` |
 
-Prepare normal Termux after unlock with:
+For each ABI, the APK contains a Bionic PIE BusyBox toolbox, Debian
+`base-installer`'s native `pkgdetails`, a statically dependency-linked `gpgv`,
+and the DawnShell namespace launcher. The app also bundles pinned upstream
+debootstrap source and Debian's public archive keyring. Debian Release
+signatures, package indexes, and package hashes are verified during bootstrap.
 
-```sh
-pkg install debootstrap util-linux mount-utils openssh
-```
-
-After Debian has been installed and configured, BFU systemd/OpenSSH can start
-without launching Termux and without reading Termux CE storage. Nevertheless,
-this project currently treats Termux as a required companion for supported
-reinstallation, reconfiguration, recovery, and day-to-day administration. A
-future bundled bootstrap toolchain would be required before claiming a fully
-Termux-independent installation and management path.
+Termux remains an optional, convenient on-device SSH client. The app's exported
+private-key import and localhost SSH commands target Termux, but any OpenSSH
+client can use the exported key instead.
 
 ## Implemented flow
 
@@ -122,18 +122,32 @@ Requirements:
 - JDK 17
 - Android SDK Platform 34
 - Android NDK `29.0.14206865`
-- Git Bash or another Bash environment on Windows
+- Bash, GNU make, a host C compiler, GNU awk, patch, sed, tar, and coreutils
+- On Windows, an MSYS2 environment containing those host tools
 
 ```sh
 export JAVA_HOME=/path/to/jdk17
 export ANDROID_HOME=/path/to/android-sdk
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 ./scripts/build-all.sh
 ```
+
+`scripts/build-bootstrap-runtime.sh` verifies every vendored source SHA-256,
+then builds all three ABI directories before Gradle packages the APK. To rebuild
+only selected targets, set `DAWNSHELL_BOOTSTRAP_ABIS` to a space-separated list.
+`DAWNSHELL_SKIP_BOOTSTRAP_SOURCE_BUILD=1` is intended only for an APK rebuild
+after already verified runtime assets exist.
+
+Pinned source archives and URLs are recorded in
+`bfu-runtime/sources/SOURCES.lock`; Android patches/configuration are kept under
+`bfu-runtime/patches` and `bfu-runtime/config`. DawnShell code is MIT, while the
+bundled command-line programs retain their upstream GPL/LGPL licenses; see
+`bfu-runtime/THIRD_PARTY_NOTICES.md`.
 
 Output:
 
 ```text
-dist/dawnshell_0.1.0_debug.apk
+dist/dawnshell_0.2.0_debug.apk
 ```
 
 The debug keystore is public and unsuitable for production. Sign production

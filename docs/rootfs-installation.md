@@ -3,63 +3,73 @@
 ## Purpose and boundary
 
 The launcher activity can prepare the gate-2 rootfs at
-`/data/local/debian`. Installation is intentionally AFU-only: Android must be
-unlocked because the bootstrap process borrows command-line tools from the
-normal Termux prefix. The completed rootfs, staging tree, installer lock, and
-future server runtime do not live in Termux CE storage.
-
-The app does not execute Termux's packaged `debootstrap` script. That package
-is adapted for unprivileged `proot` environments and replaces operations such
-as ownership/account changes. Instead, installing the package supplies the
-Android-compatible host tools (`wget`, `perl`, `gpgv`, `dpkg-deb`, and related
-dependencies), while the app downloads and executes a checksum-pinned upstream
-Debian debootstrap.
+`/data/local/debian`. The bootstrap does not use Termux, another package, or CE
+storage. It runs from the ABI-specific Bionic runtime that DawnShell provisions
+under its Device Protected `files/bfu/` tree.
 
 ## One-time prerequisite
 
-After launching the matching custom Termux APK, run while Android is unlocked:
-
-```sh
-pkg update
-pkg install debootstrap util-linux mount-utils
-```
-
-Then open DawnShell and press **Request / verify Magisk root permission**.
+Open DawnShell and press **Request / verify Magisk root permission**.
 Confirm that the package list contains only the standalone trusted app and choose
 Magisk's permanent/forever allow duration. Keep **Enable Direct Boot Debian
-bootstrap** selected and press **Install Debian 13 Trixie arm64 rootfs**. The
+bootstrap** selected and press **Install Debian 13 Trixie rootfs**. The
 foreground service continues if the activity is backgrounded, but keeping the
 activity visible shows the newest 48 KiB of output with a one-second refresh.
 
-## Verified inputs
+## Source-built host runtime and verified inputs
 
-The app downloads over HTTPS from `deb.debian.org` and accepts only these exact
-artifacts:
+DawnShell maps Android ABIs to native Debian architectures as follows:
+
+| Android ABI | Debian architecture |
+| --- | --- |
+| `armeabi-v7a` | `armhf` |
+| `arm64-v8a` | `arm64` |
+| `x86_64` | `amd64` |
+
+`scripts/build-bootstrap-runtime.sh` compiles BusyBox 1.38.0, `pkgdetails` from
+base-installer 1.226, GnuPG 2.4.9 `gpgv` with its static library dependencies,
+and the native namespace launcher for all three ABIs. Each output is an Android
+PIE with `/system/bin/linker` or `/system/bin/linker64`; the build rejects an
+unexpected shared dependency or embedded fixed app-data path.
+
+The APK contains these exact architecture-independent inputs:
 
 | Artifact | SHA-256 |
 | --- | --- |
 | `debootstrap_1.0.141.tar.gz` | `232ec755f4b1f445f829996885846abba6f1b6fd55d049476ab26ddd8c4b4e1b` |
 | `debian-archive-keyring_2025.1_all.deb` | `9ea7778e443144ca490668737a8ab22dd3e748bb99e805e22ec055abeb3c7fac` |
 
-Java verifies each download before publishing it into the app-owned DE cache.
-The root helper verifies both digests again, extracts the Trixie archive
+The gzip archive is named `debootstrap_1.0.141.tgz` only inside APK assets so
+Android's asset packager does not transparently strip the `.gz` suffix. Its DE
+runtime filename remains `debootstrap_1.0.141.tar.gz`.
+
+Their source archives are SHA-256 checked before every native build, and APK
+signing covers the resulting assets. Provisioning atomically copies them into
+the app-owned DE directory. The root helper verifies both digests again,
+extracts the Trixie archive
 keyring, and invokes debootstrap with `--force-check-sig`. A checksum or Debian
 Release-signature failure is fatal.
 
-Upstream debootstrap assumes host `dpkg` is `/usr/bin/dpkg`, a path Android does
-not provide. The helper applies only a one-line portability substitution so the
-host command resolves through the unlocked Termux `PATH`; all bootstrap package
-selection, signature verification, extraction, ownership, and chroot behavior
-remain upstream.
+The package mirror uses HTTP because BusyBox's compact TLS client does not
+authenticate peers. This does not disable authenticity checks: source-built
+`gpgv` verifies Debian Release metadata, debootstrap verifies Packages indexes
+against that signed metadata, and every `.deb` against its authenticated hash.
+Transport tampering therefore fails closed. Upstream debootstrap's optional
+host-`dpkg` lookup is avoided by supplying its documented `arch` file and
+source-built native `pkgdetails` helper. The installer explicitly selects
+debootstrap's upstream `ar` extractor: BusyBox `ar`, `xzcat`, and `tar` cover
+Trixie's `.deb` format, while BusyBox's compact `dpkg-deb` is used only for its
+supported keyring-package extraction path.
 
 ## Publication and idempotence
 
 Installation runs as pre-authorized Magisk root inside a private mount namespace:
 
 ```text
-verified downloads in <DE filesDir>/bfu/downloads/
+APK assets -> verified files in <DE filesDir>/bfu/{bin,downloads}/
   -> /data/local/debian.installing
-  -> validate Debian 13/Trixie, arm64, dpkg database, /bin/sh, root ownership
+  -> validate Debian 13/Trixie, selected architecture, dpkg database,
+     /bin/sh, root ownership
   -> write .dawnshell-rootfs metadata marker
   -> atomic rename to /data/local/debian
 ```
@@ -92,8 +102,9 @@ visible tail. Automatic refresh/follow pauses while a selection is active or the
 view is scrolled above the bottom, then resumes when the selection is dismissed
 or the view returns to the bottom.
 
-The log records download progress, both integrity checks, the selected `su`
-binary, private-mount setup, upstream debootstrap stdout/stderr, validation, and
+The log records the selected Android/Debian architecture, integrity checks,
+the selected `su` binary, private-mount setup, upstream debootstrap
+stdout/stderr, validation, and
 the final atomic promotion. It does not log environment dumps, credentials, or
 private keys. If the root helper exits unsuccessfully, its last sanitized
 `ERROR:` line is also included in the installer status instead of showing only
@@ -112,17 +123,18 @@ derives the DE directory from `createDeviceProtectedStorageContext()`.
 
 ## Failure handling
 
-- `missing ...; run in Termux: pkg install debootstrap util-linux mount-utils`:
-  install the
-  AFU prerequisites and press the install button again.
+- `source-built ... is missing`: reprovision the runtime from the app. If it
+  persists, retain the log because the installed APK is incomplete or does not
+  contain the device ABI.
 - checksum or signature failure: do not bypass verification; retain the log and
   investigate the network/cache.
 - an unverified `/data/local/debian` already exists: inspect and move it manually
   only after confirming its origin. The installer will not delete it.
 - partial staging remains: preserve its `debootstrap/debootstrap.log` before any
   manual cleanup. The next app-driven attempt moves it aside automatically.
-- Android is locked: the request is rejected because using Termux CE tooling at
-  BFU would violate the storage boundary.
+- Android is locked: interactive installation remains AFU-only so Magisk policy,
+  destructive storage publication, and progress UI are explicit. No CE tooling
+  is involved.
 
 After `INSTALL_SUCCEEDED`, reboot without unlocking and run
 `scripts/test-rootfs-bfu.sh`. Only that locked-boot evidence completes gate 2;

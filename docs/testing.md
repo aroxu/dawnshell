@@ -11,7 +11,8 @@ adb shell dumpsys user | grep -i unlocked
 ```
 
 Expected: crypto state `encrypted`, crypto type `file` when the ROM publishes
-that legacy property, `arm64-v8a`, target SDK 28, and package
+that legacy property, one of `armeabi-v7a`, `arm64-v8a`, or `x86_64`, target SDK
+28, and package
 `me.aroxu.dawnshell` with its own app ID. Some Android 16 custom ROMs leave
 `ro.crypto.type` unset. An
 unset type is not accepted as proof by itself: every final-test cycle must still
@@ -130,15 +131,11 @@ not weaken FBE or hide the result to continue booting Debian.
 
 ## Debian gate 2: rootfs accessibility
 
-While unlocked, install Termux prerequisites, then use the in-app installer:
-
-```sh
-pkg install debootstrap util-linux mount-utils
-```
-
-Open **Logs → Debian installation** and watch it until the status is `SUCCEEDED`. Confirm
-the log contains both SHA-256 checks, a valid Debian Release signature, rootfs
-validation for Debian 13/Trixie arm64, and `INSTALL_SUCCEEDED`. Also verify
+While unlocked, use the in-app installer; no Termux package prerequisite is
+needed. Open **Logs → Debian installation** and watch it until the status is
+`SUCCEEDED`. Confirm the log identifies the selected Android and Debian
+architectures, contains both SHA-256 checks, a valid Debian Release signature,
+rootfs validation for Debian 13/Trixie, and `INSTALL_SUCCEEDED`. Also verify
 `/data/local/debian/.dawnshell-rootfs` contains `suite=trixie`. Then reboot and run:
 
 ```sh
@@ -176,7 +173,7 @@ candidate path or filesystem policy.
 
 ## Debian gate 3: namespaces and chroot
 
-Install the APK containing the ARM64 namespace helper, keep BFU enabled, and run:
+Install the APK containing the helper for the device ABI, keep BFU enabled, and run:
 
 ```sh
 ./scripts/test-debian-runtime-bfu.sh
@@ -191,7 +188,7 @@ timeout=false
 namespace_chroot=true
 user_unlocked_before=false
 user_unlocked_after=false
-output=BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=arm64 debian=13
+output=BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=<armhf|arm64|amd64> debian=13
 ```
 
 The helper uses no Termux CE executable. It creates mount/PID/UTS/cgroup/network

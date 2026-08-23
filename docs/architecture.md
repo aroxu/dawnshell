@@ -87,7 +87,11 @@ The PoC creates:
 <DE filesDir>/docker-network-policy.log
 <DE filesDir>/bfu-operation.log
 bfu/
-  bin/bfu-namespace-probe-arm64
+  bin/
+    dawnshell-toolbox
+    pkgdetails
+    gpgv
+    bfu-namespace-probe
   etc/authorized_keys       # validated public keys only
   home/
   run/
@@ -99,7 +103,7 @@ bfu/
   scripts/install-debian-rootfs.sh
   scripts/configure-debian-systemd.sh
   scripts/configure-docker-network.sh
-  downloads/              # checksum-pinned public Debian artifacts
+  downloads/              # APK-bundled, checksum-pinned Debian inputs
   tmp/
 ```
 
@@ -141,12 +145,13 @@ Debian ELF or enter chroot, keeping storage accessibility separate from the late
 dynamic-loader/chroot gate.
 
 Rootfs preparation is a separate AFU operation launched explicitly from the
-activity. A foreground-service worker downloads pinned public Debian artifacts,
-streams child output into DE, and invokes a root helper. The helper borrows the
-unlocked Termux prefix only as a host toolchain. It runs upstream debootstrap in
-a private mount namespace and atomically promotes `/data/local/debian.installing`
-only after architecture, dpkg state, shell, version, and root ownership checks.
-No Termux path is embedded in the resulting Debian filesystem.
+activity. A foreground-service worker provisions pinned public Debian inputs and
+the device-ABI runtime from APK assets, streams child output into DE, and invokes
+a root helper. The helper uses only source-built Bionic BusyBox, `pkgdetails`,
+and `gpgv`. It runs upstream debootstrap in a private mount namespace and
+atomically promotes `/data/local/debian.installing` only after architecture,
+dpkg state, shell, version, and root ownership checks. Termux CE is neither
+opened nor executed.
 
 The second AFU operation installs Debian's systemd, D-Bus, and OpenSSH packages
 inside that rootfs. It runs package management in a private mount namespace,
@@ -188,10 +193,10 @@ Locked-boot components never open the CE identity.
 
 The Android service remains a small lifecycle controller. Mount, namespace,
 chroot, and systemd setup belongs in a separately testable root launcher. Its
-bounded `probe` operation is an ARM64 PIE copied from the
-APK into owner-only DE, then
+bounded `probe` operation is an ARMv7, ARM64, or x86_64 PIE selected from the
+universal APK and copied into owner-only DE, then
 executed through the already-proven BFU `su`. It depends only on Android's
-`/system/bin/linker64`, `libc.so`, and `libdl.so`, not Termux CE tools.
+platform linker, `libc.so`, and `libdl.so`, not Termux CE tools.
 
 The probe accepts only the exact, root-owned `/data/local/debian` path. It creates
 private mount, PID, UTS, and cgroup namespaces, recursively privatizes `/`,

@@ -11,7 +11,7 @@ Android init (host PID 1)
   -> private mount + PID + UTS + cgroup namespaces
   -> Android IPC + network namespaces retained
   -> shared NIC + Tailscale bypass-mark route shim
-  -> Debian 13 Trixie arm64 chroot
+  -> Debian 13 Trixie armhf, arm64, or amd64 chroot matching the Android ABI
   -> /sbin/init (PID 1 in the Debian PID namespace)
   -> enabled systemd services
 ```
@@ -45,7 +45,7 @@ not the full rootfs, so uninstalling DawnShell does not silently remove Debian.
 ## Launcher contract
 
 The APK first implements a destructive-state-free `probe` as a small
-ARM64 Android-native helper. It exercises every namespace and mount operation,
+ABI-matched Android-native helper. It exercises every namespace and mount operation,
 executes Debian `/bin/sh` as namespace PID 1, records the result in DE, and exits.
 This separates launcher/kernel/SELinux failures from the systemd gate.
 

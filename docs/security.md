@@ -62,9 +62,10 @@ start/stop against PID reuse. Explicit stop runs systemd's supported container
 manager `exit` operation inside the verified PID/mount namespaces; normal exit
 does not enter Android's kernel halt path. `USER_UNLOCKED` never reaches that path.
 
-The native helper is built for Android API 21/arm64 as PIE and has only Android
-system `libc.so`/`libdl.so` dependencies. The build requires a non-empty helper
-asset, and provisioning copies it to owner-only DE storage. Root accepts
+The native helper and bootstrap executables are built for Android API 24 as PIE
+for ARMv7, ARM64, and x86_64 and have only Android system `libc.so`/`libdl.so`
+dynamic dependencies. The build requires every ABI asset, and provisioning
+copies only the device's selected ABI to owner-only DE storage. Root accepts
 only the exact, non-symlink, uid-0-owned, non-group/world-writable
 `/data/local/debian` root. The bounded probe exits after the chroot proof. The
 long-running mode exposes only the resolved delegated v2 payload or v1
@@ -120,11 +121,15 @@ Termux data, or any caller-supplied path.
 ## Rootfs supply chain
 
 Rootfs installation is allowed only after `UserManager.isUserUnlocked()` is
-true. Termux CE binaries are disposable AFU build tools, never BFU runtime
-dependencies. The installer pins the SHA-256 of Trixie's debootstrap source and
-Debian archive-keyring package, restricts downloads to HTTPS on
-`deb.debian.org`, rechecks both digests as root, and requires Debian Release
-signature validation. It never offers a "skip verification" path.
+true. It uses no Termux or other-package executable. BusyBox, Debian
+`pkgdetails`, GnuPG `gpgv`, and the native launcher are built from the pinned
+source archives recorded in `bfu-runtime/sources/SOURCES.lock`; the APK includes
+the matching debootstrap source and Debian archive-keyring package. The root
+helper rechecks both input digests and requires Debian Release signature,
+Packages-index hash, and package hash validation. BusyBox package transport uses
+HTTP because its internal TLS client does not authenticate peers; authenticated
+Debian metadata and payload hashes provide the fail-closed supply-chain check.
+There is no "skip verification" path.
 
 The final rootfs path is not recursively deleted or overwritten. Installation
 uses a staging sibling on the same filesystem, validates it, and performs an
