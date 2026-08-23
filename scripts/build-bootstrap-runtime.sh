@@ -6,7 +6,19 @@ sources_dir="$repo_dir/bfu-runtime/sources"
 assets_dir="$repo_dir/app/src/main/assets/bfu"
 output_dir="$assets_dir/bin"
 bootstrap_assets_dir="$assets_dir/bootstrap"
-jobs="${DAWNSHELL_BUILD_JOBS:-4}"
+if [[ -n "${DAWNSHELL_BUILD_JOBS:-}" ]]; then
+    jobs="$DAWNSHELL_BUILD_JOBS"
+elif command -v nproc >/dev/null 2>&1; then
+    jobs="$(nproc)"
+elif command -v getconf >/dev/null 2>&1; then
+    jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '4')"
+else
+    jobs=4
+fi
+[[ "$jobs" =~ ^[1-9][0-9]*$ ]] || {
+    echo "DAWNSHELL_BUILD_JOBS must be a positive integer: $jobs" >&2
+    exit 2
+}
 
 : "${ANDROID_NDK_HOME:?Set ANDROID_NDK_HOME to Android NDK 29.0.14206865}"
 
@@ -84,6 +96,15 @@ verify_source a19bc5087fd97026d93cb4b45d51638d1a25202a5e1fbc3905799f424cfa6134 l
 verify_source 0f4510f1c7a679c3545990a31479f391ad45d84e039176309d42f80cf41743f5 libksba-1.6.8.tar.bz2
 verify_source 8bd24b4f23a3065d6e5b26e98aba9ce783ea4fd781069c1b35d149694e90ca3e npth-1.8.tar.bz2
 verify_source 9ea7778e443144ca490668737a8ab22dd3e748bb99e805e22ec055abeb3c7fac debian-archive-keyring_2025.1_all.deb
+verify_source f376bfae7c864c76483bed094572db5ccb6f0d5f3f79ad021d6f461f0c2af436 debian-archive-keyring_2025.1.dsc
+verify_source 2d019c3fa19c42da4d37571e473c296286dad0214cb3bd5cafd99f04a8bf5471 debian-archive-keyring_2025.1.tar.xz
+
+grep -Fq \
+    '2d019c3fa19c42da4d37571e473c296286dad0214cb3bd5cafd99f04a8bf5471 138248 debian-archive-keyring_2025.1.tar.xz' \
+    "$sources_dir/debian-archive-keyring_2025.1.dsc" || {
+    echo "Debian keyring source descriptor does not authenticate the vendored source" >&2
+    exit 4
+}
 
 namespace_source="$repo_dir/app/src/main/cpp/bfu_namespace_probe.c"
 if grep -Eq 'unshare[[:space:]]*\([[:space:]]*CLONE_NEWIPC' "$namespace_source"; then
@@ -241,7 +262,8 @@ build_busybox() {
     local symbol
     for symbol in \
         BUSYBOX FEATURE_INSTALLER FEATURE_MD5_SHA1_SUM_CHECK \
-        ASH AWK CHROOT DPKG_DEB MOUNT SED SHA256SUM TAR UNSHARE WGET ZCAT XZCAT; do
+        FEATURE_STAT_FORMAT ASH AWK CHROOT DPKG_DEB MOUNT SED SHA256SUM \
+        STAT TAR UNSHARE WGET ZCAT XZCAT; do
         grep -Fqx "CONFIG_${symbol}=y" "$source_root/.config" || {
             echo "BusyBox output is missing required config symbol: CONFIG_${symbol}=y" >&2
             exit 7

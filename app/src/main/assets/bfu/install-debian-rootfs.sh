@@ -86,6 +86,8 @@ for tool in awk cat chroot chmod cp cut date df dpkg-deb grep gzip head id \
     command -v "$tool" >/dev/null 2>&1 || \
         fail 10 "source-built bootstrap applet is missing: $tool"
 done
+stat -c '%u:%g' "$TOOLBOX" >/dev/null 2>&1 || \
+    fail 10 "source-built stat applet has no required format support"
 
 [ "$(id -u)" = "0" ] || fail 11 "installer did not obtain uid 0"
 [ -r "$DEBOOTSTRAP_ARCHIVE" ] || fail 13 "debootstrap source archive is missing"
@@ -329,7 +331,8 @@ grep -Fqx 'VERSION_CODENAME=trixie' "$STAGE/etc/os-release" || \
 
 rootfs_arch="$(chroot "$STAGE" /usr/bin/dpkg --print-architecture)"
 [ "$rootfs_arch" = "$DEBIAN_ARCH" ] || fail 33 "unexpected rootfs architecture: $rootfs_arch"
-passwd_owner="$(stat -c '%u:%g' "$STAGE/etc/passwd")"
+passwd_owner="$(stat -c '%u:%g' "$STAGE/etc/passwd")" || \
+    fail 34 "could not inspect root ownership for /etc/passwd"
 [ "$passwd_owner" = "0:0" ] || fail 34 "root ownership was not preserved: /etc/passwd=$passwd_owner"
 
 cat > "$STAGE/.dawnshell-rootfs" <<EOF

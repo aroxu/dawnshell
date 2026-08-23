@@ -1,1 +1,2 @@
 *.sh text eol=lf
+bfu-runtime/sources/*.dsc binary

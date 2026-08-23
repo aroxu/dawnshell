@@ -1,7 +1,7 @@
 # SHA-256  filename  upstream URL  license
 34f9ea6ff8636f2c9241153b9114eefa9e65674a45318ae1ef95bb5f31c53bb2  busybox-1.38.0.tar.bz2  https://busybox.net/downloads/busybox-1.38.0.tar.bz2  GPL-2.0-only
 232ec755f4b1f445f829996885846abba6f1b6fd55d049476ab26ddd8c4b4e1b  debootstrap_1.0.141.tar.gz  https://deb.debian.org/debian/pool/main/d/debootstrap/debootstrap_1.0.141.tar.gz  Expat
-48bd396167f3d592f624e1e9012208a9a2adcb531cf56c90e27f0690a05f170e  base-installer_1.226.tar.xz  https://deb.debian.org/debian/pool/main/b/base-installer/base-installer_1.226.tar.xz  GPL-2.0-or-later
+48bd396167f3d592f624e1e9012208a9a2adcb531cf56c90e27f0690a05f170e  base-installer_1.226.tar.xz  https://deb.debian.org/debian/pool/main/b/base-installer/base-installer_1.226.tar.xz  GPL-2.0-only
 dd17ab2e9a04fd79d39d853f599cbc852062ddb9ab52a4ddeb4176fd8b302964  gnupg-2.4.9.tar.bz2  https://gnupg.org/ftp/gcrypt/gnupg/gnupg-2.4.9.tar.bz2  GPL-3.0-or-later
 d2931cdad266e633510f9970e1a2f346055e351bb19f9b78912475b8074c36f6  libassuan-3.0.2.tar.bz2  https://gnupg.org/ftp/gcrypt/libassuan/libassuan-3.0.2.tar.bz2  LGPL-2.1-or-later
 7df5c08d952ba33f9b6bdabdb06a61a78b2cf62d2122c2d1d03a91a79832aa3c  libgcrypt-1.12.1.tar.bz2  https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.12.1.tar.bz2  LGPL-2.1-or-later
@@ -9,3 +9,5 @@ a19bc5087fd97026d93cb4b45d51638d1a25202a5e1fbc3905799f424cfa6134  libgpg-error-1
 0f4510f1c7a679c3545990a31479f391ad45d84e039176309d42f80cf41743f5  libksba-1.6.8.tar.bz2  https://gnupg.org/ftp/gcrypt/libksba/libksba-1.6.8.tar.bz2  LGPL-3.0-or-later
 8bd24b4f23a3065d6e5b26e98aba9ce783ea4fd781069c1b35d149694e90ca3e  npth-1.8.tar.bz2  https://gnupg.org/ftp/gcrypt/npth/npth-1.8.tar.bz2  LGPL-2.1-or-later
 9ea7778e443144ca490668737a8ab22dd3e748bb99e805e22ec055abeb3c7fac  debian-archive-keyring_2025.1_all.deb  https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2025.1_all.deb  GPL-2.0-or-later
+f376bfae7c864c76483bed094572db5ccb6f0d5f3f79ad021d6f461f0c2af436  debian-archive-keyring_2025.1.dsc  https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2025.1.dsc  GPL-2.0-or-later
+2d019c3fa19c42da4d37571e473c296286dad0214cb3bd5cafd99f04a8bf5471  debian-archive-keyring_2025.1.tar.xz  https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2025.1.tar.xz  GPL-2.0-or-later
