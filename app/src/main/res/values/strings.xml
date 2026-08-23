@@ -182,7 +182,7 @@
     <string name="dawnshell_log_copied">Log copied to the clipboard.</string>
     <string name="dawnshell_log_copy_empty">There is no log text to copy.</string>
     <string name="dawnshell_log_summary_none">No status yet</string>
-    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nDocker network policy: %4$s\nDocker host IPC compatibility: %5$s\nUSB passthrough mode: %6$s\nExclusive USB VID:PID filters: %7$s</string>
+    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nDocker network policy: %4$s\nDocker host IPC compatibility: %5$s\nUSB passthrough mode: %6$s\nExclusive USB VID:PID filters: %7$s\nHardware codec bridge: %8$s</string>
     <string name="dawnshell_log_section_format">===== %1$s =====\n%2$s</string>
     <string name="dawnshell_log_section_status">Status</string>
     <string name="dawnshell_log_section_output">Output</string>
@@ -238,4 +238,22 @@
     <string name="dawnshell_docker_policy_status_failed">Failed to read Docker policy status: %1$s</string>
     <string name="dawnshell_log_compatibility_title">Compatibility policy</string>
     <string name="dawnshell_log_compatibility_description">Cgroup negotiation and Docker nft/legacy/host-network policy output.</string>
+    <string name="dawnshell_codec_section_title">Hardware video acceleration</string>
+    <string name="dawnshell_codec_section_description">Experimental Android MediaCodec bridge foundation for H.264/AVC and HEVC. The codec process is isolated from Debian and SSH and remains active after the first unlock.</string>
+    <string name="dawnshell_codec_enable">Enable hardware codec bridge at Direct Boot</string>
+    <string name="dawnshell_codec_scope">This is video codec acceleration, not OpenGL/Vulkan or general GPU passthrough. The current stage enumerates codecs and creates explicit hardware AVC/HEVC instances. It never silently selects a software codec. Android 10+ reports hardware/vendor status through the platform API; Android 7–9 uses a conservative vendor-name heuristic and labels it as such. Media services may be unavailable during BFU on some ROMs; only this feature then fails.</string>
+    <string name="dawnshell_codec_apply_probe">Save and probe hardware codecs</string>
+    <string name="dawnshell_codec_view_log">View hardware codec report</string>
+    <string name="dawnshell_codec_requires_bfu">Enable Direct Boot before enabling the hardware codec bridge.</string>
+    <string name="dawnshell_codec_probe_requested">The isolated codec process is probing hardware codecs. This can take several seconds.</string>
+    <string name="dawnshell_codec_disabled">Hardware codec bridge disabled.</string>
+    <string name="dawnshell_codec_status">Latest codec probe:\n%1$s</string>
+    <string name="dawnshell_codec_status_none">No hardware codec probe has been recorded yet.</string>
+    <string name="dawnshell_codec_status_failed">Could not read codec status: %1$s</string>
+    <string name="dawnshell_codec_notification_channel">DawnShell hardware codecs</string>
+    <string name="dawnshell_codec_notification_channel_description">Keeps the isolated Android MediaCodec broker process available during Direct Boot.</string>
+    <string name="dawnshell_codec_notification_title">DawnShell video acceleration</string>
+    <string name="dawnshell_codec_notification_text">Isolated Android hardware codec process is active</string>
+    <string name="dawnshell_log_hardware_codec_title">Hardware video codecs</string>
+    <string name="dawnshell_log_hardware_codec_description">MediaCodec inventory, hardware classification, BFU readiness, and AVC/HEVC instance creation results.</string>
 </resources>

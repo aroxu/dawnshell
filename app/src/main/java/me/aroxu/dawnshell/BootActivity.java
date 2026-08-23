@@ -61,6 +61,7 @@ public class BootActivity extends AppCompatActivity {
     private RadioGroup cgroupPolicyGroup;
     private RadioGroup dockerNetworkPolicyGroup;
     private CompoundButton dockerHostIpcCompatibility;
+    private CompoundButton hardwareCodecBridge;
     private RadioGroup usbPassthroughGroup;
     private TextInputLayout usbExclusiveDeviceIdsLayout;
     private EditText usbExclusiveDeviceIds;
@@ -80,6 +81,7 @@ public class BootActivity extends AppCompatActivity {
     private TextView systemConfigLog;
     private TextView lifecycleStatus;
     private TextView dockerPolicyStatus;
+    private TextView hardwareCodecStatus;
     private TextView lifecycleLog;
     private EditText rootPassword;
     private EditText rootPasswordConfirm;
@@ -110,6 +112,7 @@ public class BootActivity extends AppCompatActivity {
             refreshSystemConfigurationStatus();
             refreshLifecycleStatus();
             refreshDockerPolicyStatus();
+            refreshHardwareCodecStatus();
             liveLogHandler.postDelayed(this, 1_000L);
         }
     };
@@ -199,6 +202,8 @@ public class BootActivity extends AppCompatActivity {
         dockerNetworkPolicyGroup = findViewById(R.id.docker_network_policy_group);
         dockerHostIpcCompatibility = findViewById(
                 R.id.switch_docker_host_ipc_compatibility);
+        hardwareCodecBridge = findViewById(
+                R.id.switch_hardware_codec_bridge);
         usbPassthroughGroup = findViewById(R.id.usb_passthrough_group);
         usbExclusiveDeviceIdsLayout = findViewById(
                 R.id.usb_exclusive_device_ids_layout);
@@ -212,6 +217,7 @@ public class BootActivity extends AppCompatActivity {
         systemConfigStatus = findViewById(R.id.system_config_status);
         lifecycleStatus = findViewById(R.id.lifecycle_status);
         dockerPolicyStatus = findViewById(R.id.docker_policy_status);
+        hardwareCodecStatus = findViewById(R.id.hardware_codec_status);
         rootPassword = findViewById(R.id.root_password);
         rootPasswordConfirm = findViewById(R.id.root_password_confirm);
         debianPassword = findViewById(R.id.debian_password);
@@ -232,6 +238,11 @@ public class BootActivity extends AppCompatActivity {
                 .setOnClickListener(view -> confirmDockerNetworkPolicy());
         findViewById(R.id.apply_host_usb_policy_button)
                 .setOnClickListener(view -> confirmHostUsbPolicy());
+        findViewById(R.id.probe_hardware_codecs_button)
+                .setOnClickListener(view -> applyHardwareCodecSetting());
+        findViewById(R.id.open_hardware_codec_log_button).setOnClickListener(view ->
+                startActivity(LogDetailActivity.createIntent(
+                        this, DawnShellLogRepository.HARDWARE_CODEC)));
         findViewById(R.id.open_compatibility_log_button).setOnClickListener(view ->
                 startActivity(LogDetailActivity.createIntent(
                         this, DawnShellLogRepository.COMPATIBILITY)));
@@ -278,6 +289,7 @@ public class BootActivity extends AppCompatActivity {
         cgroupPolicyGroup.setOnCheckedChangeListener(radioListener);
         dockerNetworkPolicyGroup.setOnCheckedChangeListener(radioListener);
         dockerHostIpcCompatibility.setOnCheckedChangeListener(listener);
+        hardwareCodecBridge.setOnCheckedChangeListener(listener);
         usbPassthroughGroup.setOnCheckedChangeListener((group, checkedId) -> {
             settingsDirty.setVisibility(View.VISIBLE);
             refreshUsbExclusiveEditorState();
@@ -779,6 +791,7 @@ public class BootActivity extends AppCompatActivity {
         selectDockerNetworkPolicy(BfuPreferences.dockerNetworkPolicy(this));
         dockerHostIpcCompatibility.setChecked(
                 BfuPreferences.dockerHostIpcCompatibility(this));
+        hardwareCodecBridge.setChecked(BfuPreferences.hardwareCodecBridge(this));
         selectUsbPassthroughMode(BfuPreferences.usbPassthroughMode(this));
         usbExclusiveDeviceIds.setText(BfuPreferences.usbExclusiveDeviceIds(this));
         refreshUsbExclusiveEditorState();
@@ -789,6 +802,7 @@ public class BootActivity extends AppCompatActivity {
         refreshSystemConfigurationStatus();
         refreshLifecycleStatus();
         refreshDockerPolicyStatus();
+        refreshHardwareCodecStatus();
         settingsDirty.setVisibility(View.GONE);
     }
 
@@ -867,7 +881,8 @@ public class BootActivity extends AppCompatActivity {
                 + " cgroup_policy=" + selectedCgroupPolicy()
                 + " docker_network_policy=" + selectedDockerNetworkPolicy()
                 + " docker_host_ipc_compatibility="
-                + dockerHostIpcCompatibility.isChecked());
+                + dockerHostIpcCompatibility.isChecked()
+                + " hardware_codec_bridge=" + hardwareCodecBridge.isChecked());
         try {
             savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
@@ -876,6 +891,11 @@ public class BootActivity extends AppCompatActivity {
             int keyCount = BfuAuthorizedKeys.validateAndSave(layout, identity.publicKey);
             recordOperation("PROVISION_SUCCEEDED runtime=" + layout.root
                     + " authorized_key_count=" + keyCount);
+            if (hardwareCodecBridge.isChecked()) {
+                BfuBootService.requestHardwareCodecProbe(this);
+            } else {
+                HardwareCodecService.stop(this);
+            }
             Toast.makeText(this, getString(R.string.bfu_saved, layout.root),
                     Toast.LENGTH_LONG).show();
         } catch (IOException | IllegalStateException e) {
@@ -1203,6 +1223,36 @@ public class BootActivity extends AppCompatActivity {
         }
     }
 
+    private void applyHardwareCodecSetting() {
+        if (hardwareCodecBridge.isChecked() && !enableBfu.isChecked()) {
+            recordOperation("HARDWARE_CODEC_REJECTED bfu_disabled=true");
+            Toast.makeText(this, R.string.dawnshell_codec_requires_bfu,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            savePreferences();
+            if (hardwareCodecBridge.isChecked()) {
+                BfuBootService.requestHardwareCodecProbe(this);
+                recordOperation("HARDWARE_CODEC_PROBE_REQUESTED user_unlocked="
+                        + isUserUnlocked());
+                Toast.makeText(this, R.string.dawnshell_codec_probe_requested,
+                        Toast.LENGTH_LONG).show();
+            } else {
+                HardwareCodecService.stop(this);
+                recordOperation("HARDWARE_CODEC_SERVICE_STOP_REQUESTED");
+                Toast.makeText(this, R.string.dawnshell_codec_disabled,
+                        Toast.LENGTH_SHORT).show();
+            }
+            refreshHardwareCodecStatus();
+        } catch (IllegalStateException e) {
+            recordOperation("HARDWARE_CODEC_REQUEST_FAILED "
+                    + BfuSu.sanitize(e.getMessage()));
+            Toast.makeText(this, getString(R.string.bfu_provision_failed,
+                    e.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void startDockerNetworkPolicy() {
         try {
             savePreferences();
@@ -1275,8 +1325,9 @@ public class BootActivity extends AppCompatActivity {
         }
         BfuPreferences.save(this, enableBfu.isChecked(),
                 allowCeReadableBfu.isChecked(), selectedCgroupPolicy(),
-                selectedDockerNetworkPolicy(),
-                dockerHostIpcCompatibility.isChecked(), usbMode, usbDeviceIds);
+                 selectedDockerNetworkPolicy(),
+                 dockerHostIpcCompatibility.isChecked(), usbMode, usbDeviceIds,
+                 hardwareCodecBridge.isChecked());
         usbExclusiveDeviceIdsLayout.setError(null);
         if (settingsDirty != null) settingsDirty.setVisibility(View.GONE);
     }
@@ -1492,6 +1543,22 @@ public class BootActivity extends AppCompatActivity {
             replaceConsoleText(dockerPolicyStatus, getString(
                     R.string.dawnshell_docker_policy_status_failed,
                     e.getMessage()), false);
+        }
+    }
+
+    private void refreshHardwareCodecStatus() {
+        if (hardwareCodecStatus == null) return;
+        try {
+            String status = HardwareCodecProbe.readStatus(this);
+            if (status.isEmpty()) {
+                status = getString(R.string.dawnshell_codec_status_none);
+            }
+            replaceConsoleText(hardwareCodecStatus, getString(
+                    R.string.dawnshell_codec_status, compact(status, 520)), false);
+        } catch (IOException | RuntimeException e) {
+            replaceConsoleText(hardwareCodecStatus, getString(
+                    R.string.dawnshell_codec_status_failed,
+                    BfuSu.sanitize(e.getMessage())), false);
         }
     }
 

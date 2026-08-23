@@ -46,6 +46,12 @@
             android:directBootAware="true"
             android:exported="false"
             tools:targetApi="n" />
+        <service
+            android:name=".HardwareCodecService"
+            android:directBootAware="true"
+            android:exported="false"
+            android:process=":codec"
+            tools:targetApi="n" />
 
         <!-- UI libraries must not add process-start initialization to the BFU path. -->
         <provider

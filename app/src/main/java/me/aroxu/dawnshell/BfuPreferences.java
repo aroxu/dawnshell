@@ -22,6 +22,8 @@ final class BfuPreferences {
     private static final String KEY_USB_PASSTHROUGH_MODE = "usb_passthrough_mode";
     private static final String KEY_USB_EXCLUSIVE_DEVICE_IDS =
             "usb_exclusive_device_ids";
+    private static final String KEY_HARDWARE_CODEC_BRIDGE =
+            "hardware_codec_bridge";
 
     static final String CGROUP_AUTO = "auto";
     static final String CGROUP_V2 = "v2";
@@ -91,10 +93,15 @@ final class BfuPreferences {
         }
     }
 
+    static boolean hardwareCodecBridge(Context context) {
+        return get(context).getBoolean(KEY_HARDWARE_CODEC_BRIDGE, false);
+    }
+
     static void save(Context context, boolean enabled, boolean allowCeReadableBfu,
                      String cgroupPolicy, String dockerNetworkPolicy,
                      boolean dockerHostIpcCompatibility,
-                     String usbPassthroughMode, String usbExclusiveDeviceIds) {
+                     String usbPassthroughMode, String usbExclusiveDeviceIds,
+                     boolean hardwareCodecBridge) {
         String validatedUsbMode = validatedUsbPassthroughMode(usbPassthroughMode);
         String normalizedUsbIds = normalizeUsbExclusiveDeviceIds(
                 usbExclusiveDeviceIds);
@@ -113,6 +120,7 @@ final class BfuPreferences {
                         dockerHostIpcCompatibility)
                 .putString(KEY_USB_PASSTHROUGH_MODE, validatedUsbMode)
                 .putString(KEY_USB_EXCLUSIVE_DEVICE_IDS, normalizedUsbIds)
+                .putBoolean(KEY_HARDWARE_CODEC_BRIDGE, hardwareCodecBridge)
                 .remove(KEY_SHARE_HOST_USB_LEGACY)
                 .commit();
         if (!saved) throw new IllegalStateException("Failed to save BFU settings");

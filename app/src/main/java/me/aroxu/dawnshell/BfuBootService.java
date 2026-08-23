@@ -73,6 +73,10 @@ public class BfuBootService extends Service {
                     Log.e(TAG, "Failed to persist USER_UNLOCKED event", e);
                 }
                 Log.i(TAG, "BFU Debian remains active after USER_UNLOCKED");
+                if (BfuPreferences.hardwareCodecBridge(BfuBootService.this)) {
+                    HardwareCodecService.ensureStarted(BfuBootService.this, false);
+                    Log.i(TAG, "Hardware MediaCodec service retained and re-probed after unlock");
+                }
             }
         }
     };
@@ -98,6 +102,12 @@ public class BfuBootService extends Service {
         }
 
         boolean userUnlocked = isUserUnlocked();
+        if (ACTION_START.equals(action)
+                && BfuPreferences.hardwareCodecBridge(this)) {
+            HardwareCodecService.ensureStarted(this, !userUnlocked);
+            Log.i(TAG, "Hardware MediaCodec service requested; user_unlocked="
+                    + userUnlocked);
+        }
         if (ACTION_START.equals(action) && !userUnlocked
                 && startupChecksStarted.compareAndSet(false, true)) {
             executor.execute(this::runBfuStartupChecks);
@@ -204,6 +214,10 @@ public class BfuBootService extends Service {
 
     static void requestHostUsbPolicy(Context context) {
         startServiceAction(context, ACTION_APPLY_HOST_USB_POLICY);
+    }
+
+    static void requestHardwareCodecProbe(Context context) {
+        HardwareCodecService.ensureStarted(context, false);
     }
 
     static void requestDebianLifecycle(Context context, DebianLauncher.Operation operation) {

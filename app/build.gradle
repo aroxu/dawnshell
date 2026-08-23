@@ -43,8 +43,8 @@ android {
         applicationId "me.aroxu.dawnshell"
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
-        versionCode 4
-        versionName "0.2.2"
+        versionCode 5
+        versionName "0.3.0"
 
         if (appVersionName) versionName = appVersionName
         if (appVersionCode) {

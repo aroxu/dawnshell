@@ -14,6 +14,7 @@ final class DawnShellLogRepository {
     static final String INSTALLATION = "installation";
     static final String CONFIGURATION = "configuration";
     static final String COMPATIBILITY = "compatibility";
+    static final String HARDWARE_CODEC = "hardware_codec";
     static final String LIFECYCLE = "lifecycle";
     static final String DIAGNOSTICS = "diagnostics";
 
@@ -26,6 +27,7 @@ final class DawnShellLogRepository {
                 || INSTALLATION.equals(type)
                 || CONFIGURATION.equals(type)
                 || COMPATIBILITY.equals(type)
+                || HARDWARE_CODEC.equals(type)
                 || LIFECYCLE.equals(type)
                 || DIAGNOSTICS.equals(type);
     }
@@ -40,6 +42,8 @@ final class DawnShellLogRepository {
                 return R.string.dawnshell_log_configuration_title;
             case COMPATIBILITY:
                 return R.string.dawnshell_log_compatibility_title;
+            case HARDWARE_CODEC:
+                return R.string.dawnshell_log_hardware_codec_title;
             case LIFECYCLE:
                 return R.string.dawnshell_log_lifecycle_title;
             case DIAGNOSTICS:
@@ -59,6 +63,8 @@ final class DawnShellLogRepository {
                 return R.string.dawnshell_log_configuration_description;
             case COMPATIBILITY:
                 return R.string.dawnshell_log_compatibility_description;
+            case HARDWARE_CODEC:
+                return R.string.dawnshell_log_hardware_codec_description;
             case LIFECYCLE:
                 return R.string.dawnshell_log_lifecycle_description;
             case DIAGNOSTICS:
@@ -82,6 +88,8 @@ final class DawnShellLogRepository {
                 return statusAndOutput(context,
                         DockerNetworkProvisioner.readStatus(context),
                         DockerNetworkProvisioner.readLogTail(context));
+            case HARDWARE_CODEC:
+                return hardwareCodecReport(context);
             case LIFECYCLE:
                 return statusAndOutput(context, DebianLauncher.readStatus(context),
                         DebianLauncher.readLogTail(context));
@@ -106,6 +114,9 @@ final class DawnShellLogRepository {
                 break;
             case COMPATIBILITY:
                 value = DockerNetworkProvisioner.readStatus(context);
+                break;
+            case HARDWARE_CODEC:
+                value = HardwareCodecProbe.readStatus(context);
                 break;
             case LIFECYCLE:
                 value = DebianLauncher.readStatus(context);
@@ -146,7 +157,8 @@ final class DawnShellLogRepository {
                 BfuPreferences.dockerNetworkPolicy(context),
                 Boolean.toString(BfuPreferences.dockerHostIpcCompatibility(context)),
                 BfuPreferences.usbPassthroughMode(context),
-                BfuPreferences.usbExclusiveDeviceIds(context)));
+                BfuPreferences.usbExclusiveDeviceIds(context),
+                Boolean.toString(BfuPreferences.hardwareCodecBridge(context))));
         appendSection(result, context, R.string.dawnshell_log_section_locked_boot,
                 readProbeSafely(context, () -> readBootEvents(context)));
         appendSection(result, context, R.string.dawnshell_log_section_root_authorization,
@@ -171,6 +183,16 @@ final class DawnShellLogRepository {
                                       int titleRes, String value) {
         result.append("\n\n").append(section(context, titleRes,
                 orEmptyMessage(context, value)));
+    }
+
+    private static String hardwareCodecReport(Context context) throws IOException {
+        return section(context, R.string.dawnshell_log_section_status,
+                orEmptyMessage(context, HardwareCodecProbe.readStatus(context)))
+                + "\n\n"
+                + section(context, R.string.dawnshell_log_section_output,
+                orEmptyMessage(context, HardwareCodecProbe.readLogTail(context)))
+                + "\n\n===== capabilities.json =====\n"
+                + orEmptyMessage(context, HardwareCodecProbe.readCapabilities(context));
     }
 
     private static String section(Context context, int titleRes, String value) {
