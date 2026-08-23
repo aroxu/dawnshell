@@ -42,7 +42,7 @@ final class DebianRootfsInstaller {
                     + layout.architecture.debianArchitecture + " installation");
             log.line("Final target: " + BfuRootfsProbe.ROOTFS_PATH);
             log.line("Using source-built Android bootstrap tools for "
-                    + layout.architecture.androidAbi + "; Termux is not used");
+                    + layout.architecture.androidAbi + "; using the app-owned bootstrap runtime");
             log.line("Using APK-bundled, pinned debootstrap and Debian archive keyring");
 
             updateStage(deContext, log, "Starting root installer");

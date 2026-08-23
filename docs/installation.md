@@ -2,227 +2,165 @@
 
 [한국어](installation.ko.md)
 
-[Project home](../README.md) · [User guide](user-guide.md) ·
-[Latest release](https://github.com/aroxu/dawnshell/releases/latest)
+[Project home](../README.md) · [User manual](user-guide.md) ·
+[Glossary](glossary.md) · [Latest release](https://github.com/aroxu/dawnshell/releases/latest)
 
-This guide assumes an official release APK built by GitHub Actions and published
-automatically from a version tag. Regular users should install the **signed APK
-from GitHub Releases**, not a debug artifact from the `main` branch workflow.
+This guide uses the signed APK from GitHub Releases. APK means Android Package,
+the file installed on an Android device.
 
-## 1. Requirements
+## 1. Check the requirements
 
-You need:
+- Android 7.0 / API 24 or newer
+- File-Based Encryption (FBE)
+- `armeabi-v7a`, `arm64-v8a`, or `x86_64`
+- Magisk or a compatible `su`, with permanent approval for DawnShell
+- Internet access and enough internal storage for Debian
+- A ROM that restores a network connection before unlock if remote BFU access is
+  required
 
-- Android 7.0/API 24 or newer with File Based Encryption (FBE);
-- an `armeabi-v7a`, `arm64-v8a`, or `x86_64` device;
-- Magisk or a compatible `su`, with permanent root authorization for DawnShell;
-- an internet connection for Debian packages and sufficient internal storage;
-- Wi-Fi or another network restored by the ROM before first unlock if remote BFU
-  access is required.
+See the [glossary](glossary.md) for every abbreviation and
+[Google's Direct Boot guide](https://developer.android.com/privacy-and-security/direct-boot)
+for the platform requirements. ADB (Android Debug Bridge) is optional; see
+[Google's ADB guide](https://developer.android.com/tools/adb).
 
-DawnShell cannot start Debian without root. ADB permissions are not required for
-installation or Direct Boot; ADB is an optional diagnostic path only. Resolve any
-port conflict if another SSH daemon already owns TCP 22.
+Resolve any existing TCP 22 conflict before setup. On vendor ROMs, exclude
+DawnShell from battery, sleep, and automatic-start restrictions.
 
-On Samsung and other vendor ROMs, exempt DawnShell from battery optimization,
-sleep, and autostart restrictions where those controls exist. The Android ROM is
-still responsible for bringing up a network interface and assigning an address
-during BFU.
+## 2. Download and verify the release
 
-## 2. Download and verify an official release
-
-1. Open [DawnShell Releases](https://github.com/aroxu/dawnshell/releases) and
-   select the newest stable release.
-2. Confirm that the release notes identify the build commit and assets.
-3. Download at least these files into one directory:
+Download these files from [DawnShell Releases](https://github.com/aroxu/dawnshell/releases):
 
 ```text
 dawnshell-<version>.apk
 SHA256SUMS
 ```
 
-Each release also publishes the corresponding materials:
-
-```text
-dawnshell-<version>-<commit>-corresponding-source.tar.gz
-dawnshell-<version>-<commit>-licenses.tar.gz
-dawnshell-<version>-<commit>-build-info.txt
-RELEASE_NOTES.md
-```
-
-On Linux or Termux, download all assets and verify them in that directory:
+On Linux:
 
 ```sh
 sha256sum -c SHA256SUMS
 ```
 
-With the default macOS toolchain:
+On macOS with the built-in tools:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
 ```
 
-On Windows PowerShell, calculate the APK hash and compare it with the matching
-entry in `SHA256SUMS`:
+On Windows PowerShell:
 
 ```powershell
 Get-FileHash .\dawnshell-0.2.0.apk -Algorithm SHA256
 Get-Content .\SHA256SUMS
 ```
 
-Replace the example filename with the actual release version. Do not install an
-APK whose checksum does not match; download it again.
-
-### Actions artifacts versus releases
-
-- Branch, pull-request, and manually dispatched workflows may produce a debug
-  artifact for testing. It uses a public debug key and is not intended for normal
-  installation or updates.
-- A `vMAJOR.MINOR.PATCH` tag build is signed with the repository's private release
-  key and published as a GitHub Release only after all checks and a second
-  checksum verification pass.
-- Android cannot update an app with an APK signed by a different key. Moving from
-  a debug or custom build to an official release may require uninstalling the old
-  app, so export the SSH private key first.
+Do not install a file whose checksum differs. Ordinary workflow artifacts may be
+debug-signed test builds; regular users should install a tagged Release APK.
+See [Google's app-signing guide](https://developer.android.com/studio/publish/app-signing).
 
 ## 3. Install the APK
 
-Open the APK on the phone, temporarily permit “Install unknown apps” for that
-browser or file manager, and install it. Revoke that permission afterward if it
-is no longer needed.
-
-Optional ADB installation:
+Open the APK on the phone and temporarily allow that browser or file manager to
+install unknown apps. If ADB is already configured, this is equivalent:
 
 ```sh
 adb install -r dawnshell-<version>.apk
 ```
 
-An update signed by the same release key preserves app data and settings with
-`-r`. A different certificate requires uninstalling and reinstalling. Removing
-DawnShell deletes its CE/DE settings and generated client identity, but does not
-automatically remove the separate `/data/local/debian` rootfs.
+An update normally needs the same signing key as the installed version.
+Uninstalling DawnShell removes its DE/CE data and generated SSH client key, but
+does not automatically remove `/data/local/debian`.
 
-## 4. First launch and permanent Magisk authorization
+## 4. Grant permanent root access
 
-Unlock Android and open DawnShell.
+While Android is unlocked:
 
-1. Tap **Request / verify Magisk root permission**.
-2. Confirm that the dialog lists only the expected DawnShell package for the UID.
-3. Select Magisk's **permanent/forever** authorization duration.
-4. Confirm that the latest AFU result reports `exit=0`, `root=true`, and `uid=0`.
+1. Open DawnShell and tap **Request / verify Magisk root permission**.
+2. Confirm that the request is from package `me.aroxu.dawnshell`.
+3. Select Magisk's permanent or forever approval.
+4. Confirm `exit=0`, `root=true`, and `uid=0` in the result.
 
-A one-time grant fails at cold-boot BFU because no authorization UI can be shown.
-DawnShell cannot determine whether Magisk persisted the policy, so verify the
-DawnShell entry in the Magisk manager as well.
+BFU cannot display an approval prompt, so one-time approval is insufficient.
 
-## 5. Save Direct Boot settings and provision the runtime
+## 5. Save Direct Boot settings
 
-Recommended initial settings:
+Recommended initial values:
 
-- **Enable Direct Boot Debian bootstrap**: on
-- **Allow BFU when this app's CE storage is readable**: off
-- cgroup: **Automatic: cgroup v2, then v1 fallback (recommended)**
-- Docker networking: **Safe host network only (recommended)**
+- Enable the Direct Boot Debian bootstrap.
+- Keep the BFU CE-readable override disabled.
+- Select automatic cgroup v2-to-v1 fallback.
+- Select safe host-network-only Docker mode.
 
-Tap **Save BFU settings and provision runtime**. This writes non-secret settings,
-the CE isolation sentinel and receipt, the device-ABI native tools, and the Debian
-bootstrap inputs into app-owned Device Protected Storage. If an unsaved-settings
-warning remains, save again before rebooting.
+Tap **Save and provision BFU runtime**. This stores non-secret settings and the
+ABI-specific runtime in Device Encrypted storage. Google explains why DE is
+available before unlock and CE is not in its
+[Direct Boot storage guide](https://developer.android.com/privacy-and-security/direct-boot#access_device_encrypted).
 
-Do not enable the CE-readable override by default. Use it only when the newest
-locked-state isolation probe actually records `TERMUX_CE_CONTENT_ACCESSIBLE` and
-you understand and accept that ROM-level exposure.
+## 6. Install Debian 13
 
-## 6. Install the Debian 13 rootfs
+1. Tap **Install Debian 13 Trixie rootfs** and confirm.
+2. Open **Logs → Debian installation**.
+3. Wait for `SUCCEEDED` and `INSTALL_SUCCEEDED`.
 
-1. Tap **Install Debian 13 Trixie rootfs**.
-2. Approve the confirmation dialog.
-3. Open **Logs → Debian installation** to watch progress.
-4. Wait for status `SUCCEEDED` and a final `INSTALL_SUCCEEDED` log entry.
-
-The installer uses ABI-matched tools bundled in the APK, verifies Debian Release
-signatures and package hashes, builds under `/data/local/debian.installing`, and
-atomically publishes only a validated tree as `/data/local/debian`. It never
-overwrites an existing rootfs.
-
-On failure, copy the complete installation log before deleting the app or staging
-tree. The next attempt preserves an interrupted tree as
-`/data/local/debian.failed.<timestamp>` for diagnostics.
+The installer verifies Debian Release metadata and package hashes in a staging
+tree, then publishes only a valid result to `/data/local/debian`. Preserve the
+log if installation fails.
 
 ## 7. Configure systemd and SSH
 
-After the rootfs installation succeeds:
-
-1. Confirm that the generated Ed25519 public key is visible in the app.
+1. Confirm that the generated Ed25519 public key is visible.
 2. Tap **Configure Debian 13 systemd + SSH**.
-3. Watch **Logs → System configuration** for APT, systemd, and OpenSSH output.
-4. Require status `SUCCEEDED` and a final `CONFIGURE_SUCCEEDED` result.
-5. Tap **Status** and verify systemd PID 1, D-Bus, `ssh.service`, TCP 22, and
-   cgroup health.
+3. Open **Logs → System configuration**.
+4. Wait for `SUCCEEDED` and `CONFIGURE_SUCCEEDED`.
+5. Tap **Status** and confirm systemd, D-Bus, SSH, and TCP 22 are healthy.
 
-The default SSH account is `debian` on TCP 22. Password authentication and root
-SSH login remain disabled; only the public key generated by DawnShell is installed.
+The SSH account is `debian`. Password authentication and direct root login are
+disabled; only the generated public key is accepted.
 
-## 8. Export the SSH private key
+## 8. Export the SSH key
 
-For another computer, use **Export SSH private-key file**, transfer the file by a
-trusted method, and restrict it to its owner:
+Use **Export SSH private-key file** for another computer:
 
 ```sh
 chmod 600 dawnshell-ed25519
 ssh -i ./dawnshell-ed25519 -p 22 debian@PHONE_IP
 ```
 
-For Termux on the same phone:
+For a trusted local shell on the same phone, copy and run the local-shell key
+import command, then copy and run the SSH connect command. The import command
+contains the complete private key, so file export is safer.
 
-1. Tap **Copy Termux private-key import command**.
-2. Accept the warning and immediately paste the one-line command into your own
-   Termux session.
-3. Tap **Copy SSH connect command** and run that command in Termux.
+## 9. Test BFU startup
 
-The clipboard item containing the private key is cleared after 120 seconds if it
-has not changed. File export is still safer because another app may read the
-clipboard while it exists.
-
-## 9. Perform the first BFU test
-
-After all configuration succeeds, reboot the phone and do not enter the PIN or
-pattern. Connect from another device to the phone's BFU network address:
+Reboot without entering the PIN, pattern, or password. From another device:
 
 ```sh
 ssh -i ./dawnshell-ed25519 -p 22 debian@PHONE_IP
 ```
 
-Run at least:
+Then check:
 
 ```sh
 id
 cat /proc/1/comm
-systemctl is-system-running
 systemctl is-active ssh.service
 ip addr
 uptime
 ```
 
-`/proc/1/comm` should report `systemd`, and `ssh.service` should be `active`.
-Unlock Android afterward and confirm that the existing SSH session and Debian
-PID 1 continue without a restart. Unlocking does not stop DawnShell Debian.
+`/proc/1/comm` should be `systemd`, and SSH should be `active`. Unlock Android
+and confirm that the existing session and Debian PID 1 remain unchanged.
 
-## 10. Update DawnShell
+## 10. Update
 
-1. Read `RELEASE_NOTES.md` and verify the new release checksums.
-2. Install the APK, signed by the same release key, over the existing app.
-3. Open DawnShell once while Android is unlocked.
-4. Tap **Save BFU settings and provision runtime** again to publish updated assets.
-5. Check status, then perform a planned Debian restart or cold-boot validation.
+Verify the new Release, install an APK signed by the same key, open DawnShell
+after unlock, and tap **Save and provision BFU runtime** again. Back up the
+exported SSH private key before updates.
 
-Keep a separate, protected copy of the client private key before updating. It
-simplifies recovery from a signing mismatch or reinstall. The rootfs is separate
-from the APK, but do not perform unsupported downgrades or in-place changes.
+## Next documents
 
-## Related documents
-
-- Daily operation: [user guide](user-guide.md)
-- Rootfs internals: [rootfs installation](rootfs-installation.md)
-- Security assumptions and risks: [security model](security.md)
-- Complete physical validation: [test plan](testing.md)
+- [User manual](user-guide.md)
+- [Glossary](glossary.md)
+- [Security model](security.md)
+- [Rootfs installation details](rootfs-installation.md)
+- [Testing](testing.md)

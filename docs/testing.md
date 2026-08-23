@@ -1,375 +1,87 @@
-# Test plan
+# DawnShell testing
 
-[한국어 문서](testing.ko.md)
+[한국어](testing.ko.md) · [Glossary](glossary.md)
 
-## Preflight
+This plan validates installation, BFU startup, SSH, unlock continuity, networking,
+cleanup, and destructive boundaries on a physical Android device.
 
-```sh
-adb shell getprop ro.crypto.state
-adb shell getprop ro.crypto.type
-adb shell getprop ro.product.cpu.abi
-adb shell dumpsys package me.aroxu.dawnshell | grep -E 'targetSdk|appId|dataDir'
-adb shell dumpsys user | grep -i unlocked
-```
+## Preparation
 
-Expected: crypto state `encrypted`, crypto type `file` when the ROM publishes
-that legacy property, one of `armeabi-v7a`, `arm64-v8a`, or `x86_64`, target SDK
-28, and package
-`me.aroxu.dawnshell` with its own app ID. Some Android 16 custom ROMs leave
-`ro.crypto.type` unset. An
-unset type is not accepted as proof by itself: every final-test cycle must still
-produce a fresh locked-state `CE_ISOLATION_PROBE` record proving this app's CE
-sentinel was unreadable before first unlock. A nonempty value other than `file`
-fails preflight. Launch DawnShell once, enable the Direct Boot Debian bootstrap,
-save, and exempt it from vendor battery restrictions where the ROM exposes that
-control.
+Install the APK, grant permanent Magisk root, complete Debian and SSH setup,
+export the client key, and prepare a separate recovery path. ADB is optional; see
+[Google's ADB guide](https://developer.android.com/tools/adb).
 
-## Milestone 1: locked boot broadcast
+## Static and ready-state checks
 
-1. Clear logcat and reboot.
-2. Do not enter PIN/pattern.
-3. Wait for ADB without unlocking and inspect logs.
+App status must report a ready rootfs, systemd PID 1, active D-Bus and SSH, TCP 22
+listening, and healthy cgroups. The manifest must contain Direct-Boot-aware
+receiver and service components as required by
+[Google's Direct Boot guide](https://developer.android.com/privacy-and-security/direct-boot#request_access).
 
-On the target ROM, USB debugging may intentionally remain unavailable until the
-first unlock. In that case do not unlock merely to make `adb wait-for-device`
-pass and do not treat missing BFU ADB as a receiver failure. Use network SSH for
-the locked phase, then read the same-boot DE markers after unlock. The final
-harness already follows that order and requires each record to say
-`user_unlocked_before=false user_unlocked_after=false`.
+## CE isolation
 
-```sh
-adb logcat -c
-adb reboot
-adb wait-for-device
-adb shell dumpsys user | grep -i unlocked
-adb logcat -d -s DawnShell:I '*:S'
-adb shell run-as me.aroxu.dawnshell \
-  cat /data/user_de/0/me.aroxu.dawnshell/files/bfu-boot.log
-```
-
-Pass requires user 0 to remain locked and a new line in the DE marker:
+During BFU, a normal result contains:
 
 ```text
-LOCKED_BOOT_COMPLETED <unix-epoch-milliseconds>
+BFU_APP_CE_ISOLATED
 ```
 
-The marker is primary evidence because it survives logcat rotation and is written
-before BFU enablement or service startup. `LOCKED_BOOT_COMPLETED received` in
-logcat is supporting evidence.
+`BFU_APP_CE_CONTENT_ACCESSIBLE` means the ROM exposed app CE before unlock and
+must block startup unless the explicit risk override is enabled. See
+[Google's DE/CE guidance](https://developer.android.com/privacy-and-security/direct-boot#access_device_encrypted).
 
-## Milestone 2: DE executable
+## Cold boot and unlock
 
-The same log must include:
-
-```text
-DE context initialized: /data/user_de/0/me.aroxu.dawnshell/files
-BFU runtime verified: .../files/bfu
-DE executable probe succeeded: DawnShell DE executable OK; ...
-```
-
-Inspect package-owned files through `run-as` only on a debuggable build:
+Reboot without unlocking, then connect from another device:
 
 ```sh
-adb shell run-as me.aroxu.dawnshell ls -la files/bfu/scripts files/bfu/etc
-adb shell run-as me.aroxu.dawnshell files/bfu/scripts/test.sh
-```
-
-Do not use root to make this test pass. A denial must be recorded with its AVC and
-the nativeLibraryDir strategy tested next.
-
-## Debian gate 1: BFU root
-
-Open DawnShell while unlocked and press **Request / verify Magisk root
-permission**. Verify the confirmation dialog lists only expected packages for
-the standalone app UID, then choose Magisk's permanent/forever allow duration. The app's
-AFU result must show `exit=0` and `root=true`; this is setup confirmation, not BFU
-evidence. Then run:
-
-```sh
-./scripts/test-root-bfu.sh
-```
-
-The script records line counts before reboot, waits 30 seconds without ADB or an
-unlock, then asks the operator to unlock so it can reconnect and read:
-
-```text
-/data/user_de/0/me.aroxu.dawnshell/files/bfu-root.log
-```
-
-Pass requires the newest line to contain `exit=0`, `root=true`,
-`user_unlocked_before=false`, `user_unlocked_after=false`, and `output=uid=0(`.
-Those state fields prove the probe completed during BFU even though this ROM does
-not expose ADB until first unlock. A timeout or denial is a real failed gate; do
-not attempt to make an approval UI appear during BFU.
-
-As a second read path, open DawnShell after unlock and press **Refresh BFU probe
-results**. It reads the same Device Protected logs; it does not rerun `su` and
-therefore cannot accidentally turn an AFU authorization into BFU evidence.
-
-The interactive authorization result is stored separately at
-`files/bfu-root-authorization.log`. Never use it as a substitute for the newest
-post-reboot line in `files/bfu-root.log`.
-
-The same locked startup now fails closed unless `files/bfu-ce-isolation.log`
-gains a fresh entry containing all of:
-
-```text
-ce_isolated=true
-user_unlocked_before=false
-user_unlocked_after=false
-output=TERMUX_CE_ISOLATED sentinel_unreadable=true
-```
-
-On a device whose ROM exposes the provisioned CE sentinel before unlock, leave
-the unsafe override disabled to verify fail-closed behavior. If the operator has
-explicitly enabled the override for functional testing, run the SSH test with
-`BFU_EXPECT_CE_READABLE_OVERRIDE=1` and require both
-`TERMUX_CE_CONTENT_ACCESSIBLE` and the persisted
-`CE_ISOLATION_OVERRIDE_USED` warning.
-
-The probe asks root only whether the two canonical Termux home directories can be
-listed and discards listing output. Any successful listing is a hard failure; do
-not weaken FBE or hide the result to continue booting Debian.
-
-## Debian gate 2: rootfs accessibility
-
-While unlocked, use the in-app installer; no Termux package prerequisite is
-needed. Open **Logs → Debian installation** and watch it until the status is
-`SUCCEEDED`. Confirm the log identifies the selected Android and Debian
-architectures, contains both SHA-256 checks, a valid Debian Release signature,
-rootfs validation for Debian 13/Trixie, and `INSTALL_SUCCEEDED`. Also verify
-`/data/local/debian/.dawnshell-rootfs` contains `suite=trixie`. Then reboot and run:
-
-```sh
-./scripts/test-rootfs-bfu.sh
-```
-
-If an older build failed after `Unpacking the base system` with a missing
-`https:__..._Packages` path, install the updated DawnShell APK and press the
-installer once more. The installer preserves the old partial tree as
-`/data/local/debian.failed.<epoch>` and creates a fresh staging tree; do not
-manually delete either tree before collecting diagnostics. Any new failure must
-show `DEBOOTSTRAP_LOG_TAIL_BEGIN` through `DEBOOTSTRAP_LOG_TAIL_END` in the app.
-
-For every full-screen log, verify that drag scrolling reaches old and new lines.
-Long-press, select multiple lines, and copy them; also verify the toolbar's
-copy-all action. While a selection is active or the log is scrolled up,
-one-second live refreshes must not replace the visible text or jump to the end.
-
-After the 30-second locked interval and first unlock, the newest
-`bfu-rootfs.log` entry must include:
-
-```text
-rootfs=/data/local/debian
-exit=0
-accessible=true
-user_unlocked_before=false
-user_unlocked_after=false
-output=Debian-rootfs-access-ok root=/data/local/debian shell=/data/local/debian/bin/sh rw=true
-```
-
-The probe checks storage access only. It deliberately does not directly execute
-the Debian shell because its ELF interpreter and libraries require the later
-chroot setup. On failure, preserve the `stage=...` output before changing the
-candidate path or filesystem policy.
-
-## Debian gate 3: namespaces and chroot
-
-Install the APK containing the helper for the device ABI, keep BFU enabled, and run:
-
-```sh
-./scripts/test-debian-runtime-bfu.sh
-```
-
-The script performs a cold boot, requires a fresh DE result produced while locked,
-and expects:
-
-```text
-exit=0
-timeout=false
-namespace_chroot=true
-user_unlocked_before=false
-user_unlocked_after=false
-output=BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=<armhf|arm64|amd64> debian=13
-```
-
-The helper uses no Termux CE executable. It creates mount/PID/UTS/cgroup/network
-namespaces but no IPC namespace, makes `/` recursively private, mounts private
-`/proc` and `/run`, enters the verified rootfs, and exits. A failure includes an
-exact `stage=` such as `unshare_cgroup`, `proc_mount`, `chroot`, or
-`exec_debian_shell`; preserve that line before changing code or device policy.
-
-This is a one-shot proof, not the long-running Debian service. Success completes
-the launcher/chroot gate; it does not prove systemd 257 compatibility.
-
-## Debian gates 4–7: systemd, D-Bus, and BFU SSH
-
-While Android is unlocked, open the app and confirm that it displays its generated
-Ed25519 public key, then press **Configure Debian 13 systemd + SSH**. The
-configuration status must become `SUCCEEDED`; **Logs → System configuration** must end in
-both `CONFIGURE_SUCCEEDED` lines. This operation stops a prior test instance,
-installs packages, validates `sshd`, enables `ssh.service` and
-`dawnshell-boot-proof.service`, publishes the ready marker, and starts systemd
-once for AFU validation.
-
-Press **Refresh Debian systemd status**. A successful launcher status contains
-`BFU_DEBIAN_RUNNING`, identity-valid supervisor/init, valid namespace topology,
-`network_namespace=android-shared network_mode=shared-nic`, and a native health
- line proving D-Bus, `ssh.service`, TCP 22, and
- `cgroup_delegation=delegated` with `cgroup_mode=v2` or `v1`. With an uplink, host inspection
-must show priority 5200 matching `fwmark 0x80000/0xff0000` and looking up Android's
-selected table. It must show no `tbfu-host`, `TBFU_NAT`, or `TBFU_FWD`. After an
-explicit stop, the priority-5200 IPv4/IPv6 rules must be absent.
-Then confirm from another computer:
-
-```sh
-ssh -p 22 -i /path/to/bfu_key debian@PHONE_IP
-systemctl is-system-running
-systemctl is-active dbus.service
-systemctl is-active ssh.service
-systemctl is-active dawnshell-boot-proof.service
-systemctl is-active multi-user.target
-test -f /run/dawnshell-enabled-service.ready
-busctl --system --no-pager list
+ssh -i ./dawnshell-ed25519 -p 22 debian@PHONE_IP
+id
 cat /proc/1/comm
-ss -ltn
-if test -r /sys/fs/cgroup/cgroup.controllers; then
-  awk -F: '$1 == "0" && $2 == "" { print }' /proc/self/cgroup
-else
-  awk '$1 == "devices" { print }' /proc/cgroups
-  test -r /sys/fs/cgroup/devices/devices.list
-fi
+systemctl is-active ssh.service
+ip addr
+uptime
 ```
 
-For a same-phone AFU client, scroll to the bottom of DawnShell. Tap **Copy
-Termux private-key import command**, approve the sensitive clipboard warning,
-and paste/run it once in normal Termux. It must create an owner-only OpenSSH key
-at `~/.ssh/dawnshell-ed25519`. Tap **Copy SSH connect command** and run it.
-Expected results are an interactive `debian@dawnshell` shell through
-`127.0.0.1:22` and no password prompt. Verify that the command's clipboard entry
-clears after 120 seconds if unchanged, and that neither DE `authorized_keys` nor
-the Debian copy contains `PRIVATE KEY` text.
+Systemd must be PID 1 and SSH must be active. Unlock Android while keeping the
+session open. The session and PID 1 must remain unchanged, no duplicate
+supervisor may appear, and `USER_UNLOCKED` must be recorded.
 
-The decisive cold-boot test is:
+## Network behavior
+
+Verify that SSH remains listening before Android assigns an address and becomes
+reachable without a Debian restart when Wi-Fi, mobile data, or USB Ethernet comes
+up. Test interface changes and any intended VPN or Tailscale path.
+
+## Five-cycle regression
+
+Repeat reboot, locked SSH, PID 1 checks, first unlock, and continuity checks five
+times. The harness is:
 
 ```sh
 BFU_PHONE_HOST=PHONE_IP \
-BFU_SSH_KEY=/path/to/bfu_key \
-./scripts/test-systemd-ssh-bfu.sh
-```
-
-Do not unlock while it waits. Pass requires SSH on TCP 22, `/proc/1/comm` equal
-to `systemd`, working D-Bus, configured and active `multi-user.target`,
-`ssh.service=active`, and a listening `:22` socket. It additionally requires the
- enabled boot-proof service, its private `/run` marker, and either a delegated
- unified-v2 root or an attached/delegated devices-v1 view. The native root health
- helper must prove the resolved view writable at cgroup-namespace path `/`.
-The script then asks for the first unlock, proves
-PID 1 start ticks plus machine ID remain identical, and requires exactly one fresh
-same-cycle DE record for `LOCKED_BOOT_COMPLETED`, BFU root, CE isolation, rootfs,
-namespace/chroot, and lifecycle health, plus unchanged systemd identity after
-unlock. No normal Termux boot script is created or executed.
-
-On failure, copy the **Debian systemd lifecycle log** before changing anything.
-Stages such as `cgroup_v2_mount`, `cgroup_v2_device_bpf_attach`,
-`cgroup_v1_devices_mount`, `devices_cgroup_move_pid1`,
-`cgroup_view_devices_bind`, `namespace_command_setns_cgroup`, `exec_systemd`, or
-`systemd_early_exit` identify the exact gate. The log snapshot
-`host_cgroup_v2_controllers` records the host unified-controller file or its read
-error before Debian overlays `/sys/fs/cgroup`. If a mount is denied, collect the
-last kernel denial lines as root:
-
-```sh
-su root -c 'dmesg | tail -n 100 | grep -Ei "avc:|denied|cgroup|devices" || true'
-```
-
-Debian 13's systemd 257 uses native unified mode after a successful v2 probe and
-the explicit legacy-force path after v1 fallback. Never repair a failure by
-bind-mounting Android's hierarchy root into Debian.
-
-For network-mode validation, start with no uplink and confirm systemd/sshd stay
-running. Enable Wi-Fi and require outbound IPv4 plus SSH to the phone address
-without restarting Debian. If USB Ethernet is available, hot-plug it, confirm
-Android assigned the interface and route, then repeat SSH from its local subnet
-and outbound connectivity. The lifecycle log must record a new
-`tailscale_bypass_table=` when Android changes its selected default table.
-Kernel-mode Tailscale validation requires `tailscale0` in the shared netns and
-successful IPv4 control-plane access; an unavailable IPv6 uplink may still log
-IPv6 fallback failures.
-
-Before Docker testing, select **Safe host network only**, press **Apply Docker
-network policy**, and require the compatibility log to end with
-`requested=host resolved_backend=none`. `dockerd` must start and containers must
-use `--network host`.
-
-Bridge tests are optional and destructive to network state. With a recovery path
-available, select auto bridge and require the log to try native nftables,
-iptables-nft, then legacy in order. The two iptables probes must report failures
-when `addrtype`, `MASQUERADE`, or `conntrack` is missing. On Docker 29 plus modern
-kernels the resolved backend may be `native-nft`; an older kernel with complete
-xtables support may resolve to `legacy`. If none is complete, auto must succeed
-with `resolved_backend=none`, disable bridge/firewall management, and print the
-`--network host` usage notice.
-Verify Wi-Fi, mobile data, USB Ethernet, VPN/Tailscale, and SSH after Docker
-starts and again after it stops. Every forced backend must
-fail closed when their exact read-only NAT-table probe fails. An existing
-unmanaged `/etc/docker/daemon.json` must be preserved with a visible failure.
-
-After reconfiguration, `su root -c '/usr/local/sbin/reboot --check'` must print
-`Android host reboot bridge ready`, while the same command as `debian` must fail.
-Do not execute `reboot now` during non-destructive validation: it intentionally
-reboots the entire Android device. Existing `shutdown-test` coverage continues
-to use `systemctl`/`shutdown` paths and proves those namespace-isolated paths do
-not reboot Android.
-
-## First unlock continuity
-
-Unlock once while the BFU service is active, then verify:
-
-- one `USER_UNLOCKED received` event;
-- the BFU foreground service remains active;
-- the same Debian systemd PID and namespace remain alive without restart.
-
-Normal Termux boot scripts are outside this standalone app's scope.
-
-## Reboot and isolation matrix
-
-After code/APK work is frozen, run the complete physical session:
-
-```sh
-BFU_PHONE_HOST=PHONE_IP \
-BFU_SSH_KEY=/path/to/bfu_key \
-BFU_CYCLES=5 \
+BFU_SSH_KEY=/path/to/dawnshell-ed25519 \
 ./scripts/test-final-bfu.sh
 ```
 
-Each cycle cold-boots, waits for the complete BFU SSH health check before asking
-for unlock, verifies unchanged Debian PID 1 across `USER_UNLOCKED`, and records
-Android boot ID, app PID/RSS, supervisor,
-and init host PID under ignored `test-results/`. Repeated boot IDs and a strictly
-monotonic PSS increase over 32 MiB fail the harness. Before cycle one, the harness
-pulls the installed DawnShell APK and requires it to match its local staged
-artifact byte for byte. It records the build-specific hash in
-`artifacts.tsv`. Because D8 synthetic-lambda metadata can change a full debug APK
-hash across clean builds, the source does not treat one historical whole-APK hash
-as a release identity. The harness derives the helper digest from the currently
-staged APK and requires the provisioned DE copy to match it after every cycle; no
-historical fixed helper digest is maintained.
+Use `BFU_EXPECT_CE_READABLE_OVERRIDE=1` only on a ROM whose unsafe CE exposure has
+already been confirmed and explicitly accepted.
 
-After the cycles, the wrapper runs `test-systemd-shutdown-isolation.sh`. It checks
-native status, explicit restart/stop/start, then invokes Debian `systemctl
-poweroff`, `systemctl reboot`, and `/usr/sbin/shutdown --poweroff --no-wall now`
-through the restricted root helper. Every action must leave Android's boot ID
-unchanged and Debian SSH must recover after restart.
+## Lifecycle and cleanup
 
-During BFU, verify CE remains unavailable even to the already pre-authorized root
-probe. Do not change SELinux, mount DE over CE, or use root to alter FBE state.
-The inability to list CE is the required result, not a defect to bypass.
+Stop must terminate SSH, systemd, and child processes and remove delegated mounts
+and cgroups without disrupting Android networking. Start and restart must each
+produce exactly one new systemd PID 1.
 
-## Destructive rootfs removal
+`reboot --check` must validate the Android reboot bridge, `reboot now` must reboot
+the full device, and `systemctl reboot` must remain inside the Debian isolation
+boundary.
 
-After unlock, press **Permanently delete Debian rootfs**, accept the first warning,
-then type `DELETE` in the final dialog. Pass requires operation-log entries
-`DEBIAN_ROOTFS_REMOVE_STARTED` and `DEBIAN_ROOTFS_REMOVE_SUCCEEDED`, no live
-`systemd`, and `test ! -e /data/local/debian`. Repeating the action must succeed
-with `result=already_absent`. Never broaden this test to `/data/local`.
+## Pass criteria
+
+- SSH works before PIN entry.
+- App CE remains unavailable during BFU unless a documented override is active.
+- The same Debian and SSH instance survives first unlock.
+- Five cycles produce no duplicate processes or accumulated mounts.
+- Delayed networking does not kill the listener.
+- Stop and removal clean only verified targets.

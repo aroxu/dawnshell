@@ -1,282 +1,197 @@
-# 테스트 계획
+# DawnShell 테스트 방법
 
-[English](testing.md)
+[English](testing.md) · [쉬운 용어집](glossary.ko.md)
 
-## 사전 검사
+이 문서는 실제 Android 기기에서 DawnShell의 설치, BFU 부팅, SSH, 잠금 해제
+연속성과 안전한 종료를 확인하는 방법을 설명합니다.
+
+## 준비
+
+- 정식 또는 시험할 APK를 설치합니다.
+- Magisk root를 영구 허용합니다.
+- Debian 설치와 systemd + SSH 구성을 완료합니다.
+- SSH 개인 키를 별도 기기에 내보냅니다.
+- 다른 복구 방법을 준비합니다.
+- BFU(Before First Unlock)와 AFU(After First Unlock)의 차이를
+  [용어집](glossary.ko.md)에서 확인합니다.
+
+ADB(Android Debug Bridge)는 잠금 해제 뒤 진단에 사용할 수 있지만 BFU SSH 성공
+조건은 아닙니다. [Google ADB 문서](https://developer.android.com/tools/adb)도
+참고할 수 있습니다.
+
+## 1. 설치 상태
+
+앱의 **상태**를 눌러 다음 항목을 확인합니다.
+
+- rootfs가 준비되었습니다.
+- systemd PID 1이 실행됩니다.
+- D-Bus가 동작합니다.
+- `ssh.service`가 `active`입니다.
+- TCP 22가 listen 상태입니다.
+- cgroup health가 정상입니다.
+
+앱 패키지와 target SDK를 ADB로 확인하려면 다음 명령을 사용할 수 있습니다.
 
 ```sh
-adb shell getprop ro.crypto.state
-adb shell getprop ro.crypto.type
-adb shell getprop ro.product.cpu.abi
-adb shell dumpsys package me.aroxu.dawnshell | grep -E 'targetSdk|appId|dataDir'
-adb shell dumpsys user | grep -i unlocked
+adb shell dumpsys package me.aroxu.dawnshell
 ```
 
-기대값은 encrypted, 가능한 경우 crypto type `file`, 지원 ABI 중 하나,
-target SDK 28, 독립 app ID다. Android 16 custom ROM은 `ro.crypto.type`이 비어
-있을 수 있으므로 최종 각 cycle의 locked `CE_ISOLATION_PROBE`로 sentinel이
-읽히지 않았음을 증명해야 한다. `file`이 아닌 nonempty 값은 실패다. 앱을 한 번
-열어 Direct Boot를 켜고 저장하며 vendor battery restriction 예외를 설정한다.
+manifest에는 Direct Boot receiver와 service가 있어야 합니다. Android가 요구하는
+`directBootAware` 동작은 [Google 공식 문서](https://developer.android.com/privacy-and-security/direct-boot#request_access)에
+설명되어 있습니다.
 
-## Milestone 1: locked boot broadcast
+## 2. DE와 CE 격리
 
-1. logcat을 지우고 재부팅한다.
-2. PIN/pattern을 입력하지 않는다.
-3. unlock 없이 ADB가 가능하면 로그를 검사한다.
-
-대상 ROM이 최초 unlock 전 ADB를 막으면 ADB 때문에 unlock하지 않는다. BFU
-단계는 network SSH로 검사하고 unlock 뒤 같은 boot의 DE marker를 읽는다.
-
-```sh
-adb logcat -c
-adb reboot
-adb wait-for-device
-adb shell dumpsys user | grep -i unlocked
-adb logcat -d -s DawnShell:I '*:S'
-adb shell run-as me.aroxu.dawnshell \
-  cat /data/user_de/0/me.aroxu.dawnshell/files/bfu-boot.log
-```
-
-user 0이 locked이고 새 `LOCKED_BOOT_COMPLETED <unix-epoch-milliseconds>` line이
-있어야 통과다. marker는 service 시작보다 먼저 fsync되어 logcat보다 강한 증거다.
-
-## Milestone 2: DE executable
-
-로그에 다음이 있어야 한다.
+재부팅 전 앱의 BFU 런타임 배치를 완료합니다. 재부팅 뒤 잠금을 풀기 전에는 앱
+CE(Credential Encrypted) sentinel을 읽을 수 없어야 합니다. 정상 진단 표식은
+다음과 같습니다.
 
 ```text
-DE context initialized: /data/user_de/0/me.aroxu.dawnshell/files
-BFU runtime verified: .../files/bfu
-DE executable probe succeeded: DawnShell DE executable OK; ...
+BFU_APP_CE_ISOLATED
 ```
 
-debuggable build에서는 다음처럼 app UID로 검사한다.
-
-```sh
-adb shell run-as me.aroxu.dawnshell ls -la files/bfu/scripts files/bfu/etc
-adb shell run-as me.aroxu.dawnshell files/bfu/scripts/test.sh
-```
-
-root로 억지 통과시키지 않는다. denial이면 AVC를 보존하고 `nativeLibraryDir`
-전략을 별도로 시험한다.
-
-## Debian gate 1: BFU root와 CE 격리
-
-unlock 상태에서 **Magisk 루트 권한 요청 / 확인**을 누르고 standalone UID에
-영구 권한을 준다. AFU 결과 `exit=0 root=true`는 준비 확인일 뿐 BFU 증거가 아니다.
-
-```sh
-./scripts/test-root-bfu.sh
-```
-
-스크립트는 reboot 전 line count를 기록하고 30초 locked interval 뒤 unlock을
-요청해 `bfu-root.log`를 읽는다. 최신 line에 다음이 모두 있어야 한다.
+다음 표식은 ROM이 잠금 전 앱 CE를 노출했다는 뜻이며 기본 정책에서는 부팅을
+차단해야 합니다.
 
 ```text
-exit=0
-root=true
-user_unlocked_before=false
-user_unlocked_after=false
-output=uid=0(
+BFU_APP_CE_CONTENT_ACCESSIBLE
 ```
 
-**BFU probe 결과 새로고침**은 같은 DE log를 읽기만 하며 `su`를 재실행하지
-않는다. `bfu-root-authorization.log`는 BFU 증거로 대체할 수 없다.
+DE와 CE의 공식 차이는 [Google Direct Boot 저장소 설명](https://developer.android.com/privacy-and-security/direct-boot#access_device_encrypted)에서
+확인할 수 있습니다.
 
-CE 격리 log에는 새로 다음 결과가 있어야 한다.
+## 3. 첫 BFU 부팅
 
-```text
-ce_isolated=true
-user_unlocked_before=false
-user_unlocked_after=false
-output=TERMUX_CE_ISOLATED sentinel_unreadable=true
-```
-
-ROM이 sentinel을 노출하면 override를 끈 채 fail-closed를 먼저 확인한다.
-기능 시험을 위해 명시적으로 override했다면
-`BFU_EXPECT_CE_READABLE_OVERRIDE=1`을 설정하고
-`TERMUX_CE_CONTENT_ACCESSIBLE`와 `CE_ISOLATION_OVERRIDE_USED`를 모두 요구한다.
-FBE를 약화하거나 결과를 숨기지 않는다.
-
-## Debian gate 2: rootfs 접근
-
-unlock 상태에서 앱 installer를 사용한다. Termux package는 필요 없다.
-**로그 → Debian 설치**에서 `SUCCEEDED`까지 보고 선택된 ABI, SHA-256 두 개,
-유효한 Release signature, Debian 13/Trixie 검증, `INSTALL_SUCCEEDED`를 확인한다.
-`/data/local/debian/.dawnshell-rootfs`에는 `suite=trixie`가 있어야 한다.
+1. 휴대폰을 재부팅합니다.
+2. PIN, 패턴 또는 비밀번호를 입력하지 않습니다.
+3. 다른 기기에서 SSH로 접속합니다.
 
 ```sh
-./scripts/test-rootfs-bfu.sh
+ssh -i ./dawnshell-ed25519 -p 22 debian@PHONE_IP
 ```
 
-이전 빌드가 `https:__..._Packages` 누락이나 `stat -c` 미지원으로 실패했다면
-업데이트 APK를 설치하고 다시 실행한다. 기존 partial tree는
-`/data/local/debian.failed.<epoch>`로 보존된다. 새 실패에서는 앱의
-`DEBOOTSTRAP_LOG_TAIL_BEGIN/END`를 수집한다.
-
-모든 full-screen 로그에서 오래된/최신 line까지 drag scroll, long-press 다중
-선택/복사, copy-all을 시험한다. 선택 중이나 위로 스크롤한 동안 1초 refresh가
-내용을 교체하거나 bottom으로 점프하면 안 된다.
-
-unlock 뒤 최신 `bfu-rootfs.log`는 다음을 포함해야 한다.
-
-```text
-rootfs=/data/local/debian
-exit=0
-accessible=true
-user_unlocked_before=false
-user_unlocked_after=false
-output=Debian-rootfs-access-ok root=/data/local/debian shell=/data/local/debian/bin/sh rw=true
-```
-
-이 probe는 저장소 접근만 확인하며 Debian ELF 실행은 다음 chroot gate로 남긴다.
-
-## Debian gate 3: namespace와 chroot
+접속 후 다음 명령을 실행합니다.
 
 ```sh
-./scripts/test-debian-runtime-bfu.sh
-```
-
-cold boot 후 locked 상태에서 생성된 새 결과가 다음을 만족해야 한다.
-
-```text
-exit=0
-timeout=false
-namespace_chroot=true
-user_unlocked_before=false
-user_unlocked_after=false
-output=BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=<armhf|arm64|amd64> debian=13
-```
-
-helper는 Termux CE를 쓰지 않고 mount/PID/UTS/cgroup namespace를 만들며 Android
-IPC/network를 공유한다. private `/proc`와 `/run`에서 Debian shell이 PID 1이 된
-뒤 종료한다. 실패의 `stage=unshare_cgroup`, `proc_mount`, `chroot`,
-`exec_debian_shell` 등을 보존한다. 이 성공은 one-shot launcher/chroot 증거이며
-systemd 257 성공 증거는 아니다.
-
-## Debian gate 4–7: systemd, D-Bus, BFU SSH
-
-unlock 상태에서 생성된 Ed25519 공개 키를 확인하고
-**Debian 13 systemd + SSH 구성**을 누른다. status는 `SUCCEEDED`, system config
-로그는 두 `CONFIGURE_SUCCEEDED` line으로 끝나야 한다. 작업은 이전 test
-instance를 중지하고 package 설치, `sshd` 검증, `ssh.service`,
-`dawnshell-boot-proof.service`, ready marker를 설정하고 AFU validation용 systemd를
-시작한다.
-
-status의 성공 결과는 `BFU_DEBIAN_RUNNING`, valid supervisor/init identity,
-private namespace topology, `network_namespace=android-shared`,
-`network_mode=shared-nic`, D-Bus/SSH/TCP 22, delegated cgroup을 증명해야 한다.
-uplink가 있으면 Tailscale mark priority 5200 rule이 Android table을 조회하고
-`tbfu-host`, `TBFU_NAT`, `TBFU_FWD`는 없어야 한다. stop 뒤 rule도 없어야 한다.
-
-다른 컴퓨터의 SSH 세션에서 검사한다.
-
-```sh
-ssh -p 22 -i /path/to/bfu_key debian@PHONE_IP
-systemctl is-system-running
-systemctl is-active dbus.service
-systemctl is-active ssh.service
-systemctl is-active dawnshell-boot-proof.service
-systemctl is-active multi-user.target
-test -f /run/dawnshell-enabled-service.ready
-busctl --system --no-pager list
+id
 cat /proc/1/comm
-ss -ltn
-if test -r /sys/fs/cgroup/cgroup.controllers; then
-  awk -F: '$1 == "0" && $2 == "" { print }' /proc/self/cgroup
-else
-  awk '$1 == "devices" { print }' /proc/cgroups
-  test -r /sys/fs/cgroup/devices/devices.list
-fi
+systemctl is-active ssh.service
+ip addr
+uptime
 ```
 
-같은 폰 AFU client는 **Termux private-key import command 복사**를 한 번 실행하고
-owner-only `~/.ssh/dawnshell-ed25519`가 생기는지 확인한다. **SSH 접속 명령 복사**
-후 `debian@127.0.0.1:22`에 password 없이 접속해야 한다. 120초 뒤 clipboard가
-지워지고 DE와 Debian `authorized_keys`에 `PRIVATE KEY`가 없어야 한다.
+정상 결과는 다음과 같습니다.
 
-결정적 cold-boot test:
+- `id`는 `debian` 사용자를 표시합니다.
+- `/proc/1/comm`은 `systemd`입니다.
+- SSH 서비스는 `active`입니다.
+- Android가 준비한 네트워크 인터페이스가 보입니다.
+
+## 4. 첫 잠금 해제
+
+BFU SSH 연결을 유지한 채 Android 잠금을 풉니다.
+
+- 기존 SSH 연결이 끊기지 않아야 합니다.
+- Debian PID 1이 바뀌지 않아야 합니다.
+- 새 systemd 인스턴스가 중복으로 생기지 않아야 합니다.
+- 로그에 `USER_UNLOCKED`가 기록되어야 합니다.
+
+화면을 다시 잠그는 것은 새 BFU가 아닙니다. 재부팅 뒤 첫 잠금 해제 전만 BFU입니다.
+
+## 5. 네트워크 지연과 변경
+
+부팅 직후 Wi-Fi가 아직 연결되지 않은 상태에서도 SSH 서버는 TCP 22에서 계속
+대기해야 합니다. Android가 나중에 주소를 할당하면 Debian을 재시작하지 않고
+접속할 수 있어야 합니다.
+
+가능하면 다음 전환을 시험합니다.
+
+- Wi-Fi 연결과 해제
+- 모바일 데이터 연결
+- USB Ethernet 연결과 해제
+- VPN 또는 Tailscale 연결
+
+## 6. 반복 부팅
+
+기본 회귀 시험은 cold boot 5회입니다.
+
+매 회차 다음 순서를 반복합니다.
+
+1. 재부팅합니다.
+2. 잠금을 풀지 않고 SSH에 접속합니다.
+3. systemd PID 1과 SSH를 확인합니다.
+4. 잠금을 풉니다.
+5. 기존 연결과 PID가 유지되는지 확인합니다.
+6. 중복 supervisor와 남은 프로세스가 없는지 확인합니다.
+
+자동 시험 스크립트는 다음과 같이 실행할 수 있습니다.
 
 ```sh
 BFU_PHONE_HOST=PHONE_IP \
-BFU_SSH_KEY=/path/to/bfu_key \
-./scripts/test-systemd-ssh-bfu.sh
-```
-
-대기 중 unlock하지 않는다. TCP 22 SSH, `/proc/1/comm=systemd`, D-Bus,
-configured+active `multi-user.target`, active SSH/proof service, proof marker,
-delegated v2 root 또는 attached v1 devices view를 요구한다. 첫 unlock 뒤 PID 1
-start ticks와 machine ID가 같고 각 locked gate의 same-cycle DE record가 정확히
-하나씩 새로 생겨야 한다.
-
-실패 전 lifecycle log를 복사한다. `cgroup_v2_mount`,
-`cgroup_v2_device_bpf_attach`, `cgroup_v1_devices_mount`,
-`devices_cgroup_move_pid1`, `cgroup_view_devices_bind`,
-`namespace_command_setns_cgroup`, `exec_systemd`, `systemd_early_exit`가 정확한
-gate를 나타낸다. mount denial은 root로 kernel log를 수집한다.
-
-```sh
-su root -c 'dmesg | tail -n 100 | grep -Ei "avc:|denied|cgroup|devices" || true'
-```
-
-Android hierarchy root를 Debian에 bind해 고치면 안 된다.
-
-## 네트워크·Docker·reboot 검증
-
-uplink 없이 시작해 systemd/sshd가 유지되는지 확인하고 Wi-Fi를 켠 뒤 Debian
-재시작 없이 outbound IPv4와 phone IP SSH를 검사한다. 가능하면 USB Ethernet을
-hot-plug하고 local subnet SSH/outbound를 반복한다. route 변경 때 lifecycle log의
-`tailscale_bypass_table=`도 갱신되어야 한다. kernel-mode Tailscale은 shared
-netns의 `tailscale0`과 IPv4 control-plane 연결을 요구한다.
-
-Docker는 먼저 **안전한 host network only**를 적용해
-`requested=host resolved_backend=none`을 확인한다. 컨테이너는
-`--network host`를 쓴다. bridge 시험은 network를 파괴할 수 있으므로 별도
-recovery path가 있을 때만 한다. auto는 native nftables → iptables-nft → legacy
-순서로 검사하고 완전한 backend가 없으면 안전 host-only로 끝나야 한다.
-Wi-Fi/모바일/USB Ethernet/VPN/Tailscale/SSH를 dockerd 전후 모두 확인한다.
-unmanaged `daemon.json`은 보존되어야 한다.
-
-`su root -c '/usr/local/sbin/reboot --check'`는
-`Android host reboot bridge ready`를 출력하고 `debian` 사용자로는 실패해야 한다.
-비파괴 테스트에서 `reboot now`를 실행하지 않는다. 이 명령은 의도적으로 Android
-전체를 재부팅한다.
-
-## 최초 unlock 연속성
-
-BFU service 실행 중 한 번 unlock하고 다음을 확인한다.
-
-- `USER_UNLOCKED received` 하나
-- BFU foreground service 계속 실행
-- 동일 Debian systemd PID와 namespace가 restart 없이 유지
-
-일반 Termux boot script는 이 독립 앱의 범위 밖이다.
-
-## reboot·격리 matrix
-
-APK를 고정한 뒤 전체 물리 세션을 실행한다.
-
-```sh
-BFU_PHONE_HOST=PHONE_IP \
-BFU_SSH_KEY=/path/to/bfu_key \
-BFU_CYCLES=5 \
+BFU_SSH_KEY=/path/to/dawnshell-ed25519 \
 ./scripts/test-final-bfu.sh
 ```
 
-각 cycle은 BFU SSH health 뒤 unlock을 요청하고 같은 Debian PID 1을 검증한다.
-Android boot ID, app PID/RSS, supervisor, init host PID를 ignored
-`test-results/`에 기록한다. boot ID 반복이나 32 MiB를 넘는 엄격한 단조 PSS
-증가는 실패다. 설치 APK는 local staged artifact와 byte-for-byte 같아야 하고
-DE helper digest도 staged APK에서 추출한 값과 매 cycle 일치해야 한다.
+수정 ROM이 BFU에서 앱 CE를 노출한다는 사실을 이미 확인했고 예외 정책을
+시험한다면 `BFU_EXPECT_CE_READABLE_OVERRIDE=1`을 추가합니다. 일반 기기에서는
+사용하지 않습니다.
 
-cycle 뒤 `test-systemd-shutdown-isolation.sh`가 status, restart/stop/start,
-`systemctl poweroff`, `systemctl reboot`, fixed `shutdown`을 검사한다. Android
-boot ID는 모두 불변이고 restart 뒤 SSH가 복구되어야 한다. BFU에서 CE를 root로
-읽을 수 없는 것이 정상 결과이며 SELinux/FBE를 약화하지 않는다.
+## 7. 종료와 재시작
 
-## 파괴적 rootfs 삭제
+앱의 **중지**를 누른 뒤 다음을 확인합니다.
 
-unlock 후 **Debian rootfs 영구 삭제**를 누르고 첫 경고 승인 뒤 `DELETE`를
-입력한다. log에 `DEBIAN_ROOTFS_REMOVE_STARTED/SUCCEEDED`, live systemd 없음,
-`test ! -e /data/local/debian`을 요구한다. 반복 실행은
-`result=already_absent`로 성공해야 하며 target을 `/data/local`로 넓히지 않는다.
+- `ssh.service`가 종료됩니다.
+- systemd와 자식 프로세스가 남지 않습니다.
+- 전용 마운트와 cgroup 하위 트리가 정리됩니다.
+- Android 네트워크는 계속 동작합니다.
+
+그다음 **시작**과 **재시작**을 각각 시험합니다. 매번 systemd PID 1이 하나만
+있어야 합니다.
+
+## 8. Android 재부팅 bridge
+
+Debian root 셸에서 먼저 다음 명령을 실행합니다.
+
+```sh
+reboot --check
+```
+
+검사가 성공한 뒤 저장 중인 작업을 끝내고 다음 명령을 실행합니다.
+
+```sh
+reboot now
+```
+
+Android 전체가 재부팅되어야 합니다. 반대로 `systemctl reboot`는 기기 전체를
+재부팅하지 않아야 합니다.
+
+## 9. Docker
+
+기본 host-network-only 정책에서는 다음 방식으로 컨테이너를 실행합니다.
+
+```sh
+docker run --rm --network host hello-world
+```
+
+bridge 정책은 별도 복구 경로를 준비한 뒤에만 시험합니다. 적용 전후에 Android의
+Wi-Fi, 모바일 데이터, USB Ethernet, VPN, Tailscale과 SSH가 유지되는지
+확인합니다.
+
+## 10. 삭제
+
+테스트 데이터가 필요하지 않을 때만 rootfs 삭제를 시험합니다.
+
+1. 서버를 중지합니다.
+2. 필요한 데이터를 백업합니다.
+3. 위험 구역의 삭제 흐름을 완료합니다.
+4. `DEBIAN_ROOTFS_REMOVE_SUCCEEDED`를 확인합니다.
+5. `/data/local/debian`만 삭제되고 앱 설정과 로그는 남았는지 확인합니다.
+
+## 통과 기준
+
+- PIN 입력 전 SSH 접속이 됩니다.
+- 앱 CE가 BFU에서 닫혀 있습니다. 예외는 명시적으로 수락한 ROM만 허용합니다.
+- systemd와 SSH는 첫 잠금 해제 뒤에도 같은 인스턴스로 유지됩니다.
+- 5회 반복에서 중복 프로세스나 누적 마운트가 없습니다.
+- 네트워크가 늦게 연결되어도 SSH 서버가 살아 있습니다.
+- 종료와 삭제가 검증된 대상만 정리합니다.

@@ -1,296 +1,175 @@
-# DawnShell user guide
+# DawnShell user manual
 
 [한국어](user-guide.ko.md)
 
 [Project home](../README.md) · [Installation guide](installation.md) ·
-[Troubleshooting](#troubleshooting)
+[Glossary](glossary.md) · [Troubleshooting](#troubleshooting)
 
-This guide covers normal operation after DawnShell has been installed and its
-initial setup completed. If the rootfs and systemd/SSH are not configured yet,
-follow the [installation guide](installation.md) first.
+This manual covers daily operation after installation. Follow the
+[installation guide](installation.md) first if Debian and SSH are not configured.
 
 ## Core behavior
 
-- Debian systemd and SSH start from `LOCKED_BOOT_COMPLETED` after a cold boot.
-- The same Debian instance remains alive before and after Android's first unlock.
-- Debian shares Android's NICs and network namespace.
-- App settings, logs, and public keys live in DE; the client private key lives in
-  app CE; the complete Debian rootfs lives at `/data/local/debian`.
-- SSH accepts public-key authentication for user `debian` on TCP 22 by default.
-- A Debian root shell has device-level Android root authority. Do not treat this
-  environment as a security-isolated container.
+- BFU means Before First Unlock; AFU means After First Unlock.
+- DawnShell starts Debian systemd and SSH during BFU.
+- The same instance remains running after unlock.
+- Debian shares the Android kernel and network and is not a fully isolated VM.
 
-## Dashboard sections
+See the [glossary](glossary.md) for DE, CE, PID, rootfs, and other terms, or read
+[Google's Direct Boot guide](https://developer.android.com/privacy-and-security/direct-boot).
 
-### 1 · Direct Boot
+## Direct Boot controls
 
 **Enable Direct Boot Debian bootstrap** controls automatic startup on the next
-cold boot. After changing a switch, always tap **Save BFU settings and provision
-runtime**. The dashboard displays a warning while changes remain unapplied.
+cold boot. After changing it, tap **Save and provision BFU runtime**.
 
-**Request / verify Magisk root permission** verifies during AFU that the current
-app UID can become root. Before a cold boot, separately confirm that Magisk kept
-the permanent authorization policy.
+**Request / verify Magisk root permission** checks current root access. Magisk
+must grant permanent approval because BFU cannot display a prompt.
 
-**Refresh BFU probe results** only reads stored locked-boot evidence. Pressing it
-after unlock does not rerun a BFU probe or turn an AFU result into BFU success.
+**Refresh BFU probe results** reads evidence from the last locked boot; it does
+not rerun the probe while Android is unlocked.
 
-The CE-readable override is a dangerous diagnostic option. Leave it off on a
-correctly configured FBE device. It does not repair encryption; it only accepts
-the risk and removes the startup block when the ROM already exposes CE before
-first unlock.
+Keep the BFU CE-readable override disabled on a normal FBE device. It accepts an
+already unsafe ROM condition; it does not repair encryption.
 
-### 2 · Debian setup
+## Debian setup and lifecycle
 
-**Install Debian 13 Trixie rootfs** performs an initial installation or validates
-an existing recognized installation. It does not overwrite `/data/local/debian`
-or perform an in-place release upgrade.
+**Install Debian 13 Trixie rootfs** creates `/data/local/debian` without silently
+overwriting a valid installation. **Configure Debian 13 systemd + SSH** prepares
+systemd, D-Bus, OpenSSH, the `debian` account, the current public key, and boot
+proof services. Both operations run only after Android is unlocked.
 
-**Configure Debian 13 systemd + SSH** installs and configures systemd, D-Bus,
-OpenSSH, user `debian`, the current app public key, and the boot-proof service.
-Run it again after rotating the SSH client key or restoring a rootfs.
+- **Start:** validate and start Debian systemd.
+- **Restart:** gracefully stop and start a new instance.
+- **Status:** check systemd, D-Bus, SSH, TCP 22, and cgroups.
+- **Stop:** stop Debian services and SSH.
 
-Both operations can be started only during AFU while Android is unlocked. Watch
-the Debian installation and system configuration logs while they run.
+Unlocking Android never stops the running server.
 
-### 3 · Server controls
+## SSH access
 
-- **Start** validates the rootfs and ready marker, then starts a new Debian
-  systemd as namespace PID 1.
-- **Restart** gracefully exits the verified instance, then starts a new one.
-- **Status** checks supervisor identity, namespaces, systemd, D-Bus, the target,
-  SSH, TCP 22, and cgroup health.
-- **Stop** asks systemd to clean up units through its container `exit` path and
-  stops SSH.
-
-Android unlock never invokes Stop automatically. After a manual stop, tap Start
-when you need Debian again, or wait for the next enabled cold boot.
-
-### 4 · SSH access
-
-**Export SSH private-key file** is the recommended route for an external computer.
-The exported file is an unencrypted credential; store it privately and restrict
-it to mode 0600.
+For another computer, export the SSH private-key file:
 
 ```sh
 chmod 600 dawnshell-ed25519
 ssh -i ./dawnshell-ed25519 -p 22 debian@PHONE_IP
 ```
 
-**Copy Termux private-key import command** is a one-time convenience for your own
-Termux session on the same phone. The entire command contains the private key.
-Never paste it into another app, a messenger, or a shared shell-history view.
-**Copy SSH connect command** copies a command for `debian@127.0.0.1:22`.
+For a trusted local shell on the phone, run the copied local-shell key import
+command once, then run the copied SSH connect command. The import command contains
+the complete private key, so file export is safer.
 
-**Generate a new random SSH client key** permanently replaces the client identity.
-Rotate it in this order:
+Generating a new random client key permanently replaces the old identity. Back
+up the old key, generate the replacement, rerun systemd + SSH configuration,
+export the new key, and verify it before deleting old copies.
 
-1. Back up the old private key if it is still needed.
-2. Generate the new key.
-3. Run **Configure Debian 13 systemd + SSH** again.
-4. Export the new private key to each client.
-5. Verify the new login, then retire old exports.
+## Accounts and root
 
-If reinstalling the rootfs changes the SSH host key, confirm that a reinstall
-really occurred before removing only that known-hosts entry:
+The app can set local `debian` and `root` passwords. Passwords are passed directly
+to Debian and are not stored in app settings, DE storage, or logs. SSH password
+authentication remains disabled.
 
-```sh
-ssh-keygen -R "[PHONE_IP]:22"
-```
-
-### Accounts
-
-You can set local passwords of 8–128 characters for `root` and `debian`. They are
-sent only through `chpasswd` stdin and are not stored in Android settings, DE, or
-logs. SSH continues to deny password authentication and root login.
-
-After connecting over SSH as `debian`, become root with:
+After connecting as `debian`:
 
 ```sh
 su root
 ```
 
-Enter the Debian root password configured in DawnShell. Run `exit` to leave the
-root shell. This root account has real device-level authority in the shared
-Android network and IPC namespaces, so run only trusted commands.
+Enter the root password configured in the app. This root shell can affect the
+Android device, so run only trusted commands.
 
-To intentionally reboot the complete Android device from that root shell:
+To reboot the entire Android device:
 
 ```sh
 reboot --check
 reboot now
 ```
 
-`reboot --check` validates the host bridge without rebooting. `reboot now`
-immediately reboots Android. In contrast, `systemctl reboot` is a Debian namespace
-isolation path and should not be used when a whole-device reboot is intended.
+`systemctl reboot` is a namespace-isolation test path, not the Android reboot
+command.
 
-### Kernel and Docker compatibility
+## Kernel and Docker
 
-Keep the cgroup policy at **Automatic: v2, then v1 fallback**. Force-v2 can prevent
-Debian from booting when device BPF or delegation is unavailable; force-v1 skips
-the modern path. A cgroup setting takes effect on the next Debian start or restart.
-
-With the recommended Docker policy, **Safe host network only**, run containers as:
+Keep the recommended automatic cgroup v2-to-v1 fallback unless diagnosing a
+specific kernel. Docker defaults to safe host-network-only mode:
 
 ```sh
 docker run --network host ...
 ```
 
-Bridge modes can change Android-global firewall, NAT, forwarding, and routes,
-disconnecting Wi-Fi, mobile data, USB Ethernet, VPN/Tailscale, or the current SSH
-session. Do not force a bridge backend over your only remote recovery connection.
-Selecting a radio button does not apply a network change; mutation occurs only
-after tapping **Apply Docker network policy**. DawnShell then stops Debian, probes
-the backend, writes policy, and restores the prior running state.
+Bridge networking can change Android-wide firewall, NAT, forwarding, and routes.
+It can disconnect Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, and SSH.
+Prepare a separate recovery path before enabling a forced bridge backend.
 
-### Logs
+## Logs
 
-Open **Logs** from the top app bar and choose a stream:
-
-- App operations: button requests, validation results, and errors
-- Debian installation: debootstrap and rootfs publication
-- System configuration: APT, systemd, OpenSSH, and account provisioning
-- Compatibility policy: cgroup and Docker backend probes
-- Server lifecycle: start, stop, restart, status, and health
-- Direct Boot diagnostics: boot marker and BFU root, CE, rootfs, and chroot probes
-
-Each reader refreshes once per second and supports scrolling, long-press selection,
-and copy-all. Automatic follow pauses while text is selected or while you read
-older lines above the bottom. When reporting an error, copy the relevant stream
-but never add a private key or password.
+The Logs screen provides app operations, Debian installation, system
+configuration, compatibility, lifecycle, and Direct Boot diagnostics. Readers
+refresh once per second and support scrolling, selection, and copying. Do not add
+private keys or passwords when sharing a log.
 
 ## Networking
 
-sshd listens on wildcard TCP 22 even before an address exists. If Android later
-adds a Wi-Fi, mobile, or USB Ethernet address, clients can connect without
-restarting Debian.
-
-From a computer on the same network:
+The SSH server listens on TCP 22 even before Android assigns an address. When
+Android later brings up Wi-Fi, mobile data, or USB Ethernet, no Debian restart is
+required.
 
 ```sh
 ssh -i ./dawnshell-ed25519 -p 22 debian@PHONE_IP
 ```
 
-From Termux on the same phone:
+Treat `tailscaled.state` as a device credential available before PIN entry. Do
+not store reusable authentication keys in the BFU rootfs.
 
-```sh
-ssh -i "$HOME/.ssh/dawnshell-ed25519" -p 22 debian@127.0.0.1
-```
+## Backup and removal
 
-Kernel-mode Tailscale shares `tailscale0`, routes, and netfilter state with
-Android. Prefer interactive enrollment and never store a reusable auth key in the
-BFU rootfs. Treat an enrolled `tailscaled.state` as a device credential available
-before PIN entry.
+Back up the exported SSH client key, important Debian configuration and user
+data, package lists, and service configuration.
 
-## Updates and backups
-
-Download official updates from [GitHub Releases](https://github.com/aroxu/dawnshell/releases)
-and verify `SHA256SUMS`. Install an APK signed with the same release key over the
-existing app. After updating, unlock Android, tap **Save BFU settings and provision
-runtime**, and verify status, restart behavior, and a planned cold boot.
-
-Recommended backups:
-
-- the DawnShell SSH client private key exported from the app;
-- required Debian `/etc`, user data, and service configuration;
-- the installed package list and application-specific data.
-
-App settings and the rootfs are not automatically synchronized in either
-direction. Uninstalling the APK removes app CE/DE and the generated client key but
-does not remove `/data/local/debian`. Conversely, deleting the rootfs from the
-Danger zone leaves app settings and logs intact.
-
-## Safe removal
-
-To remove Debian and the app completely:
-
-1. Back up required data and the client key.
-2. Unlock Android, tap **Stop**, and use Status to confirm systemd is absent.
-3. Open **Danger zone → Permanently delete Debian rootfs**.
-4. Accept both confirmations and type the literal word `DELETE`.
-5. Require `DEBIAN_ROOTFS_REMOVE_SUCCEEDED` in the operation log.
-6. Uninstall DawnShell from Android settings.
-
-The destructive target is exactly `/data/local/debian`. If staging or failed
-siblings remain, inspect their logs and origin before handling them separately.
+To remove Debian completely, stop it, confirm systemd is absent, open the danger
+zone, choose permanent rootfs removal, complete both confirmations, type
+`DELETE`, and verify `DEBIAN_ROOTFS_REMOVE_SUCCEEDED`. Then uninstall DawnShell
+from Android settings if desired.
 
 ## Troubleshooting
 
-### Debian does not start after a cold boot
+### No BFU startup
 
-- Confirm that you tapped **Save BFU settings and provision runtime** after
-  enabling Direct Boot.
-- Confirm permanent DawnShell authorization in Magisk.
-- After unlocking, inspect Direct Boot diagnostics for a new
-  `LOCKED_BOOT_COMPLETED`, then BFU root, CE isolation, rootfs, and chroot results
-  in that order.
-- Exempt the app from vendor battery or autostart restrictions.
+Save and provision settings, verify permanent Magisk approval, inspect the latest
+`LOCKED_BOOT_COMPLETED` diagnostics after unlock, and exclude the app from vendor
+battery and automatic-start restrictions.
 
-### `root=false`, timeout, or permission denied
+### Root denied or timed out
 
-Unlock Android, request root again, and select permanent authorization in Magisk.
-BFU cannot display an approval UI, so a one-time grant cannot solve cold-boot
-authorization. Do not approve if an unexpected package appears in the same-UID
-package list.
+Request root while unlocked and select permanent approval in Magisk. BFU cannot
+display an interactive root prompt.
 
-### Debian installation fails
+### Debian installation failed
 
-Copy the final `ERROR:` and `DEBOOTSTRAP_LOG_TAIL` from the Debian installation
-log. Never bypass a checksum or Release-signature error. Interrupted staging is
-preserved automatically; do not blindly delete `/data/local/debian.installing`
-or `.failed.*` before collecting diagnostics.
+Copy the final `ERROR:` and `DEBOOTSTRAP_LOG_TAIL` from the installation log. Do
+not bypass signature or checksum failures, and preserve staging data for diagnosis.
 
-### The systemd + SSH configuration request fails
+### SSH connection refused
 
-Confirm that Android is unlocked, Direct Boot settings were saved, rootfs status
-is `SUCCEEDED`, and Magisk root still works. Copy the first failed stage from the
-system configuration log, provision the runtime again, and retry.
+Check app status and lifecycle logs, verify systemd + SSH configuration, run
+`systemctl is-active ssh.service` and `ss -ltn`, check for a TCP 22 conflict, and
+confirm that Android has a BFU network address.
 
-### `ssh: connect ... port 22: Connection refused`
+### Network unreachable
 
-1. Check **Status** and the server lifecycle log.
-2. Confirm that systemd/SSH configuration completed.
-3. In Debian, check `systemctl is-active ssh.service` and `ss -ltn`.
-4. Check whether another process owns TCP 22.
-5. For a remote connection, confirm that Android received an address during BFU.
+If localhost SSH works but remote SSH does not, inspect Android interfaces,
+addresses, and routes. DawnShell cannot unlock Wi-Fi credentials that the ROM
+keeps unavailable during BFU.
 
-Plain `ssh user@host` uses port 22, which is also DawnShell's default. `-p 22` is
-optional, but the key and user `debian` must still be correct.
+### Docker disconnected Android networking
 
-### `network is unreachable`
-
-Separate an sshd problem from an uplink problem. If localhost SSH at `127.0.0.1`
-works but a remote client does not, inspect Android interfaces, addresses, and
-routes. If the ROM does not restore Wi-Fi during BFU, DawnShell cannot unlock or
-open that network credential on its behalf.
-
-### CE isolation blocks startup
-
-On a correct FBE device, blocking is the expected result when CE content is
-readable. Investigate the ROM and FBE configuration first. Enable the CE-readable
-override only if you accept that the ROM already exposes CE before unlock. The
-override does not restore the lost security property.
-
-### Network access breaks after applying Docker policy
-
-Use an independent recovery path such as a local console or ADB if available.
-Open DawnShell, select **Safe host network only**, and apply the policy. Copy the
-compatibility log. Docker bridge rules affect Android globally because the
-network namespace is shared.
-
-### An update APK will not install
-
-The usual cause is a certificate mismatch between a debug/custom APK and an
-official release. Back up the current client key and data before taking action.
-Uninstalling the old app deletes app CE/DE, so do not do it without preparation.
-If two official releases conflict, report the release assets, checksums, versions,
-and certificate information.
+Use a local screen or ADB recovery path to reapply safe host-network-only mode,
+then collect the compatibility log.
 
 ## Related documents
 
 - [Installation guide](installation.md)
+- [Glossary](glossary.md)
 - [Security model](security.md)
 - [Architecture](architecture.md)
-- [Complete test plan](testing.md)
-- [Rootfs installation internals](rootfs-installation.md)
+- [Testing](testing.md)

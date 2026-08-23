@@ -43,7 +43,7 @@ final class DebianSystemProvisioner {
                             + " systemd, D-Bus, and OpenSSH configuration");
             log.line("Rootfs: " + BfuRootfsProbe.ROOTFS_PATH);
             log.line("Management runtime: source-built "
-                    + layout.architecture.androidAbi + " BFU toolbox; no Termux CE");
+                    + layout.architecture.androidAbi + " BFU toolbox; no external app storage");
             log.line("SSH policy: user=debian port=22 public-key-only; Android NIC shared directly");
 
             if (!layout.authorizedKeys.isFile() || layout.authorizedKeys.length() == 0) {

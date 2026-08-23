@@ -177,7 +177,7 @@ validate_elf() {
         exit 5
     fi
     if "$llvm_strings" "$binary" \
-            | grep -E '/data/data/com\.termux|/data/user(_de)?/[0-9]' \
+            | grep -E '/data/(data|user|user_de)/[^/ ]+' \
                 >/dev/null; then
         echo "Forbidden fixed Android data path embedded in $binary" >&2
         exit 6

@@ -1,18 +1,15 @@
-# Dropbear 빌드 요구사항
+# Dropbear 조사 메모
 
 [English](README.md)
 
-분석 당시 Termux 패키지와 같은 후보 소스는 Dropbear 2026.94다.
+초기 최소 SSH 서버 후보로 Dropbear 2026.94를 조사했습니다. 현재 제품은 Debian
+rootfs 안의 OpenSSH를 사용하므로 이 디렉터리는 소스 조사 메모만 보관합니다.
 
-이 디렉터리에서 실제 산출물을 만들기 전 다음 조건을 증명해야 한다.
+후보 실행 파일의 검토 기준은 다음과 같습니다.
 
-- 소스 SHA-256이 기록된 재현 가능한 `arm64-v8a` PIE 산출물
-- 의도한 Android 시스템 런타임 외 `DT_NEEDED` 의존성이 없거나,
-  API 36/커널 4.4에서 동작하는 정적 PIE 결과가 문서화되어 있을 것
-- password/PAM/shadow/keyboard-interactive 코드 경로가 없을 것
-- Termux prefix, `/data/data/com.termux`, 고정 `/data/user_de/0` 문자열이 없을 것
-- host key, authorized keys, PID, home, shell, port 경로를 런타임에서 받을 것
-- `nativeLibraryDir` 실행과 비교용 DE `filesDir` 실행을 모두 검증할 것
-- APK에 라이선스와 대응 소스 고지를 포함할 것
+- `arm64-v8a` PIE(Position-Independent Executable)로 빌드합니다.
+- 런타임 공유 라이브러리 의존성을 최소화합니다.
+- Android 사용자 번호나 앱 데이터 절대 경로를 고정하지 않습니다.
+- source tarball과 SHA-256을 고정합니다.
 
-현재 제품 경로는 Debian systemd/OpenSSH이며 이 디렉터리는 대안 검토 기록이다.
+PIE와 ABI 같은 용어는 [쉬운 용어집](../../docs/glossary.ko.md)을 참고해 주세요.

@@ -9,7 +9,7 @@
     <string name="dawnshell_section_runtime">3 · Server controls</string>
     <string name="dawnshell_section_runtime_description">Check the current state or explicitly start, restart, and stop the Debian environment.</string>
     <string name="dawnshell_section_access">4 · SSH access</string>
-    <string name="dawnshell_section_access_description">Export the generated key or copy ready-to-run commands for a local Termux client.</string>
+    <string name="dawnshell_section_access_description">Export the generated key or copy ready-to-run commands for a local SSH client.</string>
     <string name="dawnshell_section_accounts">Accounts</string>
     <string name="dawnshell_section_accounts_description">Optionally set local Debian passwords. SSH continues to accept public keys only.</string>
     <string name="dawnshell_section_advanced">Diagnostics</string>
@@ -68,7 +68,7 @@
     <string name="bfu_operation_log_none">No button operation has been recorded yet.</string>
     <string name="bfu_operation_log_failed">Failed to read or write the operation log: %1$s</string>
     <string name="bfu_log_console_hint">Drag inside a console to scroll it. Long-press to select and copy. Live follow pauses while selected or scrolled up.</string>
-    <string name="bfu_debian_install_explanation">No Termux packages are required. The app includes source-built bootstrap tools for ARMv7, ARM64, and x86_64, verifies pinned Debian metadata and packages, then publishes the completed rootfs to /data/local/debian.</string>
+    <string name="bfu_debian_install_explanation">No external shell packages are required. The app includes source-built bootstrap tools for ARMv7, ARM64, and x86_64, verifies pinned Debian metadata and packages, then publishes the completed rootfs to /data/local/debian.</string>
     <string name="bfu_install_debian">Install Debian 13 Trixie rootfs</string>
     <string name="bfu_remove_debian_rootfs">Permanently delete Debian rootfs</string>
     <string name="bfu_remove_rootfs_requires_unlock">Unlock Android before deleting the Debian rootfs.</string>
@@ -139,13 +139,13 @@
     <string name="bfu_private_key_exported">SSH private key exported. Restrict it to owner-only access before use.</string>
     <string name="bfu_private_key_export_failed">No export destination was returned.</string>
     <string name="bfu_private_key_export_failed_detail">Could not export the SSH private key: %1$s</string>
-    <string name="bfu_copy_key_import_command">Copy Termux private-key import command</string>
+    <string name="bfu_copy_key_import_command">Copy local-shell key import command</string>
     <string name="bfu_copy_key_import_confirm_title">Place the private key on the clipboard?</string>
-    <string name="bfu_copy_key_import_confirm_message">The copied one-line command contains the complete private key. Paste it only into your own unlocked Termux session. The app marks it sensitive and clears it after 120 seconds if it is still the current clipboard entry.</string>
+    <string name="bfu_copy_key_import_confirm_message">The copied one-line command contains the complete private key. Paste it only into your own trusted, unlocked local shell. The app marks it sensitive and clears it after 120 seconds if it is still the current clipboard entry.</string>
     <string name="bfu_copy_key_import_confirm_button">Copy sensitive command</string>
     <string name="bfu_copy_ssh_connect_command">Copy SSH connect command</string>
-    <string name="bfu_key_import_command_copied">Private-key import command copied. Paste it into Termux now; the clipboard entry expires in 120 seconds.</string>
-    <string name="bfu_ssh_connect_command_copied">SSH connect command copied. Paste and run it in Termux.</string>
+    <string name="bfu_key_import_command_copied">Private-key import command copied. Paste it into your trusted local shell now; the clipboard entry expires in 120 seconds.</string>
+    <string name="bfu_ssh_connect_command_copied">SSH connect command copied. Paste and run it in your local shell.</string>
     <string name="bfu_clipboard_unavailable">Android clipboard service is unavailable.</string>
     <string name="bfu_notification_channel">DawnShell service</string>
     <string name="bfu_notification_channel_description">Keeps the Direct Boot bootstrap lifecycle active for the Android boot.</string>

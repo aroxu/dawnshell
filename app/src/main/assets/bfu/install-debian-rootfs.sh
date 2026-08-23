@@ -2,7 +2,7 @@
 set -eu
 
 # This installer uses only the ABI-specific toolbox provisioned in Device
-# Protected Storage. It never reads Termux or another app's CE storage.
+# Protected Storage. It never reads another app's credential-encrypted storage.
 
 TARGET=/data/local/debian
 STAGE=/data/local/debian.installing

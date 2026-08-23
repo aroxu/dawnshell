@@ -1,23 +1,31 @@
-# BFU 런타임
+# DawnShell 내장 부트스트랩 런타임
 
-[English](README.md)
+[English](README.md) · [쉬운 용어집](../docs/glossary.ko.md)
 
-현재 BFU 런타임은 독립 Dropbear 트리가 아니라 Debian 13 환경이다.
-`scripts/build-bootstrap-runtime.sh`는 이 디렉터리에 고정된 소스에서 다음
-Android ABI용 부트스트랩 도구를 모두 빌드한다.
+이 디렉터리에는 Android에서 Debian 13 rootfs를 설치하고 시작하는 데 필요한
+최소 도구의 소스, 패치, 설정과 버전 잠금 정보가 있습니다.
 
-- `armeabi-v7a` → Debian `armhf`
-- `arm64-v8a` → Debian `arm64`
-- `x86_64` → Debian `amd64`
+지원하는 ABI(Application Binary Interface)는 다음과 같습니다.
 
-각 ABI에는 최소 BusyBox 도구 상자, Debian `pkgdetails`, GnuPG `gpgv`,
-namespace/chroot 런처가 포함된다. BusyBox 설정에는 rootfs 게시 단계가
-소유권 확인에 사용하는 `stat -c` 형식 출력 기능이 반드시 포함된다. 빌드
-스크립트가 이 설정을 불변 조건으로 검사하고, 기기 설치 프로그램도
-다운로드나 staging 트리 변경 전에 이를 다시 확인한다.
+| Android ABI | Debian 아키텍처 |
+| --- | --- |
+| `armeabi-v7a` | `armhf` |
+| `arm64-v8a` | `arm64` |
+| `x86_64` | `amd64` |
 
-이 디렉터리는 저장소 간 런타임 설계 결정을 기록한다. 런타임 키,
-`authorized_keys`, PID, 로그는 DawnShell Device Protected Storage 또는 별도
-검토된 기기의 Debian rootfs에만 두며 Git에 커밋하면 안 된다. 내장 helper는
-고정된 `probe`, `start`, `restart`, `status`, `health`, `stop` 및 제한된 종료
-격리 테스트만 제공하고 임의 셸 명령은 받지 않는다.
+ABI는 CPU에 맞는 네이티브 실행 파일 규칙입니다.
+[Google Android ABI 문서](https://developer.android.com/ndk/guides/abis)를 참고해 주세요.
+
+각 ABI 런타임에는 BusyBox 도구 모음, Debian `pkgdetails`, 정적으로 연결한
+`gpgv`, namespace 런처가 포함됩니다. BusyBox는 설치 완료 뒤 소유권을 확인하기
+위해 `stat -c` 형식 출력을 지원합니다.
+
+- 고정 소스와 SHA-256: `sources/SOURCES.lock`
+- Android용 패치: `patches/`
+- 최소 빌드 설정: `config/`
+- 빌드 스크립트: `../scripts/build-bootstrap-runtime.sh`
+- 서드파티 라이선스: [THIRD_PARTY_NOTICES.ko.md](THIRD_PARTY_NOTICES.ko.md)
+
+실제 기기의 키, PID(Process Identifier), 로그와 `authorized_keys`는 이 저장소에
+커밋하지 않습니다. 앱의 DE(Device Encrypted) 저장소 또는 검토된 Debian
+rootfs에만 둡니다.

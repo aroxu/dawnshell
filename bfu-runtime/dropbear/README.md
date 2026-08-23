@@ -1,16 +1,13 @@
-# Dropbear build requirements
+# Dropbear research note
 
-[한국어 문서](README.ko.md)
+[한국어](README.ko.md)
 
-Pinned candidate source: Dropbear 2026.94, matching the analyzed Termux package.
+Dropbear 2026.94 was evaluated as an early minimal SSH-server candidate. The
+current product uses OpenSSH inside the Debian rootfs, so this directory retains
+source-research notes only.
 
-Before this directory produces an artifact, the build must prove:
+Candidate acceptance criteria were an `arm64-v8a` PIE build, minimal dynamic
+runtime dependencies, no fixed Android user or app-data path, and a pinned source
+archive with SHA-256.
 
-- reproducible `arm64-v8a` PIE output with recorded source SHA-256;
-- no DT_NEEDED dependency outside the intended Android system runtime, or a
-  documented static-PIE result that works on API 36/kernel 4.4;
-- no password/PAM/shadow/keyboard-interactive code path;
-- no Termux prefix, `/data/data/com.termux`, or fixed `/data/user_de/0` string;
-- runtime-supplied host key, authorized-keys, pid, home, shell, and port paths;
-- successful execution from `nativeLibraryDir` and, for comparison, DE `filesDir`;
-- license/source notices packaged with the APK.
+See the [glossary](../../docs/glossary.md) for ABI and related terms.

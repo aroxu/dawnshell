@@ -9,7 +9,7 @@
     <string name="dawnshell_section_runtime">3 · 서버 제어</string>
     <string name="dawnshell_section_runtime_description">현재 상태를 확인하거나 Debian 환경을 직접 시작, 재시작 및 중지합니다.</string>
     <string name="dawnshell_section_access">4 · SSH 접속</string>
-    <string name="dawnshell_section_access_description">자동 생성된 키를 내보내거나 로컬 Termux 클라이언트에서 바로 실행할 명령을 복사합니다.</string>
+    <string name="dawnshell_section_access_description">자동 생성된 키를 내보내거나 로컬 SSH 클라이언트에서 바로 실행할 명령을 복사합니다.</string>
     <string name="dawnshell_section_accounts">계정</string>
     <string name="dawnshell_section_accounts_description">필요한 경우 Debian 로컬 암호를 설정합니다. SSH는 계속 공개 키 인증만 허용합니다.</string>
     <string name="dawnshell_section_advanced">진단</string>
@@ -68,7 +68,7 @@
     <string name="bfu_operation_log_none">기록된 버튼 작업이 없습니다.</string>
     <string name="bfu_operation_log_failed">작업 로그를 읽거나 쓰지 못했습니다: %1$s</string>
     <string name="bfu_log_console_hint">콘솔 안을 드래그하여 스크롤하세요. 길게 눌러 선택하고 복사할 수 있습니다. 텍스트를 선택하거나 위로 스크롤하면 실시간 따라가기가 일시 정지됩니다.</string>
-    <string name="bfu_debian_install_explanation">Termux 패키지가 필요하지 않습니다. 앱에 ARMv7, ARM64, x86_64용 소스 빌드 부트스트랩 도구가 포함되어 있으며, 고정된 Debian 메타데이터와 패키지를 검증한 후 완성된 rootfs를 /data/local/debian에 배치합니다.</string>
+    <string name="bfu_debian_install_explanation">외부 셸 패키지가 필요하지 않습니다. 앱에 ARMv7, ARM64, x86_64용 소스 빌드 부트스트랩 도구가 포함되어 있으며, 고정된 Debian 메타데이터와 패키지를 검증한 후 완성된 rootfs를 /data/local/debian에 배치합니다.</string>
     <string name="bfu_install_debian">Debian 13 Trixie rootfs 설치</string>
     <string name="bfu_remove_debian_rootfs">Debian rootfs 영구 삭제</string>
     <string name="bfu_remove_rootfs_requires_unlock">Debian rootfs를 삭제하려면 Android 잠금을 해제하세요.</string>
@@ -139,13 +139,13 @@
     <string name="bfu_private_key_exported">SSH 개인 키를 내보냈습니다. 사용하기 전에 소유자만 접근할 수 있도록 제한하세요.</string>
     <string name="bfu_private_key_export_failed">내보낼 위치가 반환되지 않았습니다.</string>
     <string name="bfu_private_key_export_failed_detail">SSH 개인 키를 내보내지 못했습니다: %1$s</string>
-    <string name="bfu_copy_key_import_command">Termux 개인 키 가져오기 명령 복사</string>
+    <string name="bfu_copy_key_import_command">로컬 셸용 개인 키 가져오기 명령 복사</string>
     <string name="bfu_copy_key_import_confirm_title">개인 키를 클립보드에 복사할까요?</string>
-    <string name="bfu_copy_key_import_confirm_message">복사되는 한 줄 명령에는 전체 개인 키가 포함됩니다. 잠금 해제된 본인의 Termux 세션에만 붙여 넣으세요. 앱은 이를 민감한 내용으로 표시하고, 120초 후에도 현재 클립보드 항목이면 자동으로 지웁니다.</string>
+    <string name="bfu_copy_key_import_confirm_message">복사되는 한 줄 명령에는 전체 개인 키가 포함됩니다. 잠금 해제된 본인의 신뢰할 수 있는 로컬 셸에만 붙여 넣으세요. 앱은 이를 민감한 내용으로 표시하고, 120초 후에도 현재 클립보드 항목이면 자동으로 지웁니다.</string>
     <string name="bfu_copy_key_import_confirm_button">민감한 명령 복사</string>
     <string name="bfu_copy_ssh_connect_command">SSH 접속 명령 복사</string>
-    <string name="bfu_key_import_command_copied">개인 키 가져오기 명령을 복사했습니다. 지금 Termux에 붙여 넣으세요. 클립보드 항목은 120초 후 만료됩니다.</string>
-    <string name="bfu_ssh_connect_command_copied">SSH 접속 명령을 복사했습니다. Termux에 붙여 넣고 실행하세요.</string>
+    <string name="bfu_key_import_command_copied">개인 키 가져오기 명령을 복사했습니다. 지금 신뢰할 수 있는 로컬 셸에 붙여 넣으세요. 클립보드 항목은 120초 후 만료됩니다.</string>
+    <string name="bfu_ssh_connect_command_copied">SSH 접속 명령을 복사했습니다. 로컬 셸에 붙여 넣고 실행하세요.</string>
     <string name="bfu_clipboard_unavailable">Android 클립보드 서비스를 사용할 수 없습니다.</string>
     <string name="bfu_notification_channel">DawnShell 서비스</string>
     <string name="bfu_notification_channel_description">Android가 부팅되어 있는 동안 다이렉트 부트 부트스트랩 수명 주기를 유지합니다.</string>

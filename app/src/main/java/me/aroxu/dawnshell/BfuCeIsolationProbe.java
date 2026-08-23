@@ -96,13 +96,13 @@ final class BfuCeIsolationProbe {
         if (!hasExpectedValue(receipt)) {
             Result result = new Result(false, "none", -3, false,
                     userUnlockedBefore, isUserUnlocked(context),
-                    "TERMUX_CE_SENTINEL_NOT_PROVISIONED");
+                    "BFU_APP_CE_SENTINEL_NOT_PROVISIONED");
             appendPersistentResult(deContext, result);
             return result;
         }
         // Probe as this standalone app's UID. Running this through Magisk su
         // changes the SELinux and mount context and can report the opposite of
-        // what the Termux UID can actually read on some ROMs.
+        // what this standalone app UID can actually read on some ROMs.
         BfuSu.Result commandResult = BfuSu.runDirectShell(PROBE, PROBE_TIMEOUT_MS);
         boolean userUnlockedAfter = isUserUnlocked(context);
         boolean isolated = commandResult.exitedSuccessfully()
