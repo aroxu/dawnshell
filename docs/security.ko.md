@@ -114,6 +114,23 @@ root 네트워크 변경이 Android 전체에 영향을 줄 수 있다는 뜻입
 Ethernet, VPN, Tailscale, SSH를 끊을 수 있으므로 별도 복구 경로가 있을 때만
 사용해 주세요.
 
+## 호스트 USB
+
+raw 호스트 USB 접근은 명시적으로 켜야 합니다. 기본 정책은 Debian mount
+namespace에서 `/dev/bus/usb`를 가리고 DawnShell 전용 devices 정책에서 USB 문자
+장치 major 189를 거부합니다. 직접 모드는 Debian에 대해서만 이 두 제한을
+해제하고 Android 커널 드라이버 연결은 유지합니다. 독점 모드는 명시한 `VID:PID`
+허용 목록에 맞는 interface까지 unbind합니다. cgroup 권한은 계속 위임된 범위에
+있지만 이 unbind는 호스트 전체의 하드웨어 상태를 바꿉니다. 정상 종료 때 모두
+복원을 시도하지만 SIGKILL, 커널 오류 또는 전원 손실 시 복원하지 못할 수 있으므로
+장치를 뽑거나 재부팅해야 합니다. 두 모드 모두 SELinux 제한은 유지됩니다.
+
+USB 장치는 능동적인 신뢰 경계입니다. 펌웨어 프로그래머, 입력 장치, 네트워크
+어댑터와 이동식 저장장치는 하드웨어나 호스트 상태를 바꿀 수 있습니다. 신뢰하지
+않는 장치를 노출하거나 Docker `--privileged`를 사용하지 말고, 같은 이동식
+파일시스템을 Android와 Debian에서 동시에 마운트하지 마세요. 휴대전화 내부
+USB/gadget controller를 독점 허용 목록에 넣지 마세요.
+
 ## 로그
 
 로그에는 다음 정보를 남기지 않습니다.

@@ -112,18 +112,22 @@ if grep -Eq 'unshare[[:space:]]*\([[:space:]]*CLONE_NEWIPC' "$namespace_source";
     exit 6
 fi
 for marker in \
-    'prepare_devices_cgroup_mount(control_dir)' \
+    'prepare_devices_cgroup_mount(control_dir, host_usb_policy)' \
     'init_moved_to_devices_cgroup' \
     'cgroup_view_devices_bind' \
     'cleanup_cgroup_subtree_failed' \
     'devices_cgroup=delegated' \
-    'prepare_unified_cgroup_mount(control_dir)' \
+    'prepare_unified_cgroup_mount(control_dir, host_usb_policy)' \
     'cgroup_v2_device_bpf_verified' \
     'cgroup_requested=auto' \
     'fallback=v1' \
     'cgroup_delegation=delegated' \
     'CGROUP_POLICY_FORCE_V2' \
-    'CGROUP_POLICY_FORCE_V1'; do
+    'CGROUP_POLICY_FORCE_V1' \
+    'HOST_USB_EXCLUSIVE' \
+    'reconcile_exclusive_usb' \
+    'restore_exclusive_usb' \
+    'exclusive_mode_requires_at_least_one_VID:PID'; do
     grep -Fq "$marker" "$namespace_source" || {
         echo "Missing namespace/cgroup invariant: $marker" >&2
         exit 7

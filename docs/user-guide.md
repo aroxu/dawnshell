@@ -101,6 +101,36 @@ Bridge networking can change Android-wide firewall, NAT, forwarding, and routes.
 It can disconnect Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, and SSH.
 Prepare a separate recovery path before enabling a forced bridge backend.
 
+### USB passthrough
+
+USB passthrough is disabled by default and takes effect on the next Debian start
+or restart. USB Ethernet does not require this setting because Debian already
+shares Android's network namespace.
+
+- **Direct passthrough** exposes `/dev/bus/usb`, propagates hot-plug, and leaves
+  Android kernel drivers attached. Use this first for ordinary libusb inspection.
+- **Exclusive passthrough** also unbinds every interface belonging to a device
+  whose exact `VID:PID` is listed. Use commas or spaces, such as
+  `0403:6001, 10c4:ea60`. At least one ID is mandatory. DawnShell scans for new
+  matching devices and tries to restore detached drivers when Debian stops.
+
+Inside Debian, inspect a connected device with:
+
+```sh
+ls -l /dev/bus/usb/*/* 2>/dev/null
+lsusb 2>/dev/null || true
+dmesg | tail -n 100
+```
+
+USB serial, storage, camera, audio, and input support still require the matching
+Android kernel support. SELinux may deny access even to root. Exclusive mode can
+disconnect Android input, storage, networking, ADB, or recovery access. Use a
+disposable peripheral and independent recovery path; after an abnormal exit you
+may need to unplug it or reboot. Never select the phone's internal USB/gadget
+controller, and never mount one USB storage filesystem from both systems. A
+Docker container must receive the node separately with `--device`; avoid
+`--privileged`.
+
 ## Logs
 
 The Logs screen provides app operations, Debian installation, system

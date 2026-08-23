@@ -66,6 +66,17 @@ attach fails, it cleans every probe resource and falls back to isolated cgroup v
 `devices` and `name=systemd` views. Android's global hierarchy is never exposed
 for Debian to modify.
 
+USB passthrough is a DE-backed, default-off launch policy. Off mode overmounts
+Debian's `/dev/bus/usb` with an empty read-only filesystem and denies character
+major 189 using cgroup-device BPF on v2 or `devices.deny` on v1. Direct mode
+retains the shared `/dev` USB view and Android driver bindings. Exclusive mode
+uses the same raw view, scans sysfs every two seconds, and unbinds only interfaces
+matching the saved `VID:PID` allowlist. The supervisor records each detached
+interface and rebinds it in reverse order after Debian PID 1 exits. Hot-plug is
+handled without restarting Debian. Cgroup policy remains limited to DawnShell's
+delegated subtree; exclusive driver unbinding is necessarily host-wide and is
+therefore a separately warned, explicit option.
+
 ## SSH keys
 
 The app generates an Ed25519 key pair after unlock. The private half stays in app

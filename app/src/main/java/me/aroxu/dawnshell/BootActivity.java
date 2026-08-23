@@ -17,8 +17,10 @@ import android.os.UserManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.text.Editable;
 import android.text.TextUtils;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.util.Base64;
 import android.view.Gravity;
@@ -41,6 +43,7 @@ import androidx.appcompat.widget.AppCompatTextView;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.textfield.TextInputLayout;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -57,6 +60,9 @@ public class BootActivity extends AppCompatActivity {
     private CompoundButton allowCeReadableBfu;
     private RadioGroup cgroupPolicyGroup;
     private RadioGroup dockerNetworkPolicyGroup;
+    private RadioGroup usbPassthroughGroup;
+    private TextInputLayout usbExclusiveDeviceIdsLayout;
+    private EditText usbExclusiveDeviceIds;
     private TextView generatedPublicKey;
     private TextView probeSummary;
     private TextView settingsDirty;
@@ -190,6 +196,10 @@ public class BootActivity extends AppCompatActivity {
         allowCeReadableBfu = findViewById(R.id.switch_allow_ce_readable_bfu);
         cgroupPolicyGroup = findViewById(R.id.cgroup_policy_group);
         dockerNetworkPolicyGroup = findViewById(R.id.docker_network_policy_group);
+        usbPassthroughGroup = findViewById(R.id.usb_passthrough_group);
+        usbExclusiveDeviceIdsLayout = findViewById(
+                R.id.usb_exclusive_device_ids_layout);
+        usbExclusiveDeviceIds = findViewById(R.id.usb_exclusive_device_ids);
         generatedPublicKey = findViewById(R.id.generated_public_key);
         probeSummary = findViewById(R.id.probe_summary);
         settingsDirty = findViewById(R.id.settings_dirty_text);
@@ -220,6 +230,9 @@ public class BootActivity extends AppCompatActivity {
         findViewById(R.id.open_compatibility_log_button).setOnClickListener(view ->
                 startActivity(LogDetailActivity.createIntent(
                         this, DawnShellLogRepository.COMPATIBILITY)));
+        findViewById(R.id.open_host_usb_log_button).setOnClickListener(view ->
+                startActivity(LogDetailActivity.createIntent(
+                        this, DawnShellLogRepository.LIFECYCLE)));
         findViewById(R.id.start_debian_button).setOnClickListener(view ->
                 requestLifecycle(DebianLauncher.Operation.START));
         findViewById(R.id.restart_debian_button)
@@ -259,6 +272,25 @@ public class BootActivity extends AppCompatActivity {
                 settingsDirty.setVisibility(View.VISIBLE);
         cgroupPolicyGroup.setOnCheckedChangeListener(radioListener);
         dockerNetworkPolicyGroup.setOnCheckedChangeListener(radioListener);
+        usbPassthroughGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            settingsDirty.setVisibility(View.VISIBLE);
+            refreshUsbExclusiveEditorState();
+        });
+        usbExclusiveDeviceIds.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence text, int start, int count,
+                                          int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence text, int start, int before,
+                                      int count) {
+                settingsDirty.setVisibility(View.VISIBLE);
+                usbExclusiveDeviceIdsLayout.setError(null);
+            }
+
+            @Override
+            public void afterTextChanged(Editable editable) {}
+        });
     }
 
     private void openLogs() {
@@ -739,6 +771,9 @@ public class BootActivity extends AppCompatActivity {
         allowCeReadableBfu.setChecked(BfuPreferences.allowCeReadableBfu(this));
         selectCgroupPolicy(BfuPreferences.cgroupPolicy(this));
         selectDockerNetworkPolicy(BfuPreferences.dockerNetworkPolicy(this));
+        selectUsbPassthroughMode(BfuPreferences.usbPassthroughMode(this));
+        usbExclusiveDeviceIds.setText(BfuPreferences.usbExclusiveDeviceIds(this));
+        refreshUsbExclusiveEditorState();
         refreshGeneratedSshIdentity(true);
         refreshRootAuthorizationStatus();
         refreshProbeStatus(false);
@@ -746,6 +781,7 @@ public class BootActivity extends AppCompatActivity {
         refreshSystemConfigurationStatus();
         refreshLifecycleStatus();
         refreshDockerPolicyStatus();
+        settingsDirty.setVisibility(View.GONE);
     }
 
     private void refreshProbeStatus(boolean recordOperation) {
@@ -819,6 +855,7 @@ public class BootActivity extends AppCompatActivity {
     private void saveAndProvision() {
         recordOperation("PROVISION_STARTED enable_bfu=" + enableBfu.isChecked()
                 + " allow_ce_readable_bfu=" + allowCeReadableBfu.isChecked()
+                + " usb_passthrough_mode=" + selectedUsbPassthroughMode()
                 + " cgroup_policy=" + selectedCgroupPolicy()
                 + " docker_network_policy=" + selectedDockerNetworkPolicy());
         try {
@@ -1165,10 +1202,57 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void savePreferences() {
+        String usbMode = selectedUsbPassthroughMode();
+        String usbDeviceIds;
+        try {
+            usbDeviceIds = BfuPreferences.normalizeUsbExclusiveDeviceIds(
+                    usbExclusiveDeviceIds.getText().toString());
+        } catch (IllegalArgumentException e) {
+            usbExclusiveDeviceIdsLayout.setError(
+                    getString(R.string.dawnshell_usb_exclusive_ids_invalid));
+            throw new IllegalStateException(
+                    getString(R.string.dawnshell_usb_exclusive_ids_invalid));
+        }
+        if (BfuPreferences.USB_PASSTHROUGH_EXCLUSIVE.equals(usbMode)
+                && usbDeviceIds.isEmpty()) {
+            usbExclusiveDeviceIdsLayout.setError(
+                    getString(R.string.dawnshell_usb_exclusive_ids_required));
+            throw new IllegalStateException(
+                    getString(R.string.dawnshell_usb_exclusive_ids_required));
+        }
         BfuPreferences.save(this, enableBfu.isChecked(),
                 allowCeReadableBfu.isChecked(), selectedCgroupPolicy(),
-                selectedDockerNetworkPolicy());
+                selectedDockerNetworkPolicy(), usbMode, usbDeviceIds);
+        usbExclusiveDeviceIdsLayout.setError(null);
         if (settingsDirty != null) settingsDirty.setVisibility(View.GONE);
+    }
+
+    private void selectUsbPassthroughMode(String mode) {
+        int id = R.id.usb_passthrough_off;
+        if (BfuPreferences.USB_PASSTHROUGH_DIRECT.equals(mode)) {
+            id = R.id.usb_passthrough_direct;
+        } else if (BfuPreferences.USB_PASSTHROUGH_EXCLUSIVE.equals(mode)) {
+            id = R.id.usb_passthrough_exclusive;
+        }
+        usbPassthroughGroup.check(id);
+    }
+
+    private String selectedUsbPassthroughMode() {
+        int id = usbPassthroughGroup.getCheckedRadioButtonId();
+        if (id == R.id.usb_passthrough_direct) {
+            return BfuPreferences.USB_PASSTHROUGH_DIRECT;
+        }
+        if (id == R.id.usb_passthrough_exclusive) {
+            return BfuPreferences.USB_PASSTHROUGH_EXCLUSIVE;
+        }
+        return BfuPreferences.USB_PASSTHROUGH_OFF;
+    }
+
+    private void refreshUsbExclusiveEditorState() {
+        boolean exclusive = BfuPreferences.USB_PASSTHROUGH_EXCLUSIVE.equals(
+                selectedUsbPassthroughMode());
+        usbExclusiveDeviceIdsLayout.setEnabled(exclusive);
+        if (!exclusive) usbExclusiveDeviceIdsLayout.setError(null);
     }
 
     private void selectCgroupPolicy(String policy) {

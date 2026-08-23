@@ -53,6 +53,20 @@ Verify that SSH remains listening before Android assigns an address and becomes
 reachable without a Debian restart when Wi-Fi, mobile data, or USB Ethernet comes
 up. Test interface changes and any intended VPN or Tailscale path.
 
+## Host USB policy
+
+With USB passthrough off, restart Debian and verify that raw usbfs access is
+absent and the lifecycle log records `policy=off` with major 189 denied. Select
+direct mode, restart Debian, connect a known USB host device, and verify that its
+`/dev/bus/usb/BBB/DDD` node appears while its Android driver remains bound.
+Disconnect and reconnect it without restarting Debian.
+
+For exclusive mode, choose a disposable test device, enter its exact `VID:PID`,
+and keep ADB or physical recovery independent of that device. Verify the log
+records `action=unbind`, libusb can claim it, unrelated devices stay bound, and
+a normal Debian stop records `action=restore` and restores the driver. Repeat a
+hot-plug cycle. Test USB storage only with one side mounted at a time.
+
 ## Five-cycle regression
 
 Repeat reboot, locked SSH, PID 1 checks, first unlock, and continuity checks five

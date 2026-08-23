@@ -8,6 +8,7 @@
 #include <poll.h>
 #include <sched.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -55,6 +56,12 @@ static const int kStartTimeoutMs = 20000;
 static const int kStartGraceMs = 3000;
 static const int kStopTimeoutMs = 30000;
 static const int kTailscaleBypassRulePriority = 5200;
+static const int kExclusiveUsbScanIntervalMs = 2000;
+static const int kExclusiveUsbRetryIntervalMs = 30000;
+
+#define MAX_USB_DEVICE_FILTERS 32
+#define MAX_USB_INTERFACE_RECORDS 64
+#define MAX_USB_SYSFS_NAME 128
 
 static volatile sig_atomic_t alarm_child_pid = -1;
 static volatile sig_atomic_t stop_requested = 0;
@@ -72,9 +79,40 @@ typedef enum CgroupPolicy {
     CGROUP_POLICY_FORCE_V1,
 } CgroupPolicy;
 
+typedef enum HostUsbPolicy {
+    HOST_USB_OFF = 0,
+    HOST_USB_DIRECT,
+    HOST_USB_EXCLUSIVE,
+} HostUsbPolicy;
+
+typedef struct UsbDeviceId {
+    unsigned int vendor;
+    unsigned int product;
+} UsbDeviceId;
+
+typedef struct UsbDeviceFilter {
+    UsbDeviceId entries[MAX_USB_DEVICE_FILTERS];
+    size_t count;
+} UsbDeviceFilter;
+
+typedef struct UsbInterfaceRecord {
+    char interface_name[MAX_USB_SYSFS_NAME];
+    char driver_name[MAX_USB_SYSFS_NAME];
+    bool detached;
+    int last_errno;
+    int64_t retry_after_ms;
+} UsbInterfaceRecord;
+
+typedef struct ExclusiveUsbState {
+    UsbInterfaceRecord records[MAX_USB_INTERFACE_RECORDS];
+    size_t count;
+    int last_scan_errno;
+} ExclusiveUsbState;
+
 typedef struct LauncherState {
     char state[24];
     char cgroup_mode[8];
+    char host_usb_mode[16];
     pid_t supervisor_pid;
     uint64_t supervisor_start_ticks;
     uint64_t supervisor_exe_dev;
@@ -92,6 +130,85 @@ typedef struct LauncherState {
     int wait_status;
     int64_t updated_epoch;
 } LauncherState;
+
+static const char *host_usb_policy_name(HostUsbPolicy policy) {
+    if (policy == HOST_USB_DIRECT) return "direct";
+    if (policy == HOST_USB_EXCLUSIVE) return "exclusive";
+    return "off";
+}
+
+static int parse_host_usb_policy(const char *value, HostUsbPolicy *policy) {
+    if (value == NULL || strcmp(value, "off") == 0
+            || strcmp(value, "blocked") == 0) {
+        *policy = HOST_USB_OFF;
+        return 0;
+    }
+    if (strcmp(value, "direct") == 0 || strcmp(value, "shared") == 0) {
+        *policy = HOST_USB_DIRECT;
+        return 0;
+    }
+    if (strcmp(value, "exclusive") == 0) {
+        *policy = HOST_USB_EXCLUSIVE;
+        return 0;
+    }
+    return -1;
+}
+
+static int hex_digit_value(char value) {
+    if (value >= '0' && value <= '9') return value - '0';
+    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+    return -1;
+}
+
+static int parse_usb_hex_word(const char *value, unsigned int *output) {
+    unsigned int result = 0;
+    for (size_t index = 0; index < 4; index++) {
+        int digit = hex_digit_value(value[index]);
+        if (digit < 0) return -1;
+        result = (result << 4) | (unsigned int) digit;
+    }
+    *output = result;
+    return 0;
+}
+
+static int parse_usb_device_filter(const char *value, UsbDeviceFilter *filter) {
+    memset(filter, 0, sizeof(*filter));
+    if (value == NULL || value[0] == '\0' || strcmp(value, "-") == 0) return 0;
+
+    size_t length = strlen(value);
+    if (length > 512) return -1;
+    size_t offset = 0;
+    while (offset < length) {
+        if (filter->count >= MAX_USB_DEVICE_FILTERS
+                || length - offset < 9 || value[offset + 4] != ':') {
+            return -1;
+        }
+        if (length - offset > 9 && value[offset + 9] != ',') return -1;
+
+        UsbDeviceId candidate;
+        if (parse_usb_hex_word(value + offset, &candidate.vendor) != 0
+                || parse_usb_hex_word(value + offset + 5,
+                                      &candidate.product) != 0) {
+            return -1;
+        }
+        bool duplicate = false;
+        for (size_t index = 0; index < filter->count; index++) {
+            if (filter->entries[index].vendor == candidate.vendor
+                    && filter->entries[index].product == candidate.product) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate) filter->entries[filter->count++] = candidate;
+
+        offset += 9;
+        if (offset == length) break;
+        offset++;
+        if (offset == length) return -1;
+    }
+    return 0;
+}
 
 static const char *cgroup_mode_name(CgroupMode mode) {
     if (mode == CGROUP_MODE_V2) return "v2";
@@ -566,6 +683,7 @@ static void initialize_state(LauncherState *state, const char *name) {
     memset(state, 0, sizeof(*state));
     snprintf(state->state, sizeof(state->state), "%s", name);
     snprintf(state->cgroup_mode, sizeof(state->cgroup_mode), "unknown");
+    snprintf(state->host_usb_mode, sizeof(state->host_usb_mode), "unknown");
     state->wait_status = -1;
     state->updated_epoch = realtime_seconds();
 }
@@ -601,7 +719,8 @@ static int write_state(const char *control_dir, LauncherState *state) {
 
     state->updated_epoch = realtime_seconds();
     count = snprintf(contents, sizeof(contents),
-                     "format=5\nstate=%s\ncgroup_mode=%s\nsupervisor_pid=%d\n"
+                     "format=6\nstate=%s\ncgroup_mode=%s\nhost_usb_mode=%s\n"
+                     "supervisor_pid=%d\n"
                      "supervisor_start_ticks=%llu\nsupervisor_exe_dev=%llu\n"
                      "supervisor_exe_ino=%llu\ninit_host_pid=%d\n"
                      "init_start_ticks=%llu\ninit_exe_dev=%llu\n"
@@ -610,7 +729,8 @@ static int write_state(const char *control_dir, LauncherState *state) {
                      "init_ipc_ns_ino=%llu\ninit_cgroup_ns_ino=%llu\n"
                      "init_net_ns_ino=%llu\n"
                      "wait_status=%d\nupdated_epoch=%lld\n",
-                     state->state, state->cgroup_mode, state->supervisor_pid,
+                     state->state, state->cgroup_mode, state->host_usb_mode,
+                     state->supervisor_pid,
                      (unsigned long long) state->supervisor_start_ticks,
                      (unsigned long long) state->supervisor_exe_dev,
                      (unsigned long long) state->supervisor_exe_ino,
@@ -690,6 +810,8 @@ static int read_state(const char *control_dir, LauncherState *state) {
             snprintf(state->state, sizeof(state->state), "%s", value);
         } else if (strcmp(line, "cgroup_mode") == 0) {
             snprintf(state->cgroup_mode, sizeof(state->cgroup_mode), "%s", value);
+        } else if (strcmp(line, "host_usb_mode") == 0) {
+            snprintf(state->host_usb_mode, sizeof(state->host_usb_mode), "%s", value);
         } else if (strcmp(line, "supervisor_pid") == 0) {
             (void) parse_pid_value(value, &state->supervisor_pid);
         } else if (strcmp(line, "supervisor_start_ticks") == 0) {
@@ -976,7 +1098,81 @@ static int probe_cgroup_device_bpf(const char *child_path) {
 #endif
 }
 
-static int prepare_unified_cgroup_mount(const char *control_dir) {
+static int apply_host_usb_v2_policy(const char *payload_path,
+                                    HostUsbPolicy host_usb_policy) {
+    if (host_usb_policy != HOST_USB_OFF) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_USB policy=%s cgroup_backend=v2 "
+                "usbfs_major=189 action=allow_parent_policy\n",
+                (long long) realtime_seconds(),
+                host_usb_policy_name(host_usb_policy));
+        return 0;
+    }
+#ifdef __NR_bpf
+    struct bpf_insn instructions[5];
+    memset(instructions, 0, sizeof(instructions));
+    instructions[0].code = BPF_LDX | BPF_W | BPF_MEM;
+    instructions[0].dst_reg = BPF_REG_2;
+    instructions[0].src_reg = BPF_REG_1;
+    instructions[0].off = (int16_t) offsetof(struct bpf_cgroup_dev_ctx, major);
+    instructions[1].code = BPF_ALU64 | BPF_MOV | BPF_K;
+    instructions[1].dst_reg = BPF_REG_0;
+    instructions[1].imm = 1;
+    instructions[2].code = BPF_JMP | BPF_JNE | BPF_K;
+    instructions[2].dst_reg = BPF_REG_2;
+    instructions[2].off = 1;
+    instructions[2].imm = 189;
+    instructions[3].code = BPF_ALU64 | BPF_MOV | BPF_K;
+    instructions[3].dst_reg = BPF_REG_0;
+    instructions[3].imm = 0;
+    instructions[4].code = BPF_JMP | BPF_EXIT;
+
+    const char license[] = "GPL";
+    union bpf_attr attributes;
+    memset(&attributes, 0, sizeof(attributes));
+    attributes.prog_type = BPF_PROG_TYPE_CGROUP_DEVICE;
+    attributes.insn_cnt = 5;
+    attributes.insns = (uint64_t) (uintptr_t) instructions;
+    attributes.license = (uint64_t) (uintptr_t) license;
+    int program_fd = (int) syscall(__NR_bpf, BPF_PROG_LOAD,
+                                   &attributes, sizeof(attributes));
+    if (program_fd < 0) {
+        return fail_errno("host_usb_v2_bpf_load", 118);
+    }
+    int cgroup_fd = open(payload_path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (cgroup_fd < 0) {
+        int saved_errno = errno;
+        close(program_fd);
+        errno = saved_errno;
+        return fail_errno("host_usb_v2_cgroup_open", 118);
+    }
+    memset(&attributes, 0, sizeof(attributes));
+    attributes.target_fd = (uint32_t) cgroup_fd;
+    attributes.attach_bpf_fd = (uint32_t) program_fd;
+    attributes.attach_type = BPF_CGROUP_DEVICE;
+    int result = (int) syscall(__NR_bpf, BPF_PROG_ATTACH,
+                               &attributes, sizeof(attributes));
+    int saved_errno = errno;
+    close(cgroup_fd);
+    close(program_fd);
+    if (result != 0) {
+        errno = saved_errno;
+        return fail_errno("host_usb_v2_bpf_attach", 118);
+    }
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_USB policy=off cgroup_backend=v2_bpf "
+            "usbfs_major=189 action=deny_rwm delegated_subtree_only=true\n",
+            (long long) realtime_seconds());
+    return 0;
+#else
+    (void) payload_path;
+    return fail_message("host_usb_v2_bpf_syscall",
+                        "bpf_syscall_unavailable", 118);
+#endif
+}
+
+static int prepare_unified_cgroup_mount(const char *control_dir,
+                                        HostUsbPolicy host_usb_policy) {
     char mount_path[PATH_MAX];
     char child_path[PATH_MAX];
     char payload_path[PATH_MAX];
@@ -1001,6 +1197,8 @@ static int prepare_unified_cgroup_mount(const char *control_dir) {
     if (result != 0) return result;
     result = ensure_directory_path(payload_path, 0755,
                                    "cgroup_v2_payload_dir");
+    if (result != 0) return result;
+    result = apply_host_usb_v2_policy(payload_path, host_usb_policy);
     if (result != 0) return result;
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_STAGE cgroup_v2_delegated mount=%s "
@@ -1032,7 +1230,8 @@ static int prepare_systemd_cgroup_mount(const char *control_dir) {
     return 0;
 }
 
-static int prepare_devices_cgroup_mount(const char *control_dir) {
+static int prepare_devices_cgroup_mount(const char *control_dir,
+                                        HostUsbPolicy host_usb_policy) {
     char mount_path[PATH_MAX];
     char child_path[PATH_MAX];
     char interface_path[PATH_MAX];
@@ -1061,6 +1260,29 @@ static int prepare_devices_cgroup_mount(const char *control_dir) {
     int interface_fd = open(interface_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (interface_fd < 0) return fail_errno("devices_cgroup_interface", 93);
     close(interface_fd);
+    if (host_usb_policy == HOST_USB_OFF) {
+        if (joined_path(interface_path, sizeof(interface_path), child_path,
+                        "devices.deny") != 0) {
+            return fail_errno("host_usb_v1_deny_path", 118);
+        }
+        if (write_cgroup_value(interface_path, "c 189:* rwm\n") != 0) {
+            return fail_errno("host_usb_v1_deny", 118);
+        }
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_USB policy=off cgroup_backend=v1 "
+                "usbfs_major=189 action=deny_rwm delegated_subtree_only=true\n",
+                (long long) realtime_seconds());
+    } else {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_USB policy=%s cgroup_backend=v1 "
+                "usbfs_major=189 action=allow_parent_policy\n",
+                (long long) realtime_seconds(),
+                host_usb_policy_name(host_usb_policy));
+    }
+    if (joined_path(interface_path, sizeof(interface_path), child_path,
+                    "devices.list") != 0) {
+        return fail_errno("devices_cgroup_interface_path", 92);
+    }
     log_file_snapshot("delegated_devices_list", interface_path);
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_STAGE cgroup_v1_devices_mounted "
@@ -1360,8 +1582,431 @@ static void cleanup_delegated_cgroups(const char *root,
     cleanup_cgroup_hierarchy(control_dir, kSystemdCgroupMountName, "systemd");
 }
 
+static int count_host_usb_nodes(const char *usb_path) {
+    DIR *buses = opendir(usb_path);
+    if (buses == NULL) return -1;
+    int count = 0;
+    struct dirent *bus_entry;
+    while ((bus_entry = readdir(buses)) != NULL) {
+        if (strcmp(bus_entry->d_name, ".") == 0
+                || strcmp(bus_entry->d_name, "..") == 0) {
+            continue;
+        }
+        char bus_path[PATH_MAX];
+        if (joined_path(bus_path, sizeof(bus_path), usb_path,
+                        bus_entry->d_name) != 0) {
+            continue;
+        }
+        struct stat bus_stat;
+        if (lstat(bus_path, &bus_stat) != 0 || !S_ISDIR(bus_stat.st_mode)) continue;
+        DIR *devices = opendir(bus_path);
+        if (devices == NULL) continue;
+        struct dirent *device_entry;
+        while ((device_entry = readdir(devices)) != NULL) {
+            if (strcmp(device_entry->d_name, ".") == 0
+                    || strcmp(device_entry->d_name, "..") == 0) {
+                continue;
+            }
+            char device_path[PATH_MAX];
+            if (joined_path(device_path, sizeof(device_path), bus_path,
+                            device_entry->d_name) != 0) {
+                continue;
+            }
+            struct stat device_stat;
+            if (lstat(device_path, &device_stat) == 0
+                    && S_ISCHR(device_stat.st_mode)) {
+                count++;
+            }
+        }
+        closedir(devices);
+    }
+    closedir(buses);
+    return count;
+}
+
+static int configure_host_usb_mount(const char *root,
+                                    HostUsbPolicy host_usb_policy) {
+    char usb_path[PATH_MAX];
+    if (joined_path(usb_path, sizeof(usb_path), root, "dev/bus/usb") != 0) {
+        return fail_errno("host_usb_path", 119);
+    }
+    struct stat value;
+    if (lstat(usb_path, &value) != 0) {
+        if (errno != ENOENT) return fail_errno("host_usb_lstat", 119);
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_USB policy=%s usbfs_present=false "
+                "future_hotplug_cgroup_enforced=true\n",
+                (long long) realtime_seconds(),
+                host_usb_policy_name(host_usb_policy));
+        return 0;
+    }
+    if (!S_ISDIR(value.st_mode)) {
+        return fail_message("host_usb_path",
+                            "dev_bus_usb_is_not_a_directory", 119);
+    }
+    if (host_usb_policy != HOST_USB_OFF) {
+        int node_count = count_host_usb_nodes(usb_path);
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_USB policy=%s usbfs_present=true "
+                "hotplug=propagated node_count=%d path=/dev/bus/usb\n",
+                (long long) realtime_seconds(),
+                host_usb_policy_name(host_usb_policy), node_count);
+        return 0;
+    }
+    if (mount("dawnshell-usb-blocked", usb_path, "tmpfs",
+              MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
+              "mode=000,size=4k") != 0) {
+        return fail_errno("host_usb_block_mount", 119);
+    }
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_USB policy=off usbfs_hidden=true "
+            "cgroup_major_189_denied=true path=/dev/bus/usb\n",
+            (long long) realtime_seconds());
+    return 0;
+}
+
+static bool is_safe_usb_sysfs_name(const char *value) {
+    if (value == NULL || value[0] == '\0'
+            || strlen(value) >= MAX_USB_SYSFS_NAME) {
+        return false;
+    }
+    for (const char *cursor = value; *cursor != '\0'; cursor++) {
+        char character = *cursor;
+        bool safe = (character >= 'a' && character <= 'z')
+                || (character >= 'A' && character <= 'Z')
+                || (character >= '0' && character <= '9')
+                || character == '-' || character == '_' || character == '.'
+                || character == ':';
+        if (!safe) return false;
+    }
+    return true;
+}
+
+static int read_usb_sysfs_hex(const char *path, unsigned int *output) {
+    char contents[32];
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return -1;
+    ssize_t count = read(fd, contents, sizeof(contents) - 1);
+    int saved_errno = errno;
+    close(fd);
+    errno = saved_errno;
+    if (count < 4 || (size_t) count >= sizeof(contents)) {
+        errno = EINVAL;
+        return -1;
+    }
+    contents[count] = '\0';
+    if (parse_usb_hex_word(contents, output) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    for (ssize_t index = 4; index < count; index++) {
+        if (contents[index] != '\n' && contents[index] != '\r'
+                && contents[index] != ' ' && contents[index] != '\t') {
+            errno = EINVAL;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int read_usb_device_id(const char *device_name,
+                              unsigned int *vendor,
+                              unsigned int *product) {
+    if (!is_safe_usb_sysfs_name(device_name)) {
+        errno = EINVAL;
+        return -1;
+    }
+    char vendor_path[PATH_MAX];
+    char product_path[PATH_MAX];
+    int count = snprintf(vendor_path, sizeof(vendor_path),
+                         "/sys/bus/usb/devices/%s/idVendor", device_name);
+    if (count < 0 || (size_t) count >= sizeof(vendor_path)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    count = snprintf(product_path, sizeof(product_path),
+                     "/sys/bus/usb/devices/%s/idProduct", device_name);
+    if (count < 0 || (size_t) count >= sizeof(product_path)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    return read_usb_sysfs_hex(vendor_path, vendor) == 0
+            && read_usb_sysfs_hex(product_path, product) == 0 ? 0 : -1;
+}
+
+static bool usb_filter_matches(const UsbDeviceFilter *filter,
+                               unsigned int vendor,
+                               unsigned int product) {
+    for (size_t index = 0; index < filter->count; index++) {
+        if (filter->entries[index].vendor == vendor
+                && filter->entries[index].product == product) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int read_usb_interface_driver(const char *interface_name,
+                                     char *driver_name,
+                                     size_t driver_name_size) {
+    if (!is_safe_usb_sysfs_name(interface_name) || driver_name_size < 2) {
+        errno = EINVAL;
+        return -1;
+    }
+    char path[PATH_MAX];
+    int count = snprintf(path, sizeof(path),
+                         "/sys/bus/usb/devices/%s/driver", interface_name);
+    if (count < 0 || (size_t) count >= sizeof(path)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    char target[PATH_MAX];
+    ssize_t target_length = readlink(path, target, sizeof(target) - 1);
+    if (target_length < 0) return -1;
+    target[target_length] = '\0';
+    const char *basename = strrchr(target, '/');
+    basename = basename == NULL ? target : basename + 1;
+    if (!is_safe_usb_sysfs_name(basename)
+            || strlen(basename) >= driver_name_size) {
+        errno = EINVAL;
+        return -1;
+    }
+    snprintf(driver_name, driver_name_size, "%s", basename);
+    return 0;
+}
+
+static int write_usb_driver_control(const char *driver_name,
+                                    const char *control,
+                                    const char *interface_name) {
+    if (!is_safe_usb_sysfs_name(driver_name)
+            || !is_safe_usb_sysfs_name(interface_name)
+            || (strcmp(control, "bind") != 0
+                && strcmp(control, "unbind") != 0)) {
+        errno = EINVAL;
+        return -1;
+    }
+    char path[PATH_MAX];
+    int count = snprintf(path, sizeof(path),
+                         "/sys/bus/usb/drivers/%s/%s",
+                         driver_name, control);
+    if (count < 0 || (size_t) count >= sizeof(path)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    int fd = open(path, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return -1;
+    char request[MAX_USB_SYSFS_NAME + 2];
+    count = snprintf(request, sizeof(request), "%s\n", interface_name);
+    if (count < 0 || (size_t) count >= sizeof(request)) {
+        close(fd);
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    int result = write_all(fd, request, (size_t) count);
+    int saved_errno = errno;
+    close(fd);
+    errno = saved_errno;
+    return result;
+}
+
+static ssize_t find_usb_interface_record(const ExclusiveUsbState *state,
+                                         const char *interface_name) {
+    for (size_t index = 0; index < state->count; index++) {
+        if (strcmp(state->records[index].interface_name,
+                   interface_name) == 0) {
+            return (ssize_t) index;
+        }
+    }
+    return -1;
+}
+
+static void remove_usb_interface_record(ExclusiveUsbState *state,
+                                        size_t index) {
+    if (index >= state->count) return;
+    if (index + 1 < state->count) {
+        memmove(&state->records[index], &state->records[index + 1],
+                (state->count - index - 1) * sizeof(state->records[0]));
+    }
+    state->count--;
+    memset(&state->records[state->count], 0, sizeof(state->records[0]));
+}
+
+static void prune_disconnected_usb_interfaces(ExclusiveUsbState *state) {
+    size_t index = 0;
+    while (index < state->count) {
+        char path[PATH_MAX];
+        int count = snprintf(path, sizeof(path),
+                             "/sys/bus/usb/devices/%s",
+                             state->records[index].interface_name);
+        if (count < 0 || (size_t) count >= sizeof(path)) {
+            remove_usb_interface_record(state, index);
+            continue;
+        }
+        struct stat value;
+        if (lstat(path, &value) != 0 && errno == ENOENT) {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_USB action=exclusive_device_removed "
+                    "interface=%s restore=not_required\n",
+                    (long long) realtime_seconds(),
+                    state->records[index].interface_name);
+            remove_usb_interface_record(state, index);
+            continue;
+        }
+        index++;
+    }
+}
+
+static UsbInterfaceRecord *get_or_create_usb_interface_record(
+        ExclusiveUsbState *state, const char *interface_name) {
+    ssize_t existing = find_usb_interface_record(state, interface_name);
+    if (existing >= 0) return &state->records[existing];
+    if (state->count >= MAX_USB_INTERFACE_RECORDS) return NULL;
+    UsbInterfaceRecord *record = &state->records[state->count++];
+    memset(record, 0, sizeof(*record));
+    snprintf(record->interface_name, sizeof(record->interface_name), "%s",
+             interface_name);
+    return record;
+}
+
+static void reconcile_exclusive_usb(const UsbDeviceFilter *filter,
+                                    ExclusiveUsbState *state) {
+    prune_disconnected_usb_interfaces(state);
+    DIR *directory = opendir("/sys/bus/usb/devices");
+    if (directory == NULL) {
+        int scan_errno = errno;
+        if (state->last_scan_errno != scan_errno) {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_WARNING usb_exclusive_scan_failed "
+                    "errno=%d\n",
+                    (long long) realtime_seconds(), scan_errno);
+        }
+        state->last_scan_errno = scan_errno;
+        return;
+    }
+    if (state->last_scan_errno != 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_USB action=exclusive_scan_recovered\n",
+                (long long) realtime_seconds());
+    }
+    state->last_scan_errno = 0;
+
+    struct dirent *entry;
+    while ((entry = readdir(directory)) != NULL) {
+        const char *separator = strchr(entry->d_name, ':');
+        if (separator == NULL || !is_safe_usb_sysfs_name(entry->d_name)) continue;
+        size_t device_name_length = (size_t) (separator - entry->d_name);
+        if (device_name_length == 0
+                || device_name_length >= MAX_USB_SYSFS_NAME) {
+            continue;
+        }
+        char device_name[MAX_USB_SYSFS_NAME];
+        memcpy(device_name, entry->d_name, device_name_length);
+        device_name[device_name_length] = '\0';
+
+        unsigned int vendor;
+        unsigned int product;
+        if (read_usb_device_id(device_name, &vendor, &product) != 0
+                || !usb_filter_matches(filter, vendor, product)) {
+            continue;
+        }
+
+        char driver_name[MAX_USB_SYSFS_NAME];
+        if (read_usb_interface_driver(entry->d_name, driver_name,
+                                      sizeof(driver_name)) != 0) {
+            continue;
+        }
+        UsbInterfaceRecord *record = get_or_create_usb_interface_record(
+                state, entry->d_name);
+        if (record == NULL) {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_WARNING usb_exclusive_record_limit "
+                    "interface=%s limit=%d action=left_bound\n",
+                    (long long) realtime_seconds(), entry->d_name,
+                    MAX_USB_INTERFACE_RECORDS);
+            continue;
+        }
+        int64_t now = monotonic_millis();
+        if (record->retry_after_ms > now) continue;
+        snprintf(record->driver_name, sizeof(record->driver_name), "%s",
+                 driver_name);
+        if (write_usb_driver_control(driver_name, "unbind",
+                                     entry->d_name) == 0) {
+            record->detached = true;
+            record->last_errno = 0;
+            record->retry_after_ms = 0;
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_USB policy=exclusive action=unbind "
+                    "vid_pid=%04x:%04x interface=%s driver=%s result=success\n",
+                    (long long) realtime_seconds(), vendor, product,
+                    entry->d_name, driver_name);
+        } else {
+            record->detached = false;
+            record->last_errno = errno;
+            record->retry_after_ms = now + kExclusiveUsbRetryIntervalMs;
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_WARNING usb_exclusive_unbind_failed "
+                    "vid_pid=%04x:%04x interface=%s driver=%s errno=%d "
+                    "retry_ms=%d\n",
+                    (long long) realtime_seconds(), vendor, product,
+                    entry->d_name, driver_name, record->last_errno,
+                    kExclusiveUsbRetryIntervalMs);
+        }
+    }
+    closedir(directory);
+}
+
+static void restore_exclusive_usb(ExclusiveUsbState *state) {
+    for (size_t reverse = state->count; reverse > 0; reverse--) {
+        UsbInterfaceRecord *record = &state->records[reverse - 1];
+        if (!record->detached) continue;
+
+        char interface_path[PATH_MAX];
+        int count = snprintf(interface_path, sizeof(interface_path),
+                             "/sys/bus/usb/devices/%s",
+                             record->interface_name);
+        struct stat value;
+        if (count < 0 || (size_t) count >= sizeof(interface_path)
+                || lstat(interface_path, &value) != 0) {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_USB policy=exclusive action=restore "
+                    "interface=%s driver=%s result=device_absent\n",
+                    (long long) realtime_seconds(), record->interface_name,
+                    record->driver_name);
+            continue;
+        }
+
+        char current_driver[MAX_USB_SYSFS_NAME];
+        if (read_usb_interface_driver(record->interface_name, current_driver,
+                                      sizeof(current_driver)) == 0) {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_USB policy=exclusive action=restore "
+                    "interface=%s driver=%s result=already_bound "
+                    "current_driver=%s\n",
+                    (long long) realtime_seconds(), record->interface_name,
+                    record->driver_name, current_driver);
+            continue;
+        }
+        if (write_usb_driver_control(record->driver_name, "bind",
+                                     record->interface_name) == 0) {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_USB policy=exclusive action=restore "
+                    "interface=%s driver=%s result=success\n",
+                    (long long) realtime_seconds(), record->interface_name,
+                    record->driver_name);
+        } else {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_WARNING usb_exclusive_restore_failed "
+                    "interface=%s driver=%s errno=%d recovery=unplug_or_reboot\n",
+                    (long long) realtime_seconds(), record->interface_name,
+                    record->driver_name, errno);
+        }
+    }
+    memset(state, 0, sizeof(*state));
+}
+
 static int prepare_child_mounts(const char *root, const char *control_dir,
-                                bool systemd_mode, CgroupMode cgroup_mode) {
+                                bool systemd_mode, CgroupMode cgroup_mode,
+                                HostUsbPolicy host_usb_policy) {
     char path[PATH_MAX];
     int result;
 
@@ -1390,6 +2035,8 @@ static int prepare_child_mounts(const char *root, const char *control_dir,
     if (result != 0) return result;
     dprintf(STDERR_FILENO, "[%lld] BFU_DEBIAN_STAGE dev_rbind_slave\n",
             (long long) realtime_seconds());
+    result = configure_host_usb_mount(root, host_usb_policy);
+    if (result != 0) return result;
 
     if (joined_path(path, sizeof(path), root, "sys") != 0) {
         return fail_errno("sys_path", 45);
@@ -1683,8 +2330,9 @@ static int set_private_namespaces(void) {
     return 0;
 }
 
-static int prepare_legacy_cgroup_mounts(const char *control_dir) {
-    int result = prepare_devices_cgroup_mount(control_dir);
+static int prepare_legacy_cgroup_mounts(const char *control_dir,
+                                        HostUsbPolicy host_usb_policy) {
+    int result = prepare_devices_cgroup_mount(control_dir, host_usb_policy);
     if (result != 0) return result;
     result = prepare_systemd_cgroup_mount(control_dir);
     if (result != 0) return result;
@@ -1693,9 +2341,10 @@ static int prepare_legacy_cgroup_mounts(const char *control_dir) {
 
 static int negotiate_cgroup_mode(const char *control_dir,
                                  CgroupPolicy policy,
+                                 HostUsbPolicy host_usb_policy,
                                  CgroupMode *resolved_mode) {
     if (policy != CGROUP_POLICY_FORCE_V1) {
-        int result = prepare_unified_cgroup_mount(control_dir);
+        int result = prepare_unified_cgroup_mount(control_dir, host_usb_policy);
         if (result == 0) {
             *resolved_mode = CGROUP_MODE_V2;
             dprintf(STDERR_FILENO,
@@ -1718,7 +2367,7 @@ static int negotiate_cgroup_mode(const char *control_dir,
                 (long long) realtime_seconds(), v2_errno);
     }
 
-    int result = prepare_legacy_cgroup_mounts(control_dir);
+    int result = prepare_legacy_cgroup_mounts(control_dir, host_usb_policy);
     if (result != 0) {
         cleanup_cgroup_hierarchy(control_dir, kDevicesCgroupMountName,
                                  "devices_probe");
@@ -1739,13 +2388,15 @@ static int negotiate_cgroup_mode(const char *control_dir,
 static int set_systemd_parent_namespaces(const char *control_dir,
                                          int network_ready_fd,
                                          CgroupPolicy policy,
+                                         HostUsbPolicy host_usb_policy,
                                          CgroupMode *resolved_mode) {
     int result = set_base_private_namespaces();
     if (result != 0) return result;
     if (wait_for_network_manager(network_ready_fd) != 0) {
         return fail_errno("wait_network_manager", 56);
     }
-    result = negotiate_cgroup_mode(control_dir, policy, resolved_mode);
+    result = negotiate_cgroup_mode(control_dir, policy, host_usb_policy,
+                                   resolved_mode);
     if (result != 0) return result;
     if (unshare(CLONE_NEWPID) != 0) return fail_errno("unshare_pid", 58);
     dprintf(STDERR_FILENO, "[%lld] BFU_DEBIAN_STAGE pid_namespace_private\n",
@@ -1771,7 +2422,8 @@ static int enter_debian_probe(const char *root) {
             "printf 'BFU_DEBIAN_NAMESPACE_OK pid=%s proc1=%s arch=%s debian=%s init=%s systemctl=%s cgroup=%s\\n' "
             "\"$$\" \"$proc1\" \"$arch\" \"$version\" \"$init\" \"$systemctl\" \"$cgroup\"";
 
-    int result = prepare_child_mounts(root, NULL, false, CGROUP_MODE_UNKNOWN);
+    int result = prepare_child_mounts(root, NULL, false, CGROUP_MODE_UNKNOWN,
+                                      HOST_USB_OFF);
     if (result != 0) return result;
     if (syscall(__NR_sethostname, "dawnshell-probe",
                 strlen("dawnshell-probe")) != 0) {
@@ -1867,10 +2519,12 @@ static void reset_init_signals(void) {
 }
 
 static int enter_debian_systemd(const char *root, const char *control_dir,
-                                CgroupMode cgroup_mode) {
+                                CgroupMode cgroup_mode,
+                                HostUsbPolicy host_usb_policy) {
     int result = move_self_to_delegated_cgroups(control_dir, cgroup_mode);
     if (result != 0) return result;
-    result = prepare_child_mounts(root, control_dir, true, cgroup_mode);
+    result = prepare_child_mounts(root, control_dir, true, cgroup_mode,
+                                  host_usb_policy);
     if (result != 0) return result;
     log_file_snapshot("debian_pid1_cgroup", "/proc/self/cgroup");
     log_matching_snapshot("debian_cgroup_mounts", "/proc/self/mountinfo",
@@ -1989,7 +2643,9 @@ static int request_systemd_manager_exit(const char *root, int lock_fd) {
 
 static int supervisor_loop(const char *root, const char *control_dir,
                            const char *log_path, int lock_fd, int ready_fd,
-                           CgroupPolicy cgroup_policy) {
+                           CgroupPolicy cgroup_policy,
+                           HostUsbPolicy host_usb_policy,
+                           const UsbDeviceFilter *usb_device_filter) {
     if (setsid() < 0) {
         dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=setsid errno=%d\n", errno);
         return 73;
@@ -2001,8 +2657,10 @@ static int supervisor_loop(const char *root, const char *control_dir,
         return 74;
     }
     dprintf(STDERR_FILENO,
-            "[%lld] BFU_DEBIAN_STAGE supervisor_started pid=%d root=%s\n",
-            (long long) realtime_seconds(), getpid(), root);
+            "[%lld] BFU_DEBIAN_STAGE supervisor_started pid=%d root=%s "
+            "host_usb_mode=%s host_usb_filter_count=%zu\n",
+            (long long) realtime_seconds(), getpid(), root,
+            host_usb_policy_name(host_usb_policy), usb_device_filter->count);
     log_file_snapshot("host_proc_cgroups", "/proc/cgroups");
     log_file_snapshot("host_cgroup_v2_controllers",
                       "/sys/fs/cgroup/unified/cgroup.controllers");
@@ -2020,7 +2678,11 @@ static int supervisor_loop(const char *root, const char *control_dir,
     }
 
     LauncherState state;
+    ExclusiveUsbState exclusive_usb_state;
+    memset(&exclusive_usb_state, 0, sizeof(exclusive_usb_state));
     initialize_state(&state, "starting");
+    snprintf(state.host_usb_mode, sizeof(state.host_usb_mode), "%s",
+             host_usb_policy_name(host_usb_policy));
     state.supervisor_pid = getpid();
     if (read_proc_start_ticks(state.supervisor_pid,
                               &state.supervisor_start_ticks) != 0
@@ -2059,7 +2721,8 @@ static int supervisor_loop(const char *root, const char *control_dir,
 
     CgroupMode cgroup_mode = CGROUP_MODE_UNKNOWN;
     int result = set_systemd_parent_namespaces(control_dir, network_ready_fd,
-                                               cgroup_policy, &cgroup_mode);
+                                               cgroup_policy, host_usb_policy,
+                                               &cgroup_mode);
     if (result != 0) {
         cleanup_delegated_cgroups(root, control_dir);
         dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=namespace_setup exit=%d\n",
@@ -2099,7 +2762,8 @@ static int supervisor_loop(const char *root, const char *control_dir,
         close(lock_fd);
         close(ready_fd);
         failure_report_fd = exec_pipe[1];
-        _exit(enter_debian_systemd(root, control_dir, cgroup_mode));
+        _exit(enter_debian_systemd(root, control_dir, cgroup_mode,
+                                   host_usb_policy));
     }
 
     close(exec_pipe[1]);
@@ -2161,6 +2825,10 @@ static int supervisor_loop(const char *root, const char *control_dir,
         return 82;
     }
 
+    if (host_usb_policy == HOST_USB_EXCLUSIVE) {
+        reconcile_exclusive_usb(usb_device_filter, &exclusive_usb_state);
+    }
+
     snprintf(state.state, sizeof(state.state), "running");
     if (write_state(control_dir, &state) != 0) {
         dprintf(STDERR_FILENO,
@@ -2171,7 +2839,8 @@ static int supervisor_loop(const char *root, const char *control_dir,
             "[%lld] BFU_DEBIAN_SYSTEMD_STARTED supervisor_pid=%d init_host_pid=%d "
             "namespaces=pid:%llu,mnt:%llu,uts:%llu,ipc:%llu,cgroup:%llu,net:%llu "
             "ipc_namespace=android-shared network_namespace=android-shared "
-            "network_mode=shared-nic cgroup_mode=%s\n",
+            "network_mode=shared-nic cgroup_mode=%s host_usb_mode=%s "
+            "host_usb_filter_count=%zu\n",
             (long long) realtime_seconds(), getpid(), init_pid,
             (unsigned long long) state.init_pid_ns_ino,
             (unsigned long long) state.init_mnt_ns_ino,
@@ -2179,15 +2848,19 @@ static int supervisor_loop(const char *root, const char *control_dir,
             (unsigned long long) state.init_ipc_ns_ino,
             (unsigned long long) state.init_cgroup_ns_ino,
             (unsigned long long) state.init_net_ns_ino,
-            cgroup_mode_name(cgroup_mode));
+            cgroup_mode_name(cgroup_mode), host_usb_policy_name(host_usb_policy),
+            usb_device_filter->count);
     dprintf(ready_fd,
             "BFU_DEBIAN_STARTED supervisor_pid=%d init_host_pid=%d "
-            "namespace_pid=1 cgroup_mode=%s\n",
-            getpid(), init_pid, cgroup_mode_name(cgroup_mode));
+            "namespace_pid=1 cgroup_mode=%s host_usb_mode=%s "
+            "host_usb_filter_count=%zu\n",
+            getpid(), init_pid, cgroup_mode_name(cgroup_mode),
+            host_usb_policy_name(host_usb_policy), usb_device_filter->count);
     close(ready_fd);
 
     bool shutdown_sent = false;
     int64_t shutdown_deadline = 0;
+    int64_t next_usb_scan = monotonic_millis() + kExclusiveUsbScanIntervalMs;
     int wait_status = 0;
     while (true) {
         pid_t waited = waitpid(init_pid, &wait_status, WNOHANG);
@@ -2195,6 +2868,11 @@ static int supervisor_loop(const char *root, const char *control_dir,
         if (waited < 0 && errno != EINTR) {
             wait_status = 255;
             break;
+        }
+        if (host_usb_policy == HOST_USB_EXCLUSIVE && !stop_requested
+                && monotonic_millis() >= next_usb_scan) {
+            reconcile_exclusive_usb(usb_device_filter, &exclusive_usb_state);
+            next_usb_scan = monotonic_millis() + kExclusiveUsbScanIntervalMs;
         }
         if (stop_requested && !shutdown_sent) {
             dprintf(STDERR_FILENO,
@@ -2226,6 +2904,9 @@ static int supervisor_loop(const char *root, const char *control_dir,
         usleep(200000);
     }
 
+    if (host_usb_policy == HOST_USB_EXCLUSIVE) {
+        restore_exclusive_usb(&exclusive_usb_state);
+    }
     if (network_manager_pid > 0) {
         (void) kill(network_manager_pid, SIGTERM);
         while (waitpid(network_manager_pid, NULL, 0) < 0 && errno == EINTR) {}
@@ -2289,10 +2970,11 @@ static int run_status(const char *root, const char *control_dir) {
                    (long long) stale.updated_epoch);
             return 1;
         }
-        printf("BFU_DEBIAN_STOPPED last_state=%s cgroup_mode=%s "
+        printf("BFU_DEBIAN_STOPPED last_state=%s cgroup_mode=%s host_usb_mode=%s "
                "wait_status=%d updated_epoch=%lld\n",
                has_state ? stale.state : "none",
                has_state ? stale.cgroup_mode : "unknown",
+               has_state ? stale.host_usb_mode : "unknown",
                has_state ? stale.wait_status : -1,
                (long long) (has_state ? stale.updated_epoch : 0));
         return 0;
@@ -2313,6 +2995,7 @@ static int run_status(const char *root, const char *control_dir) {
            "supervisor_identity_valid=%s init_identity_valid=%s "
            "namespace_topology_valid=%s ipc_namespace=android-shared "
            "network_namespace=android-shared network_mode=shared-nic cgroup_mode=%s "
+           "host_usb_mode=%s "
            "pid_ns=%llu mnt_ns=%llu uts_ns=%llu ipc_ns=%llu cgroup_ns=%llu "
            "net_ns=%llu updated_epoch=%lld\n",
            supervisor_valid && (topology_valid || strcmp(state.state, "starting") == 0)
@@ -2320,6 +3003,7 @@ static int run_status(const char *root, const char *control_dir) {
            state.state, state.supervisor_pid, state.init_host_pid,
            supervisor_valid ? "true" : "false", init_valid ? "true" : "false",
            topology_valid ? "true" : "false", state.cgroup_mode,
+           state.host_usb_mode,
            (unsigned long long) state.init_pid_ns_ino,
            (unsigned long long) state.init_mnt_ns_ino,
            (unsigned long long) state.init_uts_ns_ino,
@@ -2644,7 +3328,9 @@ static int run_shutdown_test(const char *root, const char *control_dir,
 }
 
 static int run_start(const char *root, const char *control_dir,
-                     const char *log_path, CgroupPolicy cgroup_policy) {
+                     const char *log_path, CgroupPolicy cgroup_policy,
+                     HostUsbPolicy host_usb_policy,
+                     const UsbDeviceFilter *usb_device_filter) {
     int result = validate_rootfs(root, true);
     if (result != 0) return result;
     if (geteuid() != 0) {
@@ -2672,9 +3358,10 @@ static int run_start(const char *root, const char *control_dir,
                     && validate_supervisor_identity(&state);
             close(lock_fd);
             printf("BFU_DEBIAN_ALREADY_RUNNING supervisor_pid=%d init_host_pid=%d "
-                   "identity_valid=%s cgroup_mode=%s\n",
+                   "identity_valid=%s cgroup_mode=%s host_usb_mode=%s\n",
                    state.supervisor_pid, state.init_host_pid,
-                   valid ? "true" : "false", state.cgroup_mode);
+                   valid ? "true" : "false", state.cgroup_mode,
+                   state.host_usb_mode);
             return valid ? 0 : fail_message("locked_state_invalid",
                                             "active_lock_has_no_valid_supervisor_identity", 87);
         }
@@ -2708,7 +3395,8 @@ static int run_start(const char *root, const char *control_dir,
     if (supervisor == 0) {
         close(ready_pipe[0]);
         int exit_code = supervisor_loop(root, control_dir, log_path,
-                                        lock_fd, ready_pipe[1], cgroup_policy);
+                                        lock_fd, ready_pipe[1], cgroup_policy,
+                                        host_usb_policy, usb_device_filter);
         close(ready_pipe[1]);
         close(lock_fd);
         _exit(exit_code);
@@ -2798,21 +3486,26 @@ static int run_stop(const char *root, const char *control_dir) {
 }
 
 static int run_restart(const char *root, const char *control_dir,
-                       const char *log_path, CgroupPolicy cgroup_policy) {
+                       const char *log_path, CgroupPolicy cgroup_policy,
+                       HostUsbPolicy host_usb_policy,
+                       const UsbDeviceFilter *usb_device_filter) {
     int result = run_stop(root, control_dir);
     if (result != 0) return result;
-    return run_start(root, control_dir, log_path, cgroup_policy);
+    return run_start(root, control_dir, log_path, cgroup_policy,
+                     host_usb_policy, usb_device_filter);
 }
 
 static void usage(const char *program) {
     fprintf(stderr,
             "usage:\n"
             "  %s probe /data/local/debian\n"
-            "  %s start /data/local/debian CONTROL_DIR LIFECYCLE_LOG [auto|v2|v1]\n"
+            "  %s start /data/local/debian CONTROL_DIR LIFECYCLE_LOG "
+            "[auto|v2|v1] [off|direct|exclusive] [VID:PID,...|-]\n"
             "  %s status /data/local/debian CONTROL_DIR\n"
             "  %s health /data/local/debian CONTROL_DIR\n"
             "  %s stop /data/local/debian CONTROL_DIR\n"
-            "  %s restart /data/local/debian CONTROL_DIR LIFECYCLE_LOG [auto|v2|v1]\n"
+            "  %s restart /data/local/debian CONTROL_DIR LIFECYCLE_LOG "
+            "[auto|v2|v1] [off|direct|exclusive] [VID:PID,...|-]\n"
             "  %s shutdown-test /data/local/debian CONTROL_DIR poweroff|reboot|shutdown\n",
             program, program, program, program, program, program, program);
 }
@@ -2821,12 +3514,30 @@ int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "probe") == 0) {
         return run_probe(argv[2]);
     }
-    if ((argc == 5 || argc == 6) && strcmp(argv[1], "start") == 0) {
+    if (argc >= 5 && argc <= 8 && strcmp(argv[1], "start") == 0) {
         CgroupPolicy policy;
-        if (parse_cgroup_policy(argc == 6 ? argv[5] : "auto", &policy) != 0) {
+        HostUsbPolicy host_usb_policy;
+        UsbDeviceFilter usb_device_filter;
+        if (parse_cgroup_policy(argc >= 6 ? argv[5] : "auto", &policy) != 0) {
             return fail_message("cgroup_policy", "expected_auto_v2_or_v1", 2);
         }
-        return run_start(argv[2], argv[3], argv[4], policy);
+        if (parse_host_usb_policy(argc >= 7 ? argv[6] : "off",
+                                  &host_usb_policy) != 0) {
+            return fail_message("host_usb_policy",
+                                "expected_off_direct_or_exclusive", 2);
+        }
+        if (parse_usb_device_filter(argc == 8 ? argv[7] : "-",
+                                    &usb_device_filter) != 0) {
+            return fail_message("host_usb_filter",
+                                "expected_comma_separated_VID:PID_values", 2);
+        }
+        if (host_usb_policy == HOST_USB_EXCLUSIVE
+                && usb_device_filter.count == 0) {
+            return fail_message("host_usb_filter",
+                                "exclusive_mode_requires_at_least_one_VID:PID", 2);
+        }
+        return run_start(argv[2], argv[3], argv[4], policy, host_usb_policy,
+                         &usb_device_filter);
     }
     if (argc == 4 && strcmp(argv[1], "status") == 0) {
         return run_status(argv[2], argv[3]);
@@ -2837,12 +3548,30 @@ int main(int argc, char **argv) {
     if (argc == 4 && strcmp(argv[1], "stop") == 0) {
         return run_stop(argv[2], argv[3]);
     }
-    if ((argc == 5 || argc == 6) && strcmp(argv[1], "restart") == 0) {
+    if (argc >= 5 && argc <= 8 && strcmp(argv[1], "restart") == 0) {
         CgroupPolicy policy;
-        if (parse_cgroup_policy(argc == 6 ? argv[5] : "auto", &policy) != 0) {
+        HostUsbPolicy host_usb_policy;
+        UsbDeviceFilter usb_device_filter;
+        if (parse_cgroup_policy(argc >= 6 ? argv[5] : "auto", &policy) != 0) {
             return fail_message("cgroup_policy", "expected_auto_v2_or_v1", 2);
         }
-        return run_restart(argv[2], argv[3], argv[4], policy);
+        if (parse_host_usb_policy(argc >= 7 ? argv[6] : "off",
+                                  &host_usb_policy) != 0) {
+            return fail_message("host_usb_policy",
+                                "expected_off_direct_or_exclusive", 2);
+        }
+        if (parse_usb_device_filter(argc == 8 ? argv[7] : "-",
+                                    &usb_device_filter) != 0) {
+            return fail_message("host_usb_filter",
+                                "expected_comma_separated_VID:PID_values", 2);
+        }
+        if (host_usb_policy == HOST_USB_EXCLUSIVE
+                && usb_device_filter.count == 0) {
+            return fail_message("host_usb_filter",
+                                "exclusive_mode_requires_at_least_one_VID:PID", 2);
+        }
+        return run_restart(argv[2], argv[3], argv[4], policy,
+                           host_usb_policy, &usb_device_filter);
     }
     if (argc == 5 && strcmp(argv[1], "shutdown-test") == 0) {
         return run_shutdown_test(argv[2], argv[3], argv[4]);

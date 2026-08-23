@@ -116,6 +116,17 @@ cgroup(control group)은 프로세스 자원과 장치 접근을 관리합니다
 Android 전역 cgroup을 Debian에 그대로 공개하지 않습니다. Docker가 Android
 프로세스의 장치 정책까지 바꾸는 위험을 줄이기 위해 전용 하위 트리만 제공합니다.
 
+USB 패스스루는 DE에 저장되는 기본 비활성 시작 정책입니다. 끄기 모드에서는
+Debian의 `/dev/bus/usb` 위에 비어 있는 읽기 전용 파일시스템을 마운트하고, cgroup
+v2에서는 device BPF로, v1에서는 `devices.deny`로 문자 장치 major 189를
+차단합니다. 직접 모드는 공유 `/dev`의 USB 뷰와 Android 드라이버 연결을
+유지합니다. 독점 모드는 같은 raw USB 뷰를 사용하면서 2초마다 sysfs를 확인하고,
+저장한 `VID:PID` 허용 목록에 맞는 interface만 unbind합니다. supervisor는 분리한
+interface를 기록하고 Debian PID 1이 종료되면 역순으로 다시 bind합니다. 재시작
+없이 hot-plug가 반영됩니다. cgroup 정책은 DawnShell 전용 하위 트리에만
+적용되지만, 독점 모드의 드라이버 unbind는 필연적으로 호스트 전체에 영향을 주기
+때문에 별도 위험 옵션으로 제공합니다.
+
 ## 네트워크
 
 Debian은 Android의 network namespace와 NIC(Network Interface Controller)를

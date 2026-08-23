@@ -40,6 +40,8 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 
 - [x] Delegated cgroup v2 plus device BPF probe with isolated v1 fallback.
 - [x] Direct Android NIC sharing for Wi-Fi, mobile, and USB Ethernet.
+- [x] Default-off direct and VID:PID-scoped exclusive USB passthrough, with v2
+  BPF and v1 devices fallback plus normal-stop driver restoration.
 - [x] Tailscale route-mark integration.
 - [x] Safe host-network-only Docker default and explicit risky bridge controls.
 - [x] Android-wide `reboot now` bridge with isolated `systemctl reboot` behavior.
@@ -69,6 +71,8 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [ ] Full x86_64 device or emulator test.
 - [ ] Five-cycle regression across additional vendor ROMs.
 - [ ] Broader Docker bridge backend coverage.
+- [ ] Direct/exclusive USB hot-plug, driver restore, serial, libusb, and storage
+  validation on physical devices.
 - [ ] Long-running memory, mount, and cgroup leak observation.
 
 See [testing](testing.md) for the current acceptance procedure.

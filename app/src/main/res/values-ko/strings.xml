@@ -182,7 +182,7 @@
     <string name="dawnshell_log_copied">로그를 클립보드에 복사했습니다.</string>
     <string name="dawnshell_log_copy_empty">복사할 로그 내용이 없습니다.</string>
     <string name="dawnshell_log_summary_none">아직 상태 없음</string>
-    <string name="dawnshell_diagnostics_settings">다이렉트 부트 활성화: %1$s\nCE를 읽을 수 있는 BFU 허용: %2$s\nCgroup 정책: %3$s\nDocker 네트워크 정책: %4$s</string>
+    <string name="dawnshell_diagnostics_settings">다이렉트 부트 활성화: %1$s\nCE를 읽을 수 있는 BFU 허용: %2$s\nCgroup 정책: %3$s\nDocker 네트워크 정책: %4$s\nUSB 패스스루 모드: %5$s\n독점 USB VID:PID 필터: %6$s</string>
     <string name="dawnshell_log_section_format">===== %1$s =====\n%2$s</string>
     <string name="dawnshell_log_section_status">상태</string>
     <string name="dawnshell_log_section_output">출력</string>
@@ -199,6 +199,17 @@
     <string name="dawnshell_cgroup_policy_v2">cgroup v2만 강제 사용(실험적)</string>
     <string name="dawnshell_cgroup_policy_v1">cgroup v1 레거시 모드 강제 사용</string>
     <string name="dawnshell_cgroup_policy_warning">선택한 설정은 다음 Debian 시작 또는 재시작부터 적용됩니다. 자동 모드는 전용 cgroup2 하위 트리를 비공개 마운트 뷰에 만들고 cgroup-device BPF 연결까지 성공한 경우에만 v2를 사용합니다. v2 강제 모드는 검증된 v1 전환을 비활성화하므로 Debian이 부팅되지 않을 수 있습니다. v1 강제 모드는 최신 격리를 건너뛰고 레거시 devices 컨트롤러를 계층에 연결합니다. Android 작업은 DawnShell의 위임된 하위 그룹 외부에 남지만, 여전히 커널 전역 컨트롤러 연결입니다.</string>
+    <string name="dawnshell_host_usb_title">USB 공유 및 패스스루</string>
+    <string name="dawnshell_host_usb_description">공유 커널을 통해 Android 호스트 모드 USB 장치에 Debian이 복사 없이 접근하게 합니다. 공유 모드는 Android 드라이버를 유지하고, 독점 패스스루는 지정한 interface를 unbind해 Debian/libusb에 넘깁니다. USB 이더넷은 이미 공유 네트워크에 나타납니다.</string>
+    <string name="dawnshell_host_usb_off">끄기: raw 호스트 USB 차단(권장)</string>
+    <string name="dawnshell_host_usb_direct">호스트 USB 공유: Android 드라이버 유지</string>
+    <string name="dawnshell_host_usb_exclusive">독점 패스스루: 선택 장치 interface 분리</string>
+    <string name="dawnshell_usb_exclusive_ids_hint">독점 장치 VID:PID 필터</string>
+    <string name="dawnshell_usb_exclusive_ids_helper">쉼표나 공백으로 구분합니다. 예: 0403:6001, 10c4:ea60. 독점 모드에는 하나 이상 필요합니다.</string>
+    <string name="dawnshell_usb_exclusive_ids_required">독점 패스스루를 켜기 전에 USB VID:PID를 하나 이상 입력하세요.</string>
+    <string name="dawnshell_usb_exclusive_ids_invalid">각 USB ID를 16진수 vendor 네 자리, 콜론, product 네 자리 형식으로 입력하세요.</string>
+    <string name="dawnshell_host_usb_warning">위험: 다음 Debian 시작 또는 재시작부터 적용되며 나중에 연결한 장치에도 적용됩니다. 공유 모드는 Android 드라이버를 유지하면서 Debian에 raw /dev/bus/usb 접근을 허용합니다. 독점 패스스루는 일치하는 interface를 Android에서 추가로 분리하고 Debian 종료 때 복구를 시도합니다. Android 입력, 저장장치, 네트워크, ADB 또는 복구 연결이 사라질 수 있고 비정상 종료 시 장치를 뽑거나 재부팅해야 할 수 있습니다. 휴대전화 내부 USB/gadget controller는 선택하지 마세요. 같은 USB 저장장치를 양쪽에서 마운트하지 마세요. Docker에는 별도 --device가 필요하며 커널이나 SELinux가 접근을 거부할 수 있습니다.</string>
+    <string name="dawnshell_view_host_usb_log">USB 패스스루 실행 로그 보기</string>
     <string name="dawnshell_docker_policy_title">Docker 네트워크</string>
     <string name="dawnshell_docker_policy_host">안전한 호스트 네트워크만 사용(권장)</string>
     <string name="dawnshell_docker_policy_auto">자동: native nftables → iptables-nft → legacy → 안전한 호스트</string>

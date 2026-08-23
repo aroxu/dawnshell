@@ -50,6 +50,8 @@ ABI(Application Binary Interface)의 의미는
 - [x] 전용 cgroup v2 하위 트리와 장치 BPF를 먼저 시험합니다.
 - [x] 최신 경로가 실패하면 정리 후 격리된 cgroup v1 방식으로 전환합니다.
 - [x] Android NIC를 직접 공유하고 Wi-Fi, 모바일, USB Ethernet 변경을 처리합니다.
+- [x] 기본 비활성 직접/VID:PID 제한 독점 USB 패스스루, v2 BPF/v1 devices
+  차단과 정상 종료 드라이버 복원을 제공합니다.
 - [x] Tailscale 경로 표시를 Android가 선택한 routing table에 맞춥니다.
 - [x] Docker 기본값을 안전한 host-network-only 방식으로 설정합니다.
 - [x] bridge와 방화벽 backend 선택을 위험 옵션으로 제공합니다.
@@ -90,6 +92,8 @@ ABI(Application Binary Interface)의 의미는
 - [ ] x86_64 실기기 또는 에뮬레이터에서 전체 흐름을 확인합니다.
 - [ ] 여러 제조사 ROM에서 5회 cold boot 회귀 시험을 수행합니다.
 - [ ] Docker bridge backend를 다양한 커널과 방화벽 구현에서 추가 확인합니다.
+- [ ] 실기기에서 직접/독점 USB hot-plug, 드라이버 복원, 시리얼, libusb와
+  저장장치를 확인합니다.
 - [ ] 장기 실행 시 메모리, 마운트와 cgroup 누적 여부를 관찰합니다.
 
 ## 현재 통과 기준

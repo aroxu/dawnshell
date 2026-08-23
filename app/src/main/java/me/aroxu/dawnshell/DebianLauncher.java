@@ -136,6 +136,11 @@ final class DebianLauncher {
                     + " && " + command;
             command += " " + BfuSu.shellQuote(layout.lifecycleLog.getAbsolutePath());
             command += " " + BfuSu.shellQuote(BfuPreferences.cgroupPolicy(context));
+            command += " " + BfuSu.shellQuote(
+                    BfuPreferences.usbPassthroughMode(context));
+            String exclusiveIds = BfuPreferences.usbExclusiveDeviceIds(context);
+            command += " " + BfuSu.shellQuote(
+                    exclusiveIds.isEmpty() ? "-" : exclusiveIds);
         }
         return command;
     }

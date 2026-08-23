@@ -32,6 +32,7 @@ Debian 인스턴스가 계속 실행됩니다. 잠금 해제 이벤트가 서버
 - Debian 13 Trixie rootfs를 앱에서 설치하고 검증합니다.
 - BFU에서 `systemd`와 공개 키 전용 OpenSSH 서버를 시작합니다.
 - Wi-Fi, 모바일 데이터, USB Ethernet 등 Android 네트워크 인터페이스를 공유합니다.
+- 직접 모드와 VID:PID 제한 독점 모드로 USB 패스스루를 선택할 수 있습니다.
 - Material 3 화면에서 설치, 설정, 시작, 중지, 상태 확인, 계정과 SSH 키를 관리합니다.
 - 각 작업의 실시간 로그를 별도 화면에서 선택하고 복사할 수 있습니다.
 - ARM 32비트, ARM 64비트, x86 64비트 Android 기기를 지원합니다.
@@ -106,6 +107,16 @@ Docker 기본값은 **안전한 호스트 네트워크만 사용**입니다. 이
 방화벽, NAT(Network Address Translation), 경로 설정을 바꿀 수 있으므로 앱의
 경고를 읽고 별도 복구 수단이 있을 때만 사용해 주세요.
 
+**USB 패스스루**는 기본적으로 꺼져 있습니다. 직접 모드는 Android 커널
+드라이버를 유지한 채 `/dev/bus/usb`를 Debian에 노출합니다. 독점 모드는 명시한
+`VID:PID`와 일치하는 interface만 추가로 unbind하고 Debian이 종료될 때 다시
+bind를 시도합니다. 두 모드 모두 DawnShell 전용 cgroup 안에서만 USB 문자 장치
+major 189를 허용하며, 부팅 후 연결한 장치도 재시작 없이 처리합니다. SELinux가
+접근을 거부할 수 있고 Docker에는 별도의 `--device`가 필요합니다. 독점 모드는
+Android 입력, 저장장치, 네트워크 또는 ADB를 끊을 수 있으며 비정상 종료 뒤에는
+장치를 뽑거나 재부팅해야 할 수 있습니다. 같은 이동식 파일시스템을 Android와
+Debian에서 동시에 마운트하면 안 됩니다.
+
 ## 빌드
 
 필요한 도구는 다음과 같습니다.
@@ -125,7 +136,7 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 ```
 
 빌드는 기본적으로 `make -j"$(nproc)"`를 사용합니다. 작업 수를 제한하려면
-`DAWNSHELL_BUILD_JOBS`를 설정합니다. 기본 APK는 `dist/dawnshell_0.2.1_debug.apk`에
+`DAWNSHELL_BUILD_JOBS`를 설정합니다. 기본 APK는 `dist/dawnshell_0.2.2_debug.apk`에
 생성됩니다.
 
 공개 debug 키는 개발과 시험에만 사용해 주세요. 배포용 APK는 개인 서명 키로
@@ -151,8 +162,8 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 - `DAWNSHELL_RELEASE_KEY_PASSWORD`
 
 ```sh
-git tag -s v0.2.1 -m "DawnShell 0.2.1"
-git push origin v0.2.1
+git tag -s v0.2.2 -m "DawnShell 0.2.2"
+git push origin v0.2.2
 ```
 
 DawnShell 코드는 MIT 라이선스입니다. 내장 명령행 도구는 각 원저작자의

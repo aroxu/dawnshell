@@ -182,7 +182,7 @@
     <string name="dawnshell_log_copied">Log copied to the clipboard.</string>
     <string name="dawnshell_log_copy_empty">There is no log text to copy.</string>
     <string name="dawnshell_log_summary_none">No status yet</string>
-    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nDocker network policy: %4$s</string>
+    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nDocker network policy: %4$s\nUSB passthrough mode: %5$s\nExclusive USB VID:PID filters: %6$s</string>
     <string name="dawnshell_log_section_format">===== %1$s =====\n%2$s</string>
     <string name="dawnshell_log_section_status">Status</string>
     <string name="dawnshell_log_section_output">Output</string>
@@ -199,6 +199,17 @@
     <string name="dawnshell_cgroup_policy_v2">Force cgroup v2 only (experimental)</string>
     <string name="dawnshell_cgroup_policy_v1">Force cgroup v1 legacy mode</string>
     <string name="dawnshell_cgroup_policy_warning">This selection takes effect on the next Debian start or restart. Automatic mode adopts v2 only after a dedicated cgroup2 subtree in a private mount view and cgroup-device BPF attach both succeed. Force v2 disables the known-good v1 fallback and can prevent Debian from booting. Force v1 skips modern isolation and attaches the legacy devices controller to a hierarchy; Android tasks remain outside DawnShell’s delegated child, but this is still a kernel-global controller attachment.</string>
+    <string name="dawnshell_host_usb_title">USB sharing and passthrough</string>
+    <string name="dawnshell_host_usb_description">Give Debian zero-copy access to Android host-mode USB devices through the shared kernel. Sharing mode retains Android drivers. Exclusive passthrough unbinds matching interfaces for Debian/libusb. USB Ethernet already appears through the shared network namespace.</string>
+    <string name="dawnshell_host_usb_off">Off: block raw host USB (recommended)</string>
+    <string name="dawnshell_host_usb_direct">Host USB sharing: keep Android drivers</string>
+    <string name="dawnshell_host_usb_exclusive">Exclusive passthrough: unbind selected interfaces</string>
+    <string name="dawnshell_usb_exclusive_ids_hint">Exclusive device VID:PID filters</string>
+    <string name="dawnshell_usb_exclusive_ids_helper">Comma or space separated, for example 0403:6001, 10c4:ea60. At least one entry is required for exclusive mode.</string>
+    <string name="dawnshell_usb_exclusive_ids_required">Enter at least one USB VID:PID before enabling exclusive passthrough.</string>
+    <string name="dawnshell_usb_exclusive_ids_invalid">Use four hexadecimal vendor digits, a colon, and four product digits for every USB ID.</string>
+    <string name="dawnshell_host_usb_warning">DANGER: Takes effect on the next Debian start or restart and also applies to devices attached later. Sharing mode gives Debian raw /dev/bus/usb access while retaining Android drivers. Exclusive passthrough additionally disconnects matching interfaces from Android and tries to restore them when Debian stops; Android input, storage, networking, ADB, or recovery access can disappear, and a crash may require unplugging the device or rebooting. Never select the phone’s internal USB/gadget controller. Never mount one USB storage filesystem from both systems. Docker still requires --device. Kernel drivers and SELinux can deny access.</string>
+    <string name="dawnshell_view_host_usb_log">View USB passthrough runtime log</string>
     <string name="dawnshell_docker_policy_title">Docker networking</string>
     <string name="dawnshell_docker_policy_host">Safe host network only (recommended)</string>
     <string name="dawnshell_docker_policy_auto">Automatic: native nftables → iptables-nft → legacy → safe host</string>

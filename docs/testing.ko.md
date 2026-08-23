@@ -111,6 +111,20 @@ BFU SSH 연결을 유지한 채 Android 잠금을 풉니다.
 - USB Ethernet 연결과 해제
 - VPN 또는 Tailscale 연결
 
+### USB 패스스루 정책
+
+USB 패스스루를 끄고 Debian을 재시작한 뒤 raw usbfs가 보이지 않고 lifecycle
+로그에 `policy=off` 및 major 189 차단이 기록되는지 확인합니다. 직접 모드를
+선택하고 재시작한 다음, 알고 있는 USB 호스트 장치를 연결해
+`/dev/bus/usb/BBB/DDD` 노드가 나타나면서 Android 드라이버는 계속 연결되어
+있는지 확인합니다. Debian을 재시작하지 않고 분리·재연결합니다.
+
+독점 모드는 고장 나도 되는 시험 장치의 정확한 `VID:PID`를 입력하고, 해당 장치와
+무관한 ADB 또는 물리 복구 수단을 준비한 상태에서 검사합니다. 로그의
+`action=unbind`, libusb claim 성공, 무관한 장치의 드라이버 유지, 정상 Debian
+종료 뒤 `action=restore`와 드라이버 복원을 확인합니다. hot-plug도 반복합니다.
+USB 저장장치는 Android와 Debian 중 한쪽에서만 마운트합니다.
+
 ## 6. 반복 부팅
 
 기본 회귀 시험은 cold boot 5회입니다.

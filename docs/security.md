@@ -64,6 +64,24 @@ affect the whole device. Docker defaults to host-network-only mode with bridge,
 iptables, forwarding, and masquerading disabled. Bridge mode should be used only
 with a separate recovery path.
 
+## Host USB
+
+Raw host USB access is opt-in. The default policy hides `/dev/bus/usb` in the
+Debian mount namespace and denies USB character major 189 in DawnShell's
+delegated devices policy. Direct mode removes those two restrictions only for
+Debian and retains Android's kernel driver bindings. Exclusive mode also
+unbinds interfaces that match an explicit `VID:PID` allowlist. That unbind is a
+host-wide hardware state change even though the cgroup permission remains
+delegated. The supervisor attempts to restore every interface on normal stop;
+SIGKILL, kernel failure, or power loss can prevent restoration. Unplug or reboot
+to recover. SELinux remains effective in either mode.
+
+USB devices are an active trust boundary: firmware programmers, input devices,
+network adapters, and removable storage can affect hardware or host state. Do
+not expose untrusted devices, do not use broad Docker `--privileged` access, and
+never mount one removable filesystem from Android and Debian simultaneously.
+Do not put the phone's internal USB/gadget controller in the exclusive allowlist.
+
 ## Signing and releases
 
 Verify Release checksums and use a private production signing key. Android update

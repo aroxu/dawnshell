@@ -26,6 +26,7 @@ Main features include:
 - verified Debian 13 Trixie rootfs installation;
 - BFU startup of systemd and a public-key-only OpenSSH server;
 - shared Android Wi-Fi, mobile, and USB Ethernet interfaces;
+- optional direct and VID:PID-scoped exclusive USB passthrough;
 - Material 3 controls for setup, lifecycle, accounts, SSH keys, and logs;
 - source-built bootstrap binaries for `armeabi-v7a`, `arm64-v8a`, and `x86_64`.
 
@@ -87,6 +88,16 @@ Docker defaults to **safe host-network-only** mode. Container bridge networking
 can change Android-wide firewall, NAT, forwarding, and routes. Enable it only
 after reading the in-app warning and preparing a separate recovery path.
 
+**USB passthrough** is disabled by default. Direct mode exposes Android's
+`/dev/bus/usb` view to Debian while retaining Android kernel drivers. Exclusive
+mode additionally unbinds only interfaces whose `VID:PID` is explicitly listed,
+then tries to bind them back when Debian stops. Both modes allow USB character
+major 189 only inside DawnShell's delegated cgroup and handle hot-plug without a
+Debian restart. SELinux can still deny access; Docker needs an explicit
+`--device`. Exclusive mode can disconnect Android input, storage, networking, or
+ADB, and an abnormal exit can require unplugging the device or rebooting. Never
+mount one removable filesystem from Android and Debian simultaneously.
+
 ## Build
 
 Requirements:
@@ -106,7 +117,7 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 ```
 
 Compilation defaults to `make -j"$(nproc)"`. Set `DAWNSHELL_BUILD_JOBS` to cap
-parallelism. The default output is `dist/dawnshell_0.2.1_debug.apk`.
+parallelism. The default output is `dist/dawnshell_0.2.2_debug.apk`.
 
 The public debug key is for development only. Production APKs require a private
 signing key; see [Google's app-signing guide](https://developer.android.com/studio/publish/app-signing).
@@ -130,8 +141,8 @@ require these Actions secrets:
 - `DAWNSHELL_RELEASE_KEY_PASSWORD`
 
 ```sh
-git tag -s v0.2.1 -m "DawnShell 0.2.1"
-git push origin v0.2.1
+git tag -s v0.2.2 -m "DawnShell 0.2.2"
+git push origin v0.2.2
 ```
 
 DawnShell code is MIT licensed. Bundled tools retain their upstream licenses;

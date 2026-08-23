@@ -76,7 +76,7 @@ target_count="$(grep -Fc 'targetSdk=28' "$preflight" || true)"
   exit 2
 }
 
-bfu_apk="$repo_dir/dist/dawnshell_0.2.1_debug.apk"
+bfu_apk="$repo_dir/dist/dawnshell_0.2.2_debug.apk"
 [[ -f "$bfu_apk" ]] || {
   echo "FAIL: missing staged APK: $bfu_apk" >&2
   exit 2
