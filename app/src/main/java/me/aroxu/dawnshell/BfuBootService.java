@@ -17,7 +17,9 @@ import android.util.Log;
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class BfuBootService extends Service {
 
@@ -44,6 +46,12 @@ public class BfuBootService extends Service {
     private static final int NOTIFICATION_ID = 2222;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService lifecycleExecutor = Executors.newSingleThreadExecutor();
+    private final Object lifecycleLock = new Object();
+    private Future<?> lifecycleFuture;
+    private DebianLauncher.Operation activeLifecycleOperation;
+    private long lifecycleRequestId;
+    private final AtomicLong urgentControlGeneration = new AtomicLong();
     private final AtomicBoolean startupChecksStarted = new AtomicBoolean(false);
     private final AtomicBoolean rootfsInstallStarted = new AtomicBoolean(false);
     private final AtomicBoolean systemConfigurationStarted = new AtomicBoolean(false);
@@ -156,6 +164,7 @@ public class BfuBootService extends Service {
             unlockReceiverRegistered = false;
         }
         executor.shutdownNow();
+        lifecycleExecutor.shutdownNow();
         stopForeground(true);
         super.onDestroy();
     }
@@ -212,6 +221,7 @@ public class BfuBootService extends Service {
     }
 
     private void runBfuStartupChecks() {
+        long controlGeneration = urgentControlGeneration.get();
         BfuRuntime.Layout layout = null;
         try {
             Context deContext = BfuPreferences.deviceProtectedContext(this);
@@ -275,8 +285,13 @@ public class BfuBootService extends Service {
             if (runtimeResult.succeededDuringBfu()) {
                 Log.i(TAG, "Debian namespace/chroot probe succeeded; "
                         + runtimeResult.summary());
-                runDebianLifecycleNow(layout, DebianLauncher.Operation.START,
-                        "locked_boot");
+                if (urgentControlGeneration.get() == controlGeneration) {
+                    requestLifecycleOperation(DebianLauncher.Operation.START,
+                            "locked_boot");
+                } else {
+                    recordOperation("DEBIAN_AUTOSTART_SUPPRESSED "
+                            + "reason=urgent_control_requested_during_startup");
+                }
             } else {
                 Log.w(TAG, "Debian namespace/chroot probe failed; "
                         + runtimeResult.summary());
@@ -303,6 +318,7 @@ public class BfuBootService extends Service {
     }
 
     private void runDebianSystemConfiguration() {
+        long controlGeneration = urgentControlGeneration.get();
         BfuRuntime.Layout layout = null;
         try {
             layout = BfuRuntime.provision(this);
@@ -313,9 +329,13 @@ public class BfuBootService extends Service {
                         "could not prove that the current Debian PID 1 stopped");
                 return;
             }
-            if (DebianSystemProvisioner.configure(this, layout)) {
+            if (DebianSystemProvisioner.configure(this, layout)
+                    && urgentControlGeneration.get() == controlGeneration) {
                 runDebianLifecycleNow(layout, DebianLauncher.Operation.START,
                         "AFU_configuration_completed");
+            } else if (urgentControlGeneration.get() != controlGeneration) {
+                recordOperation("DEBIAN_AUTOSTART_SUPPRESSED "
+                        + "reason=urgent_control_requested_during_configuration");
             }
         } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "Could not provision the Debian system configurator", e);
@@ -344,6 +364,7 @@ public class BfuBootService extends Service {
     }
 
     private void runDockerNetworkPolicy(String policy) {
+        long controlGeneration = urgentControlGeneration.get();
         BfuRuntime.Layout layout = null;
         boolean wasRunning = false;
         try {
@@ -365,9 +386,14 @@ public class BfuBootService extends Service {
             DockerNetworkProvisioner.recordRejected(this,
                     "Docker policy operation interrupted");
         } finally {
-            if (wasRunning && layout != null && !Thread.currentThread().isInterrupted()) {
+            if (wasRunning && layout != null && !Thread.currentThread().isInterrupted()
+                    && urgentControlGeneration.get() == controlGeneration) {
                 runDebianLifecycleNow(layout, DebianLauncher.Operation.START,
                         "AFU_Docker_policy_completed");
+            } else if (wasRunning
+                    && urgentControlGeneration.get() != controlGeneration) {
+                recordOperation("DEBIAN_AUTOSTART_SUPPRESSED "
+                        + "reason=urgent_control_requested_during_Docker_policy");
             }
             dockerPolicyStarted.set(false);
         }
@@ -383,23 +409,69 @@ public class BfuBootService extends Service {
 
     private void requestLifecycleOperation(DebianLauncher.Operation operation,
                                            String trigger) {
-        if (!lifecycleOperationStarted.compareAndSet(false, true)) {
-            Log.i(TAG, "Debian lifecycle operation already queued or running");
+        boolean urgent = operation == DebianLauncher.Operation.STOP
+                || operation == DebianLauncher.Operation.RESTART;
+        if (operation == DebianLauncher.Operation.RESTART
+                && managementOperationRunning()) {
+            recordOperation("DEBIAN_LIFECYCLE_REJECTED operation=restart "
+                    + "reason=management_operation_running");
+            Log.w(TAG, "Restart rejected while a rootfs management operation is active");
             return;
         }
-        executor.execute(() -> {
-            BfuRuntime.Layout layout = null;
-            try {
-                layout = BfuRuntime.provision(this);
-                runDebianLifecycleNow(layout, operation, trigger);
-            } catch (IOException | IllegalStateException e) {
-                Log.e(TAG, "Could not provision Debian lifecycle runtime", e);
-                DebianLauncher.recordFailure(this, layout, operation, e.getMessage());
-            } finally {
-                lifecycleOperationStarted.set(false);
-                if (!BfuPreferences.isEnabled(this)) stopSelf();
+
+        synchronized (lifecycleLock) {
+            if (lifecycleFuture != null && !lifecycleFuture.isDone()) {
+                if (!urgent) {
+                    recordOperation("DEBIAN_LIFECYCLE_REJECTED operation="
+                            + operation.name().toLowerCase(java.util.Locale.US)
+                            + " reason=lifecycle_operation_running");
+                    Log.i(TAG, "Debian lifecycle operation already running");
+                    return;
+                }
+                if (activeLifecycleOperation != null
+                        && (activeLifecycleOperation == operation
+                        || activeLifecycleOperation == DebianLauncher.Operation.STOP)) {
+                    recordOperation("DEBIAN_LIFECYCLE_REJECTED operation="
+                            + operation.name().toLowerCase(java.util.Locale.US)
+                            + " reason="
+                            + activeLifecycleOperation.name().toLowerCase(
+                            java.util.Locale.US)
+                            + "_already_running");
+                    return;
+                }
+                lifecycleFuture.cancel(true);
+                recordOperation("DEBIAN_LIFECYCLE_PREEMPTED_BY operation="
+                        + operation.name().toLowerCase(java.util.Locale.US));
             }
-        });
+            if (urgent) urgentControlGeneration.incrementAndGet();
+            final long requestId = ++lifecycleRequestId;
+            lifecycleOperationStarted.set(true);
+            activeLifecycleOperation = operation;
+            lifecycleFuture = lifecycleExecutor.submit(() -> {
+                BfuRuntime.Layout layout = null;
+                try {
+                    layout = BfuRuntime.provision(this);
+                    runDebianLifecycleNow(layout, operation, trigger);
+                } catch (IOException | IllegalStateException e) {
+                    Log.e(TAG, "Could not provision Debian lifecycle runtime", e);
+                    DebianLauncher.recordFailure(this, layout, operation,
+                            e.getMessage());
+                } finally {
+                    synchronized (lifecycleLock) {
+                        if (lifecycleRequestId == requestId) {
+                            lifecycleOperationStarted.set(false);
+                            activeLifecycleOperation = null;
+                        }
+                    }
+                    if (!BfuPreferences.isEnabled(this)) stopSelf();
+                }
+            });
+        }
+    }
+
+    private boolean managementOperationRunning() {
+        return rootfsInstallStarted.get() || systemConfigurationStarted.get()
+                || rootfsRemovalStarted.get() || dockerPolicyStarted.get();
     }
 
     private boolean runDebianLifecycleNow(BfuRuntime.Layout layout,

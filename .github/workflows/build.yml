@@ -131,6 +131,7 @@ jobs:
           ./scripts/build-bootstrap-runtime.sh
           ./scripts/test-compatibility-policy.sh
           ./scripts/test-rootfs-path-resolution.sh
+          ./scripts/test-lifecycle-control-policy.sh
 
       - name: Build and test Android application
         id: apk

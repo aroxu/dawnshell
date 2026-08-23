@@ -114,7 +114,7 @@
     <string name="bfu_restart_confirm_title">BFU Debian을 재시작할까요?</string>
     <string name="bfu_restart_confirm_message">검증된 Debian PID 1을 정상 종료하고 새 격리 인스턴스를 시작한 다음 D-Bus, SSH 및 TCP 22 상태 검사를 기다립니다. USER_UNLOCKED는 이 작업을 실행하지 않습니다.</string>
     <string name="bfu_restart_confirm_button">Debian 재시작</string>
-    <string name="bfu_lifecycle_requested">Debian 수명 주기 요청을 대기열에 추가했습니다: %1$s</string>
+    <string name="bfu_lifecycle_requested">Debian 제어 요청을 바로 전송했습니다: %1$s</string>
     <string name="bfu_lifecycle_request_failed">Debian 수명 주기 작업을 요청하지 못했습니다: %1$s</string>
     <string name="bfu_lifecycle_status">Debian systemd 수명 주기 상태:\n%1$s</string>
     <string name="bfu_lifecycle_status_none">기록된 Debian 수명 주기 작업이 없습니다.</string>

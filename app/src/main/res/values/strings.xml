@@ -114,7 +114,7 @@
     <string name="bfu_restart_confirm_title">Restart BFU Debian?</string>
     <string name="bfu_restart_confirm_message">This gracefully exits the verified Debian PID 1, starts a fresh isolated instance, then waits for D-Bus, SSH, and TCP 22 health checks. USER_UNLOCKED never performs this action.</string>
     <string name="bfu_restart_confirm_button">Restart Debian</string>
-    <string name="bfu_lifecycle_requested">Debian lifecycle request queued: %1$s</string>
+    <string name="bfu_lifecycle_requested">Debian control request sent: %1$s</string>
     <string name="bfu_lifecycle_request_failed">Could not request Debian lifecycle operation: %1$s</string>
     <string name="bfu_lifecycle_status">Debian systemd lifecycle status:\n%1$s</string>
     <string name="bfu_lifecycle_status_none">No Debian lifecycle operation has been recorded yet.</string>
