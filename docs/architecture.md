@@ -1,5 +1,7 @@
 # Architecture
 
+[한국어 문서](architecture.ko.md)
+
 ## Upstream findings
 
 The original PoC was implemented in Termux:Boot, whose upstream AFU flow is

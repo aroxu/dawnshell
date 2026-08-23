@@ -1,5 +1,7 @@
 # DawnShell
 
+[한국어 문서](README.ko.md)
+
 Standalone Android Direct Boot controller for a root-owned Debian 13 Trixie
 environment. Its Android package is `me.aroxu.dawnshell` and its launcher
 name is **DawnShell**.

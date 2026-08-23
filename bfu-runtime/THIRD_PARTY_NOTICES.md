@@ -1,5 +1,7 @@
 # Bundled bootstrap runtime notices
 
+[한국어 안내](THIRD_PARTY_NOTICES.ko.md)
+
 DawnShell application code remains licensed under MIT. The APK also contains
 separately built command-line programs and public Debian archive keys under
 their own upstream licenses:

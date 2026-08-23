@@ -1,5 +1,7 @@
 # BFU runtime
 
+[한국어 문서](README.ko.md)
+
 The active BFU runtime is Debian 13 rather than a standalone Dropbear tree.
 `scripts/build-bootstrap-runtime.sh` builds the complete Android bootstrap set
 from the pinned sources in this directory for `armeabi-v7a`, `arm64-v8a`, and

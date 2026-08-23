@@ -1,5 +1,7 @@
 # Progress
 
+[한국어 문서](progress.ko.md)
+
 ## Standalone split — 2026-08-23
 
 - [x] Create a root-level Android project with package `me.aroxu.dawnshell`,

@@ -1,5 +1,7 @@
 # Test plan
 
+[한국어 문서](testing.ko.md)
+
 ## Preflight
 
 ```sh

@@ -1,5 +1,7 @@
 # Security model
 
+[한국어 문서](security.ko.md)
+
 ## Invariants
 
 1. BFU runtime and Debian never depend on Credential Encrypted storage. The only locked-state

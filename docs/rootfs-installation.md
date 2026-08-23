@@ -1,5 +1,7 @@
 # Debian rootfs installation
 
+[한국어 문서](rootfs-installation.ko.md)
+
 ## Purpose and boundary
 
 The launcher activity can prepare the gate-2 rootfs at

@@ -1,5 +1,7 @@
 # Debian 13 systemd BFU implementation
 
+[한국어 문서](debian-systemd.ko.md)
+
 ## End state
 
 ```text

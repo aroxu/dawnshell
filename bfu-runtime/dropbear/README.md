@@ -1,5 +1,7 @@
 # Dropbear build requirements
 
+[한국어 문서](README.ko.md)
+
 Pinned candidate source: Dropbear 2026.94, matching the analyzed Termux package.
 
 Before this directory produces an artifact, the build must prove:
@@ -12,4 +14,3 @@ Before this directory produces an artifact, the build must prove:
 - runtime-supplied host key, authorized-keys, pid, home, shell, and port paths;
 - successful execution from `nativeLibraryDir` and, for comparison, DE `filesDir`;
 - license/source notices packaged with the APK.
-
