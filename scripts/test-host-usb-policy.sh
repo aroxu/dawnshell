@@ -27,8 +27,10 @@ DAWNSHELL_FAKE_LSUSB="$temporary_dir/fake-lsusb" \
 
 grep -Fqx '/: Bus 001.Port 001: Dev 001, Driver=xhci-hcd' "$temporary_dir/stdout"
 grep -Fqx 'real USB diagnostic' "$temporary_dir/stderr"
-! grep -Fq 'rx_lanes' "$temporary_dir/stderr"
-! grep -Fq 'tx_lanes' "$temporary_dir/stderr"
-! grep -Fq 'unable to initialize usb spec' "$temporary_dir/stderr"
+if grep -Eq 'rx_lanes|tx_lanes|unable to initialize usb spec' "$temporary_dir/stderr"; then
+    echo "Legacy sysfs warning was not filtered from lsusb stderr" >&2
+    cat "$temporary_dir/stderr" >&2
+    exit 1
+fi
 
 echo "Host USB legacy-sysfs lsusb filter tests passed"

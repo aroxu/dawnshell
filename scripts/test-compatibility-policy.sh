@@ -45,9 +45,12 @@ grep -Fq '"ip-forward": false' "$policy_script"
 grep -Fq '"ip-masq": false' "$policy_script"
 [[ "$(grep -Fc '"exec-opts": ["native.cgroupdriver=cgroupfs"]' "$policy_script")" -eq 4 ]]
 grep -Fq 'cgroup_driver=cgroupfs' "$policy_script"
+# shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.
 grep -Fq 'host_ipc_compatibility=$host_ipc_compatibility' "$policy_script"
 grep -Fq 'rewritten+=(--ipc=host)' "$policy_script"
+# shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.
 grep -Fq 'exec "$real_docker" "${rewritten[@]}"' "$policy_script"
+# shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.
 grep -Fq 'existing unmanaged $docker_wrapper was preserved' "$policy_script"
 grep -Fq 'use /usr/bin/docker to bypass' "$policy_script"
 grep -Fq 'android:id="@+id/docker_network_policy_group"' "$layout"

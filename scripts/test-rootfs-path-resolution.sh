@@ -8,7 +8,9 @@ host_usb_configurator="$repo_dir/app/src/main/assets/bfu/configure-host-usb.sh"
 remover="$repo_dir/app/src/main/java/me/aroxu/dawnshell/DebianRootfsRemover.java"
 
 for script in "$system_configurator" "$docker_configurator" "$host_usb_configurator"; do
+    # shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.
     grep -Fq 'RESOLVED_ROOT="$(cd -P "$ROOT" 2>/dev/null && pwd -P)"' "$script"
+    # shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.
     grep -Fq '[ "$RESOLVED_ROOT" = "$ROOT" ] || fail 13 "rootfs resolves elsewhere"' "$script"
     if grep -Eq 'readlink[[:space:]]+-f' "$script"; then
         echo "Unsupported BusyBox readlink -f remains in $script" >&2
@@ -16,6 +18,7 @@ for script in "$system_configurator" "$docker_configurator" "$host_usb_configura
     fi
 done
 
+# shellcheck disable=SC2016 # Assert literal Java-embedded shell source.
 grep -Fq 'resolved=$(cd -P \"$root\" 2>/dev/null && pwd -P) || exit 42;' "$remover"
 if grep -Eq 'readlink[[:space:]]+-f' "$remover"; then
     echo "Unsupported Android readlink -f remains in $remover" >&2
