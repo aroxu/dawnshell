@@ -136,7 +136,7 @@ While unlocked, install Termux prerequisites, then use the in-app installer:
 pkg install debootstrap util-linux mount-utils
 ```
 
-Watch **Debian installation log (live)** until the status is `SUCCEEDED`. Confirm
+Open **Logs → Debian installation** and watch it until the status is `SUCCEEDED`. Confirm
 the log contains both SHA-256 checks, a valid Debian Release signature, rootfs
 validation for Debian 13/Trixie arm64, and `INSTALL_SUCCEEDED`. Also verify
 `/data/local/debian/.dawnshell-rootfs` contains `suite=trixie`. Then reboot and run:
@@ -152,11 +152,10 @@ installer once more. The installer preserves the old partial tree as
 manually delete either tree before collecting diagnostics. Any new failure must
 show `DEBOOTSTRAP_LOG_TAIL_BEGIN` through `DEBOOTSTRAP_LOG_TAIL_END` in the app.
 
-For every dark console in the activity, verify that a drag scrolls inside the
-console while more lines remain, then hands the gesture to the whole page at its
-top or bottom edge. Long-press, select multiple lines, and copy them. While a
-selection is active or the console is scrolled up, one-second live refreshes
-must not replace the visible text.
+For every full-screen log, verify that drag scrolling reaches old and new lines.
+Long-press, select multiple lines, and copy them; also verify the toolbar's
+copy-all action. While a selection is active or the log is scrolled up,
+one-second live refreshes must not replace the visible text or jump to the end.
 
 After the 30-second locked interval and first unlock, the newest
 `bfu-rootfs.log` entry must include:
@@ -208,7 +207,7 @@ the launcher/chroot gate; it does not prove systemd 257 compatibility.
 
 While Android is unlocked, open the app and confirm that it displays its generated
 Ed25519 public key, then press **Configure Debian 13 systemd + SSH**. The
-configuration status must become `SUCCEEDED`; its live selectable log must end in
+configuration status must become `SUCCEEDED`; **Logs → System configuration** must end in
 both `CONFIGURE_SUCCEEDED` lines. This operation stops a prior test instance,
 installs packages, validates `sshd`, enables `ssh.service` and
 `dawnshell-boot-proof.service`, publishes the ready marker, and starts systemd

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ds_primary">#89D1E8</color>
+    <color name="ds_on_primary">#003541</color>
+    <color name="ds_primary_container">#084C5A</color>
+    <color name="ds_on_primary_container">#B2EBFF</color>
+    <color name="ds_secondary">#B2CBD3</color>
+    <color name="ds_on_secondary">#1D343B</color>
+    <color name="ds_secondary_container">#344A51</color>
+    <color name="ds_on_secondary_container">#CEE7F0</color>
+    <color name="ds_tertiary">#C4C3EA</color>
+    <color name="ds_on_tertiary">#2D2D4D</color>
+    <color name="ds_tertiary_container">#444465</color>
+    <color name="ds_on_tertiary_container">#E1DFFF</color>
+    <color name="ds_background">#0F1416</color>
+    <color name="ds_on_background">#DEE3E5</color>
+    <color name="ds_surface">#0F1416</color>
+    <color name="ds_on_surface">#DEE3E5</color>
+    <color name="ds_surface_variant">#293033</color>
+    <color name="ds_on_surface_variant">#BFC8CB</color>
+    <color name="ds_outline">#899295</color>
+    <color name="ds_outline_variant">#40484B</color>
+    <color name="ds_error">#FFB4AB</color>
+    <color name="ds_on_error">#690005</color>
+    <color name="ds_error_container">#93000A</color>
+    <color name="ds_on_error_container">#FFDAD6</color>
+    <color name="ds_warning_container">#4D360F</color>
+    <color name="ds_on_warning_container">#FFE9C7</color>
+    <color name="ds_terminal_background">#091012</color>
+    <color name="ds_terminal_foreground">#D8E6EA</color>
+</resources>

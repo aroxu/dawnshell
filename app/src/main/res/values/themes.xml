@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.DawnShell" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/ds_primary</item>
+        <item name="colorOnPrimary">@color/ds_on_primary</item>
+        <item name="colorPrimaryContainer">@color/ds_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/ds_on_primary_container</item>
+        <item name="colorSecondary">@color/ds_secondary</item>
+        <item name="colorOnSecondary">@color/ds_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/ds_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/ds_on_secondary_container</item>
+        <item name="colorTertiary">@color/ds_tertiary</item>
+        <item name="colorOnTertiary">@color/ds_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/ds_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/ds_on_tertiary_container</item>
+        <item name="android:colorBackground">@color/ds_background</item>
+        <item name="colorOnBackground">@color/ds_on_background</item>
+        <item name="colorSurface">@color/ds_surface</item>
+        <item name="colorOnSurface">@color/ds_on_surface</item>
+        <item name="colorSurfaceVariant">@color/ds_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/ds_on_surface_variant</item>
+        <item name="colorOutline">@color/ds_outline</item>
+        <item name="colorOutlineVariant">@color/ds_outline_variant</item>
+        <item name="colorError">@color/ds_error</item>
+        <item name="colorOnError">@color/ds_on_error</item>
+        <item name="colorErrorContainer">@color/ds_error_container</item>
+        <item name="colorOnErrorContainer">@color/ds_on_error_container</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:statusBarColor">@color/ds_surface</item>
+        <item name="android:navigationBarColor">@color/ds_surface</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+
+    <style name="Widget.DawnShell.Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardCornerRadius">24dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="strokeColor">?attr/colorOutlineVariant</item>
+    </style>
+
+    <style name="Widget.DawnShell.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="cornerRadius">16dp</item>
+    </style>
+
+    <style name="Widget.DawnShell.Button.Filled" parent="Widget.Material3.Button">
+        <item name="android:minHeight">48dp</item>
+        <item name="cornerRadius">16dp</item>
+    </style>
+
+    <style name="TextAppearance.DawnShell.SectionTitle" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.DawnShell.Console" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textColor">@color/ds_terminal_foreground</item>
+        <item name="android:lineSpacingMultiplier">1.15</item>
+    </style>
+</resources>

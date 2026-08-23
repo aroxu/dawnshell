@@ -86,10 +86,11 @@ The UI polls these Device Protected files once per second:
 <DE filesDir>/debian-install.log
 ```
 
-The log is displayed in a fixed-height, monospaced console with a contrasting
-background. Long-press it to select and copy text. Automatic refresh/follow
-pauses while a selection is active or the console is scrolled above the bottom,
-then resumes when the selection is dismissed or the view returns to the bottom.
+Open **Logs → Debian installation** for a dedicated full-screen monospaced view.
+Long-press to select and copy text, or use the toolbar action to copy the whole
+visible tail. Automatic refresh/follow pauses while a selection is active or the
+view is scrolled above the bottom, then resumes when the selection is dismissed
+or the view returns to the bottom.
 
 The log records download progress, both integrity checks, the selected `su`
 binary, private-mount setup, upstream debootstrap stdout/stderr, validation, and

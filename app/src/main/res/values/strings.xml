@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">DawnShell</string>
-    <string name="bfu_settings_title">DawnShell</string>
     <string name="dawnshell_home_title">Debian, available from boot.</string>
     <string name="bfu_settings_explanation">Set up and control a Debian 13 server that starts before Android’s first unlock and stays running afterward. Complete the sections from top to bottom once; routine controls and SSH access remain easy to reach.</string>
     <string name="dawnshell_section_direct_boot">1 · Direct Boot</string>
@@ -92,8 +91,6 @@
     <string name="bfu_debian_install_status_none">No Debian installation has been requested yet.</string>
     <string name="bfu_debian_install_status_failed">Failed to read installer status: %1$s</string>
     <string name="bfu_debian_install_log_title">Debian installation log (live, newest 48 KiB):</string>
-    <string name="bfu_debian_install_log_none">No installation log yet.</string>
-    <string name="bfu_debian_install_log_failed">Failed to read installation log: %1$s</string>
     <string name="bfu_system_config_explanation">After the Trixie rootfs install succeeds, this AFU-only step installs systemd, D-Bus, and OpenSSH. It creates user debian, copies the validated DE public keys, disables password/root login, enables ssh.service on TCP 22, masks Android-host-sensitive units, and writes the BFU-ready marker only after validation.</string>
     <string name="bfu_configure_system">Configure Debian 13 systemd + SSH</string>
     <string name="bfu_system_config_requires_unlock">Unlock Android before configuring Debian packages.</string>
@@ -106,16 +103,10 @@
     <string name="bfu_system_config_status_none">No Debian system configuration has been requested yet.</string>
     <string name="bfu_system_config_status_failed">Failed to read system configuration status: %1$s</string>
     <string name="bfu_system_config_log_title">Debian system configuration log (live, newest 48 KiB):</string>
-    <string name="bfu_system_config_log_none">No Debian system configuration log yet.</string>
-    <string name="bfu_system_config_log_failed">Failed to read system configuration log: %1$s</string>
     <string name="bfu_lifecycle_explanation">Debian starts automatically during LOCKED_BOOT_COMPLETED after all BFU gates pass. USER_UNLOCKED never stops or restarts it. Start, restart, and status also verify systemd PID 1, D-Bus, ssh.service, and TCP 22; results are persisted in the DE log.</string>
-    <string name="bfu_start_debian">Start Debian systemd now</string>
     <string name="bfu_start_debian_short">Start</string>
-    <string name="bfu_restart_debian">Restart Debian systemd gracefully</string>
     <string name="bfu_restart_debian_short">Restart</string>
-    <string name="bfu_status_debian">Refresh Debian systemd status</string>
     <string name="bfu_status_debian_short">Status</string>
-    <string name="bfu_stop_debian">Stop Debian systemd gracefully</string>
     <string name="bfu_stop_debian_short">Stop</string>
     <string name="bfu_stop_confirm_title">Stop BFU Debian?</string>
     <string name="bfu_stop_confirm_message">This explicitly asks the Debian container service manager to exit gracefully and stops SSH. Unlock events do not perform this action.</string>
@@ -129,8 +120,6 @@
     <string name="bfu_lifecycle_status_none">No Debian lifecycle operation has been recorded yet.</string>
     <string name="bfu_lifecycle_status_failed">Failed to read Debian lifecycle status: %1$s</string>
     <string name="bfu_lifecycle_log_title">Debian systemd lifecycle log (live, newest 64 KiB):</string>
-    <string name="bfu_lifecycle_log_none">No Debian lifecycle log yet.</string>
-    <string name="bfu_lifecycle_log_failed">Failed to read Debian lifecycle log: %1$s</string>
     <string name="bfu_password_explanation">Local Debian account passwords (AFU only). Values are sent directly to Debian chpasswd and are never saved in Android preferences, BFU storage, or logs. SSH remains public-key-only. Setting the root password allows “su root” inside Debian and grants device-level root authority; use a unique strong password.</string>
     <string name="bfu_root_password_hint">New Debian root password (8–128 characters)</string>
     <string name="bfu_root_password_confirm_hint">Confirm Debian root password</string>
@@ -143,7 +132,6 @@
     <string name="bfu_password_mismatch">The password and confirmation do not match. Both fields were cleared.</string>
     <string name="bfu_password_updated">Local Debian %1$s password updated. The password was not stored by the app.</string>
     <string name="bfu_password_failed">Could not update local Debian %1$s password: %2$s</string>
-    <string name="bfu_ssh_client_commands_explanation">Export the app-generated private key only after Android is unlocked. The file export uses Android’s document picker. The Termux import command is more convenient but temporarily places the private key in Android’s sensitive clipboard; it clears that clipboard entry after 120 seconds. Keep every exported copy secret.</string>
     <string name="bfu_export_private_key_file">Export SSH private key file</string>
     <string name="bfu_export_private_key_confirm_title">Export the private SSH key?</string>
     <string name="bfu_export_private_key_confirm_message">Anyone who obtains this unencrypted file can log in as debian while the key is authorized. Store it only in a trusted location and restrict its permissions to 0600.</string>
@@ -163,4 +151,40 @@
     <string name="bfu_notification_channel_description">Keeps the Direct Boot bootstrap lifecycle active for the Android boot.</string>
     <string name="bfu_notification_title">DawnShell bootstrap</string>
     <string name="bfu_notification_text">Direct Boot Debian supervisor active; USER_UNLOCKED does not stop it</string>
+    <string name="dawnshell_logs">Logs</string>
+    <string name="dawnshell_open_live_logs">Open live logs</string>
+    <string name="dawnshell_view_setup_logs">View setup logs</string>
+    <string name="dawnshell_view_runtime_log">View runtime log</string>
+    <string name="dawnshell_unsaved_settings">Settings changed — apply them before rebooting.</string>
+    <string name="dawnshell_probe_summary">Latest BFU check: %1$s</string>
+    <string name="dawnshell_logs_explanation">Choose a stream to open it full-screen. Every view refreshes live, supports scrolling and text selection, and can copy the complete visible log.</string>
+    <string name="dawnshell_log_operations_title">App operations</string>
+    <string name="dawnshell_log_operations_description">Button actions, requests, validation results, and failures.</string>
+    <string name="dawnshell_log_installation_title">Debian installation</string>
+    <string name="dawnshell_log_installation_description">Debootstrap progress and rootfs installer output.</string>
+    <string name="dawnshell_log_configuration_title">System configuration</string>
+    <string name="dawnshell_log_configuration_description">APT, systemd, OpenSSH, and account provisioning.</string>
+    <string name="dawnshell_log_lifecycle_title">Server lifecycle</string>
+    <string name="dawnshell_log_lifecycle_description">Start, stop, restart, health checks, and runtime output.</string>
+    <string name="dawnshell_log_diagnostics_title">Direct Boot diagnostics</string>
+    <string name="dawnshell_log_diagnostics_description">Locked-boot marker, root, CE isolation, rootfs, and chroot probes.</string>
+    <string name="dawnshell_log_empty">No entries have been recorded yet.</string>
+    <string name="dawnshell_log_read_failed">Could not read this log: %1$s</string>
+    <string name="dawnshell_log_unknown">Unknown log stream.</string>
+    <string name="dawnshell_copy_all">Copy all</string>
+    <string name="dawnshell_refresh">Refresh</string>
+    <string name="dawnshell_live">LIVE · 1 s</string>
+    <string name="dawnshell_log_copied">Log copied to the clipboard.</string>
+    <string name="dawnshell_log_copy_empty">There is no log text to copy.</string>
+    <string name="dawnshell_log_summary_none">No status yet</string>
+    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s</string>
+    <string name="dawnshell_log_section_format">===== %1$s =====\n%2$s</string>
+    <string name="dawnshell_log_section_status">Status</string>
+    <string name="dawnshell_log_section_output">Output</string>
+    <string name="dawnshell_log_section_locked_boot">Locked boot events</string>
+    <string name="dawnshell_log_section_root_authorization">AFU root authorization</string>
+    <string name="dawnshell_log_section_root_probe">BFU root probe</string>
+    <string name="dawnshell_log_section_ce_probe">CE isolation probe</string>
+    <string name="dawnshell_log_section_rootfs_probe">Rootfs probe</string>
+    <string name="dawnshell_log_section_runtime_probe">Namespace / chroot probe</string>
 </resources>

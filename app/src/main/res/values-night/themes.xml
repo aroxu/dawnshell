@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.DawnShell" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/ds_primary</item>
+        <item name="colorOnPrimary">@color/ds_on_primary</item>
+        <item name="colorPrimaryContainer">@color/ds_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/ds_on_primary_container</item>
+        <item name="colorSecondary">@color/ds_secondary</item>
+        <item name="colorOnSecondary">@color/ds_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/ds_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/ds_on_secondary_container</item>
+        <item name="colorTertiary">@color/ds_tertiary</item>
+        <item name="colorOnTertiary">@color/ds_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/ds_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/ds_on_tertiary_container</item>
+        <item name="android:colorBackground">@color/ds_background</item>
+        <item name="colorOnBackground">@color/ds_on_background</item>
+        <item name="colorSurface">@color/ds_surface</item>
+        <item name="colorOnSurface">@color/ds_on_surface</item>
+        <item name="colorSurfaceVariant">@color/ds_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/ds_on_surface_variant</item>
+        <item name="colorOutline">@color/ds_outline</item>
+        <item name="colorOutlineVariant">@color/ds_outline_variant</item>
+        <item name="colorError">@color/ds_error</item>
+        <item name="colorOnError">@color/ds_on_error</item>
+        <item name="colorErrorContainer">@color/ds_error_container</item>
+        <item name="colorOnErrorContainer">@color/ds_on_error_container</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:statusBarColor">@color/ds_surface</item>
+        <item name="android:navigationBarColor">@color/ds_surface</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

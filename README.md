@@ -68,10 +68,13 @@ USER_UNLOCKED
   -> the same Debian/systemd/SSH instance continues unchanged
 ```
 
-The launcher provides rootfs installation, system configuration, lifecycle
-controls, local password controls, selectable live logs, an app-generated Ed25519
-client identity, private-key export/import helpers, a copyable localhost SSH
-command, a root-only `reboot now` bridge that reboots Android, and a two-stage destructive control for permanently deleting exactly
+The launcher uses a Material 3 dashboard for rootfs installation, system
+configuration, lifecycle and account controls, and SSH key actions. Logs are
+kept out of the dashboard: a live log index opens each stream in a dedicated
+full-screen, selectable, copyable view that refreshes once per second without
+pulling the reader away from older lines. The launcher also provides a copyable
+localhost SSH command, a root-only `reboot now` bridge that reboots Android, and
+a two-stage destructive control for permanently deleting exactly
 `/data/local/debian` after stopping and verifying the supervisor. The client
 private key is kept in this app's CE storage; only its public key enters DE and
 Debian.

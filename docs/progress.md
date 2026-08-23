@@ -157,6 +157,15 @@ The entries below record the earlier BFU-enabled Termux:Boot PoC history.
   verify Debian UID 1000 login and zero private-key material in DE.
 - [x] Add AFU-only local Debian password controls and private-rootfs-only setuid
   support for interactive `su root`, while keeping OpenSSH public-key-only.
+- [x] Replace the legacy programmatic Termux-style screen with a Material 3
+  dashboard while retaining every installer, lifecycle, key, account, and
+  destructive action binding.
+- [x] Restore the ROM-specific CE-readable override to the primary Direct Boot
+  card and visibly flag unapplied switch changes.
+- [x] Move operation, installation, configuration, lifecycle, and BFU diagnostic
+  logs into a live index plus dedicated full-screen selectable/copyable readers.
+- [x] Remove AndroidX automatic startup/profile components introduced by the UI
+  stack so the locked-boot process remains receiver/service-only.
 - [ ] Verify Debian gate 2: BFU access to the selected Debian rootfs.
 - [ ] Verify the namespace/mount/PID-1 Debian chroot probe on the target.
 - [x] Promote the setup into an idempotent long-lived Debian launcher.

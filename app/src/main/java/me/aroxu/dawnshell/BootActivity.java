@@ -1,8 +1,6 @@
 package me.aroxu.dawnshell;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
@@ -29,6 +27,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -36,6 +35,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.AppCompatTextView;
+
+import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -43,14 +47,16 @@ import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class BootActivity extends Activity {
+public class BootActivity extends AppCompatActivity {
 
     private static final String TAG = "DawnShell";
     private static final int REQUEST_EXPORT_SSH_PRIVATE_KEY = 1001;
 
-    private CheckBox enableBfu;
-    private CheckBox allowCeReadableBfu;
+    private CompoundButton enableBfu;
+    private CompoundButton allowCeReadableBfu;
     private TextView generatedPublicKey;
+    private TextView probeSummary;
+    private TextView settingsDirty;
     private TextView rootProbeStatus;
     private TextView ceIsolationProbeStatus;
     private TextView rootfsProbeStatus;
@@ -89,7 +95,6 @@ public class BootActivity extends Activity {
         @Override
         public void run() {
             refreshRootAuthorizationStatus();
-            refreshOperationLog();
             refreshInstallerStatus();
             refreshSystemConfigurationStatus();
             refreshLifecycleStatus();
@@ -100,10 +105,11 @@ public class BootActivity extends Activity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setTitle(R.string.bfu_settings_title);
         liveLogHandler = new Handler(Looper.getMainLooper());
-        setContentView(buildSettingsView());
+        setContentView(R.layout.activity_boot);
+        bindDashboardViews();
         loadSettings();
+        watchSettingsChanges();
     }
 
     @Override
@@ -159,6 +165,83 @@ public class BootActivity extends Activity {
             Toast.makeText(this, getString(R.string.bfu_private_key_export_failed_detail,
                     e.getMessage()), Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void bindDashboardViews() {
+        MaterialToolbar toolbar = findViewById(R.id.dashboard_toolbar);
+        toolbar.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == R.id.action_logs) {
+                openLogs();
+                return true;
+            }
+            return false;
+        });
+
+        enableBfu = findViewById(R.id.switch_enable_bfu);
+        allowCeReadableBfu = findViewById(R.id.switch_allow_ce_readable_bfu);
+        generatedPublicKey = findViewById(R.id.generated_public_key);
+        probeSummary = findViewById(R.id.probe_summary);
+        settingsDirty = findViewById(R.id.settings_dirty_text);
+        rootAuthorizationButton = findViewById(R.id.root_authorization_button);
+        rootAuthorizationStatus = findViewById(R.id.root_authorization_status);
+        installStatus = findViewById(R.id.install_status);
+        systemConfigStatus = findViewById(R.id.system_config_status);
+        lifecycleStatus = findViewById(R.id.lifecycle_status);
+        rootPassword = findViewById(R.id.root_password);
+        rootPasswordConfirm = findViewById(R.id.root_password_confirm);
+        debianPassword = findViewById(R.id.debian_password);
+        debianPasswordConfirm = findViewById(R.id.debian_password_confirm);
+        rootPasswordButton = findViewById(R.id.root_password_button);
+        debianPasswordButton = findViewById(R.id.debian_password_button);
+
+        rootAuthorizationButton.setOnClickListener(view -> confirmRootAuthorization());
+        findViewById(R.id.save_provision_button)
+                .setOnClickListener(view -> saveAndProvision());
+        findViewById(R.id.refresh_probes_button)
+                .setOnClickListener(view -> refreshProbeStatus(true));
+        findViewById(R.id.install_debian_button)
+                .setOnClickListener(view -> confirmDebianInstall());
+        findViewById(R.id.configure_system_button)
+                .setOnClickListener(view -> confirmSystemConfiguration());
+        findViewById(R.id.start_debian_button).setOnClickListener(view ->
+                requestLifecycle(DebianLauncher.Operation.START));
+        findViewById(R.id.restart_debian_button)
+                .setOnClickListener(view -> confirmRestartDebian());
+        findViewById(R.id.status_debian_button).setOnClickListener(view ->
+                requestLifecycle(DebianLauncher.Operation.STATUS));
+        findViewById(R.id.stop_debian_button)
+                .setOnClickListener(view -> confirmStopDebian());
+        findViewById(R.id.export_private_key_button)
+                .setOnClickListener(view -> confirmPrivateKeyFileExport());
+        findViewById(R.id.copy_key_import_button)
+                .setOnClickListener(view -> confirmCopyKeyImportCommand());
+        findViewById(R.id.copy_ssh_connect_button).setOnClickListener(view ->
+                copySshClientCommand("ssh_connect", buildSshConnectCommand(),
+                        R.string.bfu_ssh_connect_command_copied));
+        findViewById(R.id.rotate_ssh_key_button)
+                .setOnClickListener(view -> confirmRotateSshClientKey());
+        rootPasswordButton.setOnClickListener(view -> updateDebianPassword(
+                "root", rootPassword, rootPasswordConfirm));
+        debianPasswordButton.setOnClickListener(view -> updateDebianPassword(
+                "debian", debianPassword, debianPasswordConfirm));
+        findViewById(R.id.remove_rootfs_button)
+                .setOnClickListener(view -> confirmDebianRootfsRemoval());
+        findViewById(R.id.open_logs_button).setOnClickListener(view -> openLogs());
+        findViewById(R.id.open_setup_logs_button).setOnClickListener(view -> openLogs());
+        findViewById(R.id.open_runtime_log_button).setOnClickListener(view ->
+                startActivity(LogDetailActivity.createIntent(
+                        this, DawnShellLogRepository.LIFECYCLE)));
+    }
+
+    private void watchSettingsChanges() {
+        CompoundButton.OnCheckedChangeListener listener = (button, checked) ->
+                settingsDirty.setVisibility(View.VISIBLE);
+        enableBfu.setOnCheckedChangeListener(listener);
+        allowCeReadableBfu.setOnCheckedChangeListener(listener);
+    }
+
+    private void openLogs() {
+        startActivity(new Intent(this, LogsActivity.class));
     }
 
     private ScrollView buildSettingsView() {
@@ -494,7 +577,7 @@ public class BootActivity extends Activity {
                     Toast.LENGTH_LONG).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_rotate_ssh_key_confirm_title)
                 .setMessage(R.string.bfu_rotate_ssh_key_confirm_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -511,7 +594,7 @@ public class BootActivity extends Activity {
             BfuAuthorizedKeys.validateAndSave(layout, identity.publicKey);
             replaceConsoleText(generatedPublicKey, identity.publicKey, false);
             recordOperation("SSH_CLIENT_KEY_ROTATED algorithm=ed25519 de_public_key_updated=true");
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.bfu_rotate_ssh_key_done_title)
                     .setMessage(R.string.bfu_rotate_ssh_key_done_message)
                     .setPositiveButton(android.R.string.ok, null)
@@ -530,7 +613,7 @@ public class BootActivity extends Activity {
                     Toast.LENGTH_LONG).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_export_private_key_confirm_title)
                 .setMessage(R.string.bfu_export_private_key_confirm_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -553,7 +636,7 @@ public class BootActivity extends Activity {
                     Toast.LENGTH_LONG).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_copy_key_import_confirm_title)
                 .setMessage(R.string.bfu_copy_key_import_confirm_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -636,7 +719,6 @@ public class BootActivity extends Activity {
         refreshGeneratedSshIdentity(true);
         refreshRootAuthorizationStatus();
         refreshProbeStatus(false);
-        refreshOperationLog();
         refreshInstallerStatus();
         refreshSystemConfigurationStatus();
         refreshLifecycleStatus();
@@ -694,6 +776,14 @@ public class BootActivity extends Activity {
             replaceConsoleText(debianRuntimeProbeStatus, runtimeResult, false);
         }
 
+        String compactProbe = runtimeResult;
+        if (compactProbe == null || compactProbe.contains(
+                getString(R.string.bfu_debian_runtime_probe_none))) {
+            compactProbe = rootfsResult;
+        }
+        replaceConsoleText(probeSummary, getString(R.string.dawnshell_probe_summary,
+                compact(oneLine(compactProbe), 240)), false);
+
         if (recordOperation) {
             recordOperation("PROBE_RESULTS_REFRESHED root={" + oneLine(rootResult)
                     + "} ce_isolation={" + oneLine(ceIsolationResult)
@@ -732,7 +822,7 @@ public class BootActivity extends Activity {
 
         int uid = Process.myUid();
         String packages = packagesForUid(uid);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_root_authorization_confirm_title)
                 .setMessage(getString(R.string.bfu_root_authorization_confirm_message,
                         Integer.toString(uid), packages))
@@ -798,7 +888,7 @@ public class BootActivity extends Activity {
         pendingRootAuthorizationFailure = null;
 
         if (result != null && result.authorizedWhileUnlocked()) {
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.bfu_root_authorization_verified_title)
                     .setMessage(getString(R.string.bfu_root_authorization_verified_message,
                             Integer.toString(result.appUid)))
@@ -810,7 +900,7 @@ public class BootActivity extends Activity {
         String reason = failure;
         if (reason == null && result != null) reason = result.summary();
         if (reason == null) reason = getString(R.string.bfu_root_authorization_unknown_failure);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_root_authorization_failed_title)
                 .setMessage(getString(R.string.bfu_root_authorization_failed_message, reason))
                 .setPositiveButton(android.R.string.ok, null)
@@ -856,7 +946,7 @@ public class BootActivity extends Activity {
             return;
         }
 
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_install_confirm_title)
                 .setMessage(R.string.bfu_install_confirm_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -872,7 +962,7 @@ public class BootActivity extends Activity {
                     Toast.LENGTH_LONG).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_remove_rootfs_confirm_title)
                 .setMessage(R.string.bfu_remove_rootfs_confirm_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -882,13 +972,14 @@ public class BootActivity extends Activity {
     }
 
     private void confirmTypedDebianRootfsRemoval() {
-        EditText confirmation = new EditText(this);
-        confirmation.setSingleLine(true);
-        confirmation.setHint(R.string.bfu_remove_rootfs_type_hint);
-        new AlertDialog.Builder(this)
+        View confirmationView = getLayoutInflater().inflate(
+                R.layout.dialog_delete_rootfs, null, false);
+        EditText confirmation = confirmationView.findViewById(
+                R.id.delete_rootfs_confirmation);
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_remove_rootfs_final_title)
                 .setMessage(R.string.bfu_remove_rootfs_final_message)
-                .setView(confirmation)
+                .setView(confirmationView)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.bfu_remove_rootfs_button,
                         (dialog, which) -> {
@@ -939,7 +1030,7 @@ public class BootActivity extends Activity {
                     Toast.LENGTH_LONG).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_system_config_confirm_title)
                 .setMessage(R.string.bfu_system_config_confirm_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -1003,6 +1094,7 @@ public class BootActivity extends Activity {
     private void savePreferences() {
         BfuPreferences.save(this, enableBfu.isChecked(),
                 allowCeReadableBfu.isChecked());
+        if (settingsDirty != null) settingsDirty.setVisibility(View.GONE);
     }
 
     private void updateDebianPassword(String account, EditText passwordEditor,
@@ -1086,7 +1178,7 @@ public class BootActivity extends Activity {
     }
 
     private void confirmStopDebian() {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_stop_confirm_title)
                 .setMessage(R.string.bfu_stop_confirm_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -1097,7 +1189,7 @@ public class BootActivity extends Activity {
     }
 
     private void confirmRestartDebian() {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.bfu_restart_confirm_title)
                 .setMessage(R.string.bfu_restart_confirm_message)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -1108,88 +1200,44 @@ public class BootActivity extends Activity {
     }
 
     private void refreshSystemConfigurationStatus() {
-        if (systemConfigStatus == null || systemConfigLog == null) return;
+        if (systemConfigStatus == null) return;
         try {
             String status = DebianSystemProvisioner.readStatus(this);
             if (status.isEmpty()) status = getString(R.string.bfu_system_config_status_none);
             replaceConsoleText(systemConfigStatus,
-                    getString(R.string.bfu_system_config_status, status), true);
+                    getString(R.string.bfu_system_config_status, compact(status, 360)), false);
         } catch (IOException e) {
             replaceConsoleText(systemConfigStatus, getString(
-                    R.string.bfu_system_config_status_failed, e.getMessage()), true);
-        }
-        try {
-            String log = DebianSystemProvisioner.readLogTail(this);
-            if (log.isEmpty()) log = getString(R.string.bfu_system_config_log_none);
-            if (!log.equals(lastDisplayedSystemConfigLog)) {
-                if (hasConsoleSelection(systemConfigLog)
-                        || !isConsoleAtBottom(systemConfigLog,
-                        lastDisplayedSystemConfigLog)) return;
-                lastDisplayedSystemConfigLog = log;
-                systemConfigLog.setText(log);
-                scrollConsoleToBottom(systemConfigLog);
-            }
-        } catch (IOException e) {
-            replaceConsoleText(systemConfigLog, getString(
-                    R.string.bfu_system_config_log_failed, e.getMessage()), true);
+                    R.string.bfu_system_config_status_failed, e.getMessage()), false);
         }
     }
 
     private void refreshLifecycleStatus() {
-        if (lifecycleStatus == null || lifecycleLog == null) return;
+        if (lifecycleStatus == null) return;
         try {
             String status = DebianLauncher.readStatus(this);
             if (status.isEmpty()) status = getString(R.string.bfu_lifecycle_status_none);
             replaceConsoleText(lifecycleStatus,
-                    getString(R.string.bfu_lifecycle_status, status), true);
+                    getString(R.string.bfu_lifecycle_status, compact(status, 420)), false);
         } catch (IOException e) {
             replaceConsoleText(lifecycleStatus, getString(
-                    R.string.bfu_lifecycle_status_failed, e.getMessage()), true);
-        }
-        try {
-            String log = DebianLauncher.readLogTail(this);
-            if (log.isEmpty()) log = getString(R.string.bfu_lifecycle_log_none);
-            if (!log.equals(lastDisplayedLifecycleLog)) {
-                if (hasConsoleSelection(lifecycleLog)
-                        || !isConsoleAtBottom(lifecycleLog,
-                        lastDisplayedLifecycleLog)) return;
-                lastDisplayedLifecycleLog = log;
-                lifecycleLog.setText(log);
-                scrollConsoleToBottom(lifecycleLog);
-            }
-        } catch (IOException e) {
-            replaceConsoleText(lifecycleLog, getString(
-                    R.string.bfu_lifecycle_log_failed, e.getMessage()), true);
+                    R.string.bfu_lifecycle_status_failed, e.getMessage()), false);
         }
     }
 
     private void refreshInstallerStatus() {
-        if (installStatus == null || installLog == null) return;
+        if (installStatus == null) return;
 
         try {
             String status = DebianRootfsInstaller.readStatus(this);
             if (status.isEmpty()) status = getString(R.string.bfu_debian_install_status_none);
             replaceConsoleText(installStatus,
-                    getString(R.string.bfu_debian_install_status, status), true);
+                    getString(R.string.bfu_debian_install_status,
+                            compact(status, 360)), false);
         } catch (IOException e) {
             replaceConsoleText(installStatus,
                     getString(R.string.bfu_debian_install_status_failed, e.getMessage()),
-                    true);
-        }
-
-        try {
-            String log = DebianRootfsInstaller.readLogTail(this);
-            if (log.isEmpty()) log = getString(R.string.bfu_debian_install_log_none);
-            if (!log.equals(lastDisplayedInstallLog)) {
-                if (hasConsoleSelection(installLog)
-                        || !isConsoleAtBottom(installLog, lastDisplayedInstallLog)) return;
-                lastDisplayedInstallLog = log;
-                installLog.setText(log);
-                scrollConsoleToBottom(installLog);
-            }
-        } catch (IOException e) {
-            replaceConsoleText(installLog,
-                    getString(R.string.bfu_debian_install_log_failed, e.getMessage()), true);
+                    false);
         }
     }
 
@@ -1214,24 +1262,14 @@ public class BootActivity extends Activity {
     private void recordOperation(String message) {
         try {
             BfuOperationLog.append(this, message);
-            refreshOperationLog();
         } catch (IOException e) {
             Log.e(TAG, "Failed to append BFU UI operation log", e);
-            replaceConsoleText(operationLog,
-                    getString(R.string.bfu_operation_log_failed, e.getMessage()), true);
         }
     }
 
     private void replaceConsoleText(TextView console, String value, boolean followBottom) {
-        if (console == null || TextUtils.equals(console.getText(), value)
-                || hasConsoleSelection(console)) return;
-        boolean wasAtBottom = isConsoleAtBottom(console, console.getText().toString());
+        if (console == null || TextUtils.equals(console.getText(), value)) return;
         console.setText(value);
-        if (followBottom && wasAtBottom) {
-            scrollConsoleToBottom(console);
-        } else {
-            console.scrollTo(0, 0);
-        }
     }
 
     private void scrollConsoleToBottom(TextView console) {
@@ -1261,6 +1299,13 @@ public class BootActivity extends Activity {
     private static String oneLine(String value) {
         if (value == null) return "(null)";
         return value.replace('\r', ' ').replace('\n', ' ').trim();
+    }
+
+    private static String compact(String value, int maximumLength) {
+        if (value == null) return "";
+        String clean = value.trim();
+        if (clean.length() <= maximumLength) return clean;
+        return clean.substring(0, Math.max(0, maximumLength - 1)) + "…";
     }
 
     private EditText createPasswordEditor(int hint) {
@@ -1313,7 +1358,7 @@ public class BootActivity extends Activity {
     }
 
     /** Lets a console consume drags while it can scroll, then hands edge drags to the page. */
-    private static final class ConsoleTextView extends TextView {
+    private static final class ConsoleTextView extends AppCompatTextView {
         private float previousY;
 
         ConsoleTextView(Context context) {
