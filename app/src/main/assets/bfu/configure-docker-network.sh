@@ -206,6 +206,7 @@ probe_native_nft() {
     probe_config=/run/dawnshell-docker-native-nft-probe.json
     cat > "$probe_config" <<'EOF_NATIVE_PROBE'
 {
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
   "bridge": "none",
   "firewall-backend": "nftables",
   "iptables": false,
@@ -291,6 +292,7 @@ temporary="$docker_dir/.daemon.json.dawnshell.$$"
 if [ "$backend" = none ]; then
     cat > "$temporary" <<'EOF_HOST'
 {
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
   "bridge": "none",
   "iptables": false,
   "ip6tables": false,
@@ -302,6 +304,7 @@ EOF_HOST
 elif [ "$backend" = native-nft ]; then
     cat > "$temporary" <<'EOF_NATIVE_NFT'
 {
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
   "firewall-backend": "nftables",
   "iptables": true,
   "ip6tables": false,
@@ -313,6 +316,7 @@ EOF_NATIVE_NFT
 else
     cat > "$temporary" <<'EOF_BRIDGE'
 {
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
   "iptables": true,
   "ip6tables": false,
   "ip-forward": true,
@@ -342,6 +346,7 @@ format=1
 requested_policy=$policy
 resolved_backend=$backend
 network_namespace=android-shared
+cgroup_driver=cgroupfs
 bridge_mutates_android_global_netfilter=$([ "$backend" = none ] && echo false || echo true)
 configured_epoch=$(date +%s)
 EOF_RECORD
@@ -350,7 +355,7 @@ chmod 0644 "${policy_record}.new"
 mv "${policy_record}.new" "$policy_record"
 sync
 
-echo "DOCKER_POLICY_SUCCEEDED: requested=$policy resolved_backend=$backend"
+echo "DOCKER_POLICY_SUCCEEDED: requested=$policy resolved_backend=$backend cgroup_driver=cgroupfs"
 if [ "$backend" = none ]; then
     echo "USAGE: start containers with --network host"
 fi

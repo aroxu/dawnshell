@@ -138,6 +138,11 @@ Docker는 기본적으로 **안전한 호스트 네트워크만 사용**을 선�
 docker run --network host ...
 ```
 
+DawnShell은 위임된 비공개 cgroup 계층 안에서 Docker의 cgroup driver를
+`cgroupfs`로 고정합니다. 따라서 Android 구형 커널 호환 환경의 systemd에
+컨테이너 transient scope 생성을 요청하지 않습니다. `docker info --format
+'{{.CgroupDriver}}'` 결과가 `cgroupfs`인지 확인할 수 있습니다.
+
 bridge 모드는 Android 전체의 방화벽, NAT(Network Address Translation), 경로와
 전달 설정을 변경할 수 있습니다. Wi-Fi, 모바일 데이터, USB Ethernet, VPN,
 Tailscale, 현재 SSH 연결이 끊길 수 있습니다. 별도 복구 방법이 없으면 강제 bridge

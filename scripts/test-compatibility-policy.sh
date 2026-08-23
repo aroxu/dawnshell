@@ -41,6 +41,8 @@ grep -Fq '"iptables": false' "$policy_script"
 grep -Fq '"ip6tables": false' "$policy_script"
 grep -Fq '"ip-forward": false' "$policy_script"
 grep -Fq '"ip-masq": false' "$policy_script"
+[[ "$(grep -Fc '"exec-opts": ["native.cgroupdriver=cgroupfs"]' "$policy_script")" -eq 4 ]]
+grep -Fq 'cgroup_driver=cgroupfs' "$policy_script"
 grep -Fq 'android:id="@+id/docker_network_policy_group"' "$layout"
 grep -Fq 'android:id="@+id/cgroup_policy_group"' "$layout"
 grep -Fq 'android:id="@+id/usb_passthrough_group"' "$layout"

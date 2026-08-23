@@ -97,6 +97,11 @@ specific kernel. Docker defaults to safe host-network-only mode:
 docker run --network host ...
 ```
 
+DawnShell pins Docker to the `cgroupfs` cgroup driver inside its delegated,
+private cgroup hierarchy. This avoids asking Android's old-kernel systemd
+compatibility environment to create transient container scopes. Confirm it
+with `docker info --format '{{.CgroupDriver}}'`; the result must be `cgroupfs`.
+
 Bridge networking can change Android-wide firewall, NAT, forwarding, and routes.
 It can disconnect Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, and SSH.
 Prepare a separate recovery path before enabling a forced bridge backend.
