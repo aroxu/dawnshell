@@ -4,7 +4,6 @@ import android.content.Context;
 import android.os.SystemClock;
 import android.util.Log;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -12,40 +11,21 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.RandomAccessFile;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
-
-import javax.net.ssl.HttpsURLConnection;
 
 final class DebianRootfsInstaller {
 
     private static final String TAG = "DawnShell";
     private static final String LOG_FILE = "debian-install.log";
     private static final String STATUS_FILE = "debian-install.status";
-    private static final int CONNECT_TIMEOUT_MS = 30_000;
-    private static final int READ_TIMEOUT_MS = 60_000;
     private static final int MAX_TAIL_BYTES = 48 * 1024;
     private static final int MAX_CHILD_LINE_CHARS = 8 * 1024;
-
-    private static final Artifact DEBOOTSTRAP = new Artifact(
-            "Debian Trixie debootstrap 1.0.141",
-            "https://deb.debian.org/debian/pool/main/d/debootstrap/"
-                    + "debootstrap_1.0.141.tar.gz",
-            "232ec755f4b1f445f829996885846abba6f1b6fd55d049476ab26ddd8c4b4e1b");
-    private static final Artifact ARCHIVE_KEYRING = new Artifact(
-            "Debian Trixie archive keyring 2025.1",
-            "https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/"
-                    + "debian-archive-keyring_2025.1_all.deb",
-            "9ea7778e443144ca490668737a8ab22dd3e748bb99e805e22ec055abeb3c7fac");
 
     private static final Object FILE_LOCK = new Object();
 
@@ -58,20 +38,20 @@ final class DebianRootfsInstaller {
         try {
             log = new LogSink(logFile(deContext));
             log.line("============================================================");
-            updateStage(deContext, log, "Preparing Debian 13 Trixie arm64 installation");
+            updateStage(deContext, log, "Preparing Debian 13 Trixie "
+                    + layout.architecture.debianArchitecture + " installation");
             log.line("Final target: " + BfuRootfsProbe.ROOTFS_PATH);
-            log.line("Termux CE is used only for AFU bootstrap tools; no rootfs file is stored there");
-
-            downloadAndVerify(deContext, log, DEBOOTSTRAP, layout.debootstrapArchive);
-            downloadAndVerify(deContext, log, ARCHIVE_KEYRING,
-                    layout.archiveKeyringPackage);
+            log.line("Using source-built Android bootstrap tools for "
+                    + layout.architecture.androidAbi + "; Termux is not used");
+            log.line("Using APK-bundled, pinned debootstrap and Debian archive keyring");
 
             updateStage(deContext, log, "Starting root installer");
             String command = "/system/bin/sh "
                     + BfuSu.shellQuote(layout.rootfsInstallerScript.getAbsolutePath())
                     + " " + BfuSu.shellQuote(layout.debootstrapArchive.getAbsolutePath())
                     + " " + BfuSu.shellQuote(layout.archiveKeyringPackage.getAbsolutePath())
-                    + " " + BfuSu.shellQuote(layout.root.getAbsolutePath());
+                    + " " + BfuSu.shellQuote(layout.root.getAbsolutePath())
+                    + " " + BfuSu.shellQuote(layout.architecture.debianArchitecture);
             BfuSu.StartedProcess started = BfuSu.start(command);
             process = started.process;
             log.line("Magisk command accepted by " + started.command);
@@ -98,7 +78,8 @@ final class DebianRootfsInstaller {
             }
 
             log.line("Debian rootfs installation completed successfully");
-            writeStatus(deContext, "SUCCEEDED Debian 13 Trixie rootfs is ready at "
+            writeStatus(deContext, "SUCCEEDED Debian 13 Trixie "
+                    + layout.architecture.debianArchitecture + " rootfs is ready at "
                     + BfuRootfsProbe.ROOTFS_PATH);
             Log.i(TAG, "Debian rootfs installation succeeded");
         } catch (InterruptedException e) {
@@ -183,82 +164,6 @@ final class DebianRootfsInstaller {
         }
     }
 
-    private static void downloadAndVerify(Context deContext, LogSink log,
-                                          Artifact artifact, File destination)
-            throws IOException {
-        updateStage(deContext, log, "Verifying " + artifact.label);
-        if (destination.isFile() && artifact.sha256.equals(sha256(destination))) {
-            log.line("Using verified cached artifact: " + destination.getName());
-            return;
-        }
-
-        File temporary = new File(destination.getParentFile(),
-                destination.getName() + ".part");
-        if (temporary.exists() && !temporary.delete()) {
-            throw new IOException("cannot replace partial download " + temporary);
-        }
-
-        updateStage(deContext, log, "Downloading " + artifact.label);
-        URL url = new URL(artifact.url);
-        if (!"https".equalsIgnoreCase(url.getProtocol())
-                || !"deb.debian.org".equalsIgnoreCase(url.getHost())) {
-            throw new IOException("artifact URL is outside the pinned Debian HTTPS host");
-        }
-
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        connection.setInstanceFollowRedirects(false);
-        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-        connection.setReadTimeout(READ_TIMEOUT_MS);
-        connection.setRequestProperty("User-Agent", "DawnShell/0.8.1");
-        int responseCode = connection.getResponseCode();
-        if (responseCode != HttpsURLConnection.HTTP_OK) {
-            connection.disconnect();
-            throw new IOException("Debian download returned HTTP " + responseCode);
-        }
-
-        long expectedLength = connection.getContentLength();
-        long total = 0L;
-        long lastProgressAt = SystemClock.elapsedRealtime();
-        MessageDigest digest = newSha256();
-        try (InputStream input = new BufferedInputStream(connection.getInputStream());
-             FileOutputStream output = new FileOutputStream(temporary, false)) {
-            byte[] buffer = new byte[32 * 1024];
-            int count;
-            while ((count = input.read(buffer)) >= 0) {
-                output.write(buffer, 0, count);
-                digest.update(buffer, 0, count);
-                total += count;
-                long now = SystemClock.elapsedRealtime();
-                if (now - lastProgressAt >= 2_000L) {
-                    log.line(downloadProgress(total, expectedLength));
-                    lastProgressAt = now;
-                }
-            }
-            output.getFD().sync();
-        } finally {
-            connection.disconnect();
-        }
-
-        String actual = hex(digest.digest());
-        log.line(downloadProgress(total, expectedLength));
-        if (!artifact.sha256.equals(actual)) {
-            // A failed integrity check must never leave an artifact eligible for use.
-            //noinspection ResultOfMethodCallIgnored
-            temporary.delete();
-            throw new IOException("SHA-256 mismatch for " + artifact.label
-                    + ": expected=" + artifact.sha256 + " actual=" + actual);
-        }
-
-        if (destination.exists() && !destination.delete()) {
-            throw new IOException("cannot replace unverified cache file " + destination);
-        }
-        if (!temporary.renameTo(destination)) {
-            throw new IOException("cannot install verified cache file " + destination);
-        }
-        setOwnerOnly(destination);
-        log.line("SHA-256 verified: " + actual);
-    }
-
     private static void updateStage(Context deContext, LogSink log, String stage)
             throws IOException {
         log.line("STAGE: " + stage);
@@ -319,39 +224,6 @@ final class DebianRootfsInstaller {
         }
     }
 
-    private static String sha256(File file) throws IOException {
-        MessageDigest digest = newSha256();
-        try (InputStream input = new BufferedInputStream(new FileInputStream(file))) {
-            byte[] buffer = new byte[32 * 1024];
-            int count;
-            while ((count = input.read(buffer)) >= 0) digest.update(buffer, 0, count);
-        }
-        return hex(digest.digest());
-    }
-
-    private static MessageDigest newSha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("Android runtime has no SHA-256", e);
-        }
-    }
-
-    private static String hex(byte[] bytes) {
-        StringBuilder result = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) result.append(String.format(Locale.US, "%02x", value & 0xff));
-        return result.toString();
-    }
-
-    private static String downloadProgress(long bytes, long expected) {
-        if (expected > 0L) {
-            int percent = (int) Math.min(100L, bytes * 100L / expected);
-            return "Download progress: " + bytes + "/" + expected + " bytes ("
-                    + percent + "%)";
-        }
-        return "Download progress: " + bytes + " bytes";
-    }
-
     private static String sanitizeChildLine(String value) {
         String clean = value.replace('\0', ' ').replace('\r', ' ');
         if (clean.length() > MAX_CHILD_LINE_CHARS) {
@@ -367,18 +239,6 @@ final class DebianRootfsInstaller {
         file.setExecutable(false, false);
         file.setReadable(true, true);
         file.setWritable(true, true);
-    }
-
-    private static final class Artifact {
-        final String label;
-        final String url;
-        final String sha256;
-
-        Artifact(String label, String url, String sha256) {
-            this.label = label;
-            this.url = url;
-            this.sha256 = sha256;
-        }
     }
 
     private static final class LogSink implements Closeable {

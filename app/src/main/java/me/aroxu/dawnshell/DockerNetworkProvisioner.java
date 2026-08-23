@@ -45,7 +45,9 @@ final class DockerNetworkProvisioner {
                     layout.dockerNetworkConfiguratorScript.getAbsolutePath())
                     + " " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
                     + " " + BfuSu.shellQuote(layout.root.getAbsolutePath())
-                    + " " + BfuSu.shellQuote(validated);
+                    + " " + BfuSu.shellQuote(validated)
+                    + " " + BfuSu.shellQuote(
+                    layout.architecture.debianArchitecture);
             BfuSu.StartedProcess started = BfuSu.start(command);
             process = started.process;
             log.line("Magisk command accepted by " + started.command);

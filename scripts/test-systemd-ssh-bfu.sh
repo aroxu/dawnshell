@@ -36,6 +36,14 @@ for tool in adb ssh sed; do
   }
 done
 
+android_abi="$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+case "$android_abi" in
+  armeabi-v7a) debian_arch=armhf ;;
+  arm64-v8a) debian_arch=arm64 ;;
+  x86_64) debian_arch=amd64 ;;
+  *) echo "Unsupported Android ABI: $android_abi" >&2; exit 2 ;;
+esac
+
 read_boot_de_file() {
   adb exec-out run-as me.aroxu.dawnshell cat "$1" 2>/dev/null | tr -d '\r'
 }
@@ -250,7 +258,7 @@ require_one_fresh_record "BFU namespace/chroot probe" \
   'DEBIAN_RUNTIME_PROBE ' "$runtime_new"
 grep -Fq 'exit=0 timeout=false namespace_chroot=true' <<<"$runtime_new"
 grep -Fq 'user_unlocked_before=false user_unlocked_after=false' <<<"$runtime_new"
-grep -Fq 'BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=arm64 debian=13' \
+grep -Fq "BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=$debian_arch debian=13" \
   <<<"$runtime_new"
 grep -Fq 'init=present systemctl=present' <<<"$runtime_new"
 

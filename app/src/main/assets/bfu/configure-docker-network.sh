@@ -5,7 +5,6 @@ set -eu
 # Debian firewall frontends without changing rules, and publishes a managed
 # daemon.json only when no unmanaged Docker configuration would be overwritten.
 
-PREFIX=/data/data/com.termux/files/usr
 ROOT=/data/local/debian
 
 fail() {
@@ -15,13 +14,16 @@ fail() {
     exit "$code"
 }
 
-[ "$#" -eq 3 ] || [ "$#" -eq 4 ] || \
-    fail 2 "usage: configure-docker-network.sh ROOT BFU_ROOT POLICY [--inside-mount-ns]"
+[ "$#" -eq 4 ] || [ "$#" -eq 5 ] || \
+    fail 2 "usage: configure-docker-network.sh ROOT BFU_ROOT POLICY DEBIAN_ARCH [--inside-mount-ns]"
 
 REQUESTED_ROOT="$1"
 BFU_ROOT="$2"
 POLICY="$3"
-MODE="${4-}"
+EXPECTED_ARCH="$4"
+MODE="${5-}"
+BIN="$BFU_ROOT/bin"
+TOOLBOX="$BIN/busybox"
 
 [ "$REQUESTED_ROOT" = "$ROOT" ] || fail 3 "only $ROOT is allowed"
 case "$BFU_ROOT" in
@@ -35,28 +37,32 @@ case "$POLICY" in
     host|auto|native_nft|iptables_nft|legacy) ;;
     *) fail 3 "Docker network policy must be host, auto, native_nft, iptables_nft, or legacy" ;;
 esac
+case "$EXPECTED_ARCH" in
+    armhf|arm64|amd64) ;;
+    *) fail 3 "unsupported Debian architecture: $EXPECTED_ARCH" ;;
+esac
 
 if [ "$MODE" != "--inside-mount-ns" ]; then
-    [ -x "$PREFIX/bin/unshare" ] || \
-        fail 10 "missing $PREFIX/bin/unshare; install Termux util-linux and mount-utils"
-    [ -x "$PREFIX/bin/mount" ] || \
-        fail 10 "missing $PREFIX/bin/mount; install Termux mount-utils"
+    [ -x "$TOOLBOX" ] || fail 10 "source-built DawnShell toolbox is missing"
     echo "Creating private AFU mount namespace for Docker policy"
-    exec "$PREFIX/bin/unshare" --mount --fork \
+    exec "$TOOLBOX" unshare --mount --fork \
         /system/bin/sh "$0" "$ROOT" "$BFU_ROOT" "$POLICY" \
-        --inside-mount-ns
+        "$EXPECTED_ARCH" --inside-mount-ns
 fi
 
 umask 022
-export PATH="$PREFIX/bin:/system/bin:/system/xbin"
+export PATH="$BIN:/system/bin:/system/xbin"
 export HOME="$BFU_ROOT/home"
 export TMPDIR="$BFU_ROOT/tmp"
 unset LD_PRELOAD || true
 
+"$TOOLBOX" --install -s "$BIN" || \
+    fail 10 "could not provision bootstrap toolbox applets"
+
 for tool in cat chroot date grep id mkdir mount mv readlink rm rmdir \
     sha256sum stat sync tr; do
-    [ -x "$PREFIX/bin/$tool" ] || \
-        fail 10 "missing $PREFIX/bin/$tool; install Termux util-linux and mount-utils"
+    command -v "$tool" >/dev/null 2>&1 || \
+        fail 10 "source-built bootstrap applet is missing: $tool"
 done
 
 [ "$(id -u)" = 0 ] || fail 11 "Docker policy did not obtain uid 0"
@@ -67,6 +73,8 @@ done
 [ -f "$ROOT/.dawnshell-rootfs" ] || fail 14 "DawnShell rootfs marker is missing"
 grep -Fqx 'suite=trixie' "$ROOT/.dawnshell-rootfs" || \
     fail 14 "rootfs is not Debian 13 Trixie"
+grep -Fqx "architecture=$EXPECTED_ARCH" "$ROOT/.dawnshell-rootfs" || \
+    fail 14 "rootfs architecture does not match app runtime $EXPECTED_ARCH"
 
 echo "Making Android mounts recursively private"
 mount --make-rprivate /

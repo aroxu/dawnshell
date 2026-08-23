@@ -38,6 +38,7 @@ printf 'cycle\tandroid_boot_id\tboot_app_pid\ttotal_pss_kib\ttotal_rss_kib\tsupe
 preflight="$results_dir/preflight.txt"
 crypto_state="$(adb shell getprop ro.crypto.state | tr -d '\r')"
 crypto_type="$(adb shell getprop ro.crypto.type | tr -d '\r')"
+cpu_abi="$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
 bfu_app_id="$(adb shell dumpsys package me.aroxu.dawnshell \
   | tr -d '\r' | sed -n 's/^ *appId=\([0-9][0-9]*\).*$/\1/p' | sed -n '1p')"
 {
@@ -45,7 +46,7 @@ bfu_app_id="$(adb shell dumpsys package me.aroxu.dawnshell \
   echo "reported_device=$(adb shell getprop ro.product.device | tr -d '\r')"
   echo "crypto_state=$crypto_state"
   echo "crypto_type=${crypto_type:-<unset>}"
-  echo "cpu_abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+  echo "cpu_abi=$cpu_abi"
   echo "dawnshell_app_id=$bfu_app_id"
   adb shell dumpsys package me.aroxu.dawnshell \
     | tr -d '\r' | grep -E 'appId=|dataDir=|targetSdk='
@@ -61,7 +62,10 @@ fi
 if [[ -z "$crypto_type" ]]; then
   echo "NOTE: ro.crypto.type is unset; fresh locked-state CE-isolation evidence is mandatory."
 fi
-grep -Fq 'cpu_abi=arm64-v8a' "$preflight"
+case "$cpu_abi" in
+  armeabi-v7a|arm64-v8a|x86_64) ;;
+  *) echo "FAIL: unsupported Android ABI: $cpu_abi" >&2; exit 2 ;;
+esac
 [[ -n "$bfu_app_id" ]] || {
   echo "FAIL: standalone DawnShell app is not installed" >&2
   exit 2
@@ -72,14 +76,14 @@ target_count="$(grep -Fc 'targetSdk=28' "$preflight" || true)"
   exit 2
 }
 
-bfu_apk="$repo_dir/dist/dawnshell_0.1.0_debug.apk"
+bfu_apk="$repo_dir/dist/dawnshell_0.2.0_debug.apk"
 [[ -f "$bfu_apk" ]] || {
   echo "FAIL: missing staged APK: $bfu_apk" >&2
   exit 2
 }
 actual_bfu_hash="$(sha256sum "$bfu_apk" | awk '{print toupper($1)}')"
 embedded_helper_hash="$(unzip -p "$bfu_apk" \
-  assets/bfu/bin/bfu-namespace-probe-arm64 \
+  "assets/bfu/bin/$cpu_abi/bfu-namespace-probe" \
   | sha256sum | awk '{print toupper($1)}')"
 
 artifact_evidence="$results_dir/artifacts.tsv"
@@ -134,7 +138,7 @@ for ((cycle = 1; cycle <= cycles; cycle++)); do
     2>/dev/null | tr -d '\r')"
   supervisor_pid="$(sed -n 's/^supervisor_pid=//p' <<<"$state")"
   init_host_pid="$(sed -n 's/^init_host_pid=//p' <<<"$state")"
-  helper="/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/bfu-namespace-probe-arm64"
+  helper="/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/bfu-namespace-probe"
   rootfs="/data/local/debian"
   control="/data/user_de/0/me.aroxu.dawnshell/files/bfu/run"
   launcher_status="$(adb shell su -c \

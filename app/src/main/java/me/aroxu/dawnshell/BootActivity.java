@@ -1026,9 +1026,11 @@ public class BootActivity extends AppCompatActivity {
         try {
             savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
-            BfuRuntime.provision(this);
+            BfuRuntime.Layout layout = BfuRuntime.provision(this);
             BfuBootService.requestDebianRootfsInstall(this);
-            recordOperation("DEBIAN_INSTALL_REQUESTED suite=trixie architecture=arm64");
+            recordOperation("DEBIAN_INSTALL_REQUESTED suite=trixie architecture="
+                    + layout.architecture.debianArchitecture
+                    + " android_abi=" + layout.architecture.androidAbi);
             Toast.makeText(this, R.string.bfu_install_requested,
                     Toast.LENGTH_LONG).show();
             refreshInstallerStatus();

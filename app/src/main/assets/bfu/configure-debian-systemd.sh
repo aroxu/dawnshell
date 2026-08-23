@@ -1,10 +1,8 @@
 #!/system/bin/sh
 set -eu
 
-# Runs only after Android's first unlock. Termux CE binaries are management
-# tools for this one AFU operation; Debian itself remains at /data/local/debian.
+# Uses only the source-built BFU toolbox in Device Protected Storage.
 
-PREFIX=/data/data/com.termux/files/usr
 ROOT=/data/local/debian
 SUITE=trixie
 SSH_USER=debian
@@ -17,13 +15,16 @@ fail() {
     exit "$code"
 }
 
-[ "$#" -eq 3 ] || [ "$#" -eq 4 ] || \
-    fail 2 "usage: configure-debian-systemd.sh ROOT BFU_ROOT AUTHORIZED_KEYS [--inside-mount-ns]"
+[ "$#" -eq 4 ] || [ "$#" -eq 5 ] || \
+    fail 2 "usage: configure-debian-systemd.sh ROOT BFU_ROOT AUTHORIZED_KEYS DEBIAN_ARCH [--inside-mount-ns]"
 
 REQUESTED_ROOT="$1"
 BFU_ROOT="$2"
 AUTHORIZED_KEYS="$3"
-MODE="${4-}"
+EXPECTED_ARCH="$4"
+MODE="${5-}"
+BIN="$BFU_ROOT/bin"
+TOOLBOX="$BIN/busybox"
 
 [ "$REQUESTED_ROOT" = "$ROOT" ] || fail 3 "only $ROOT is allowed"
 case "$BFU_ROOT" in
@@ -37,32 +38,35 @@ case "$BFU_ROOT" in
 esac
 [ "$AUTHORIZED_KEYS" = "$BFU_ROOT/etc/authorized_keys" ] || \
     fail 3 "authorized_keys must be the provisioned DE file"
+case "$EXPECTED_ARCH" in
+    armhf|arm64|amd64) ;;
+    *) fail 3 "unsupported Debian architecture: $EXPECTED_ARCH" ;;
+esac
 
 if [ "$MODE" != "--inside-mount-ns" ]; then
-    [ -x "$PREFIX/bin/unshare" ] || \
-        fail 10 "missing $PREFIX/bin/unshare; run in Termux: pkg install util-linux mount-utils"
-    [ -x "$PREFIX/bin/mount" ] || \
-        fail 10 "missing $PREFIX/bin/mount; run in Termux: pkg install mount-utils"
+    [ -x "$TOOLBOX" ] || fail 10 "source-built DawnShell toolbox is missing"
     echo "Creating private AFU mount namespace for Debian configuration"
-    exec "$PREFIX/bin/unshare" --mount --fork \
+    exec "$TOOLBOX" unshare --mount --fork \
         /system/bin/sh "$0" "$ROOT" "$BFU_ROOT" "$AUTHORIZED_KEYS" \
-        --inside-mount-ns
+        "$EXPECTED_ARCH" --inside-mount-ns
 fi
 
 umask 022
-export PATH="$PREFIX/bin:/system/bin:/system/xbin"
+export PATH="$BIN:/system/bin:/system/xbin"
 export HOME="$BFU_ROOT/home"
 export TMPDIR="$BFU_ROOT/tmp"
 unset LD_PRELOAD || true
 
+"$TOOLBOX" --install -s "$BIN" || \
+    fail 10 "could not provision bootstrap toolbox applets"
+
 for tool in awk cat chroot chmod chown cp date grep id mkdir mount mv \
     readlink rm rmdir sed stat sync tr; do
-    [ -x "$PREFIX/bin/$tool" ] || \
-        fail 10 "missing $PREFIX/bin/$tool; run in Termux: pkg install util-linux mount-utils"
+    command -v "$tool" >/dev/null 2>&1 || \
+        fail 10 "source-built bootstrap applet is missing: $tool"
 done
 
 [ "$(id -u)" = "0" ] || fail 11 "configuration did not obtain uid 0"
-[ "$(uname -m)" = "aarch64" ] || fail 12 "only aarch64 is supported"
 [ -d "$ROOT" ] || fail 13 "rootfs is missing: $ROOT"
 [ ! -L "$ROOT" ] || fail 13 "rootfs symlinks are forbidden"
 [ "$(readlink -f "$ROOT")" = "$ROOT" ] || fail 13 "rootfs resolves elsewhere"
@@ -70,8 +74,13 @@ done
 [ -f "$ROOT/.dawnshell-rootfs" ] || fail 14 "DawnShell rootfs marker is missing"
 grep -Fqx "suite=$SUITE" "$ROOT/.dawnshell-rootfs" || \
     fail 14 "rootfs is not Debian 13 Trixie"
-grep -Fqx 'architecture=arm64' "$ROOT/.dawnshell-rootfs" || \
-    fail 14 "rootfs is not arm64"
+ROOTFS_ARCH="$(sed -n 's/^architecture=//p' "$ROOT/.dawnshell-rootfs" | head -n 1)"
+case "$ROOTFS_ARCH" in
+    armhf|arm64|amd64) ;;
+    *) fail 14 "rootfs has an unsupported architecture: $ROOTFS_ARCH" ;;
+esac
+[ "$ROOTFS_ARCH" = "$EXPECTED_ARCH" ] || \
+    fail 14 "rootfs architecture $ROOTFS_ARCH does not match app runtime $EXPECTED_ARCH"
 [ -x "$ROOT/bin/bash" ] || fail 15 "rootfs has no executable /bin/bash"
 [ -f "$AUTHORIZED_KEYS" ] || fail 16 "save at least one SSH public key first"
 [ ! -L "$AUTHORIZED_KEYS" ] || fail 16 "authorized_keys symlinks are forbidden"
@@ -162,6 +171,7 @@ container=dawnshell DEBIAN_FRONTEND=noninteractive \
     HOME=/root \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 \
+    DAWNSHELL_DEBIAN_ARCH="$ROOTFS_ARCH" \
     container=dawnshell \
     DEBIAN_FRONTEND=noninteractive \
     /bin/bash -s <<'DEBIAN_CONFIG'
@@ -196,8 +206,8 @@ source /etc/os-release
     echo "ERROR: expected Debian Trixie"
     exit 30
 }
-[ "$(dpkg --print-architecture)" = arm64 ] || {
-    echo "ERROR: expected Debian arm64"
+[ "$(dpkg --print-architecture)" = "$DAWNSHELL_DEBIAN_ARCH" ] || {
+    echo "ERROR: expected Debian $DAWNSHELL_DEBIAN_ARCH"
     exit 31
 }
 
@@ -417,7 +427,7 @@ systemctl --root=/ --no-reload set-default multi-user.target
 cat > "${READY_MARKER}.new" <<EOF_READY
 format=1
 suite=trixie
-architecture=arm64
+architecture=$DAWNSHELL_DEBIAN_ARCH
 init=/sbin/init
 ssh_service=ssh.service
 boot_proof_service=dawnshell-boot-proof.service

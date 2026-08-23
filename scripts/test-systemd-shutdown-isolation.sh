@@ -14,7 +14,7 @@ esac
 ssh_user="${BFU_SSH_USER:-debian}"
 ssh_port="${BFU_SSH_PORT:-22}"
 wait_seconds="${BFU_SSH_WAIT_SECONDS:-120}"
-helper="/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/bfu-namespace-probe-arm64"
+helper="/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/bfu-namespace-probe"
 rootfs="/data/local/debian"
 control="/data/user_de/0/me.aroxu.dawnshell/files/bfu/run"
 lifecycle_log="$control/debian-lifecycle.log"

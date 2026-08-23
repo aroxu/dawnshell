@@ -68,8 +68,8 @@
     <string name="bfu_operation_log_none">No button operation has been recorded yet.</string>
     <string name="bfu_operation_log_failed">Failed to read or write the operation log: %1$s</string>
     <string name="bfu_log_console_hint">Drag inside a console to scroll it. Long-press to select and copy. Live follow pauses while selected or scrolled up.</string>
-    <string name="bfu_debian_install_explanation">Rootfs installation runs only after unlock. In Termux, first run: pkg install debootstrap util-linux mount-utils. The app downloads pinned official Debian artifacts, verifies SHA-256, and builds a staging tree before publishing /data/local/debian.</string>
-    <string name="bfu_install_debian">Install Debian 13 Trixie arm64 rootfs</string>
+    <string name="bfu_debian_install_explanation">No Termux packages are required. The app includes source-built bootstrap tools for ARMv7, ARM64, and x86_64, verifies pinned Debian metadata and packages, then publishes the completed rootfs to /data/local/debian.</string>
+    <string name="bfu_install_debian">Install Debian 13 Trixie rootfs</string>
     <string name="bfu_remove_debian_rootfs">Permanently delete Debian rootfs</string>
     <string name="bfu_remove_rootfs_requires_unlock">Unlock Android before deleting the Debian rootfs.</string>
     <string name="bfu_remove_rootfs_confirm_title">Delete /data/local/debian?</string>
@@ -84,7 +84,7 @@
     <string name="bfu_install_requires_enabled">Enable Direct Boot Debian bootstrap before installing.</string>
     <string name="bfu_install_requires_unlock">Unlock Android before installing the Debian rootfs.</string>
     <string name="bfu_install_confirm_title">Install Debian 13 Trixie rootfs?</string>
-    <string name="bfu_install_confirm_message">This downloads Debian 13 Trixie packages and runs upstream debootstrap as pre-authorized Magisk root. Existing /data/local/debian is never overwritten or upgraded in place. Keep this app open to watch the live log.</string>
+    <string name="bfu_install_confirm_message">This uses the source-built bootstrap runtime bundled for your device ABI, downloads signed Debian 13 Trixie packages, and runs upstream debootstrap as pre-authorized Magisk root. Existing /data/local/debian is never overwritten or upgraded in place. Keep this app open to watch the live log.</string>
     <string name="bfu_install_confirm_button">Install</string>
     <string name="bfu_install_requested">Debian installation requested. Live output appears below.</string>
     <string name="bfu_debian_install_status">Debian installer status:\n%1$s</string>

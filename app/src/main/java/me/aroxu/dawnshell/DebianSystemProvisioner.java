@@ -39,8 +39,11 @@ final class DebianSystemProvisioner {
             log = new LogSink(logFile(deContext));
             log.line("============================================================");
             updateStage(deContext, log,
-                    "Preparing Debian 13 systemd, D-Bus, and OpenSSH configuration");
+                    "Preparing Debian 13 " + layout.architecture.debianArchitecture
+                            + " systemd, D-Bus, and OpenSSH configuration");
             log.line("Rootfs: " + BfuRootfsProbe.ROOTFS_PATH);
+            log.line("Management runtime: source-built "
+                    + layout.architecture.androidAbi + " BFU toolbox; no Termux CE");
             log.line("SSH policy: user=debian port=22 public-key-only; Android NIC shared directly");
 
             if (!layout.authorizedKeys.isFile() || layout.authorizedKeys.length() == 0) {
@@ -52,7 +55,9 @@ final class DebianSystemProvisioner {
                     + BfuSu.shellQuote(layout.systemdConfiguratorScript.getAbsolutePath())
                     + " " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
                     + " " + BfuSu.shellQuote(layout.root.getAbsolutePath())
-                    + " " + BfuSu.shellQuote(layout.authorizedKeys.getAbsolutePath());
+                    + " " + BfuSu.shellQuote(layout.authorizedKeys.getAbsolutePath())
+                    + " " + BfuSu.shellQuote(
+                    layout.architecture.debianArchitecture);
             BfuSu.StartedProcess started = BfuSu.start(command);
             process = started.process;
             log.line("Magisk command accepted by " + started.command);

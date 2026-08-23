@@ -1,14 +1,14 @@
 #!/system/bin/sh
 set -eu
 
-# This installer is invoked only after UserManager confirms that CE is unlocked.
-# It uses Termux binaries as AFU build tools, but the resulting rootfs and every
-# file needed by the BFU launcher live outside Termux CE storage.
+# This installer uses only the ABI-specific toolbox provisioned in Device
+# Protected Storage. It never reads Termux or another app's CE storage.
 
-PREFIX=/data/data/com.termux/files/usr
 TARGET=/data/local/debian
 STAGE=/data/local/debian.installing
-MIRROR=https://deb.debian.org/debian
+# BusyBox TLS does not authenticate peers, so package transport is HTTP. Debian
+# Release signatures and every Packages/.deb hash are still verified by gpgv.
+MIRROR=http://deb.debian.org/debian
 SUITE=trixie
 DEBOOTSTRAP_VERSION=1.0.141
 ARCHIVE_KEYRING_VERSION=2025.1
@@ -22,13 +22,18 @@ fail() {
     exit "$code"
 }
 
-[ "$#" -eq 3 ] || [ "$#" -eq 4 ] || \
-    fail 2 "usage: install-debian-rootfs.sh DEBOOTSTRAP_ARCHIVE KEYRING_DEB BFU_ROOT [--inside-mount-ns]"
+[ "$#" -eq 4 ] || [ "$#" -eq 5 ] || \
+    fail 2 "usage: install-debian-rootfs.sh DEBOOTSTRAP_ARCHIVE KEYRING_DEB BFU_ROOT DEBIAN_ARCH [--inside-mount-ns]"
 
 DEBOOTSTRAP_ARCHIVE="$1"
 KEYRING_DEB="$2"
 BFU_ROOT="$3"
-MODE="${4-}"
+DEBIAN_ARCH="$4"
+MODE="${5-}"
+BIN="$BFU_ROOT/bin"
+TOOLBOX="$BIN/busybox"
+GPGV="$BIN/gpgv"
+PKGDETAILS_BINARY="$BIN/pkgdetails"
 
 case "$BFU_ROOT" in
     /*) ;;
@@ -47,31 +52,42 @@ case "$KEYRING_DEB" in
     "$BFU_ROOT"/downloads/*) ;;
     *) fail 3 "archive keyring package is outside the provisioned BFU download directory" ;;
 esac
+case "$DEBIAN_ARCH" in
+    armhf|arm64|amd64) ;;
+    *) fail 3 "unsupported Debian architecture: $DEBIAN_ARCH" ;;
+esac
 
 if [ "$MODE" != "--inside-mount-ns" ]; then
-    [ -x "$PREFIX/bin/unshare" ] || \
-        fail 10 "missing $PREFIX/bin/unshare; run: pkg install debootstrap util-linux mount-utils"
+    [ -x "$TOOLBOX" ] || fail 10 "source-built DawnShell toolbox is missing"
     echo "Creating private mount namespace for rootfs installation"
-    exec "$PREFIX/bin/unshare" --mount --fork \
+    exec "$TOOLBOX" unshare --mount --fork \
         /system/bin/sh "$0" "$DEBOOTSTRAP_ARCHIVE" "$KEYRING_DEB" \
-        "$BFU_ROOT" --inside-mount-ns
+        "$BFU_ROOT" "$DEBIAN_ARCH" --inside-mount-ns
 fi
 
 umask 022
-export PATH="$PREFIX/bin:/system/bin:/system/xbin"
+export PATH="$BIN:/system/bin:/system/xbin"
 export HOME="$BFU_ROOT/home"
 export TMPDIR="$BFU_ROOT/tmp"
 unset LD_PRELOAD || true
 
-for tool in awk cat chroot chmod cp date df dpkg dpkg-deb gpgv grep gzip \
-    id mkdir mknod mount mv perl rm rmdir sed sha256sum stat sync tail tar tr umount \
-    wget; do
-    [ -x "$PREFIX/bin/$tool" ] || \
-        fail 10 "missing $PREFIX/bin/$tool; run in Termux: pkg install debootstrap util-linux mount-utils"
+for tool in "$TOOLBOX" "$GPGV" "$PKGDETAILS_BINARY"; do
+    [ -x "$tool" ] || fail 10 "missing source-built bootstrap executable: $tool"
+done
+
+# Populate private applet symlinks from the source-built BusyBox multicall
+# binary. The operation is idempotent and remains entirely inside BFU DE.
+"$TOOLBOX" --install -s "$BIN" || \
+    fail 10 "could not provision bootstrap toolbox applets"
+
+for tool in awk cat chroot chmod cp cut date df dpkg-deb grep gzip head id \
+    mkdir mknod mount mv rm rmdir sed sha256sum stat sync tail tar tr umount \
+    uname wget; do
+    command -v "$tool" >/dev/null 2>&1 || \
+        fail 10 "source-built bootstrap applet is missing: $tool"
 done
 
 [ "$(id -u)" = "0" ] || fail 11 "installer did not obtain uid 0"
-[ "$(uname -m)" = "aarch64" ] || fail 12 "this milestone supports only aarch64"
 [ -r "$DEBOOTSTRAP_ARCHIVE" ] || fail 13 "debootstrap source archive is missing"
 [ -r "$KEYRING_DEB" ] || fail 14 "Debian archive keyring package is missing"
 
@@ -144,11 +160,12 @@ echo "$$" > "$LOCK_DIR/owner"
 if [ -d "$TARGET" ]; then
     if [ -f "$TARGET/.dawnshell-rootfs" ] && \
        [ -x "$TARGET/bin/sh" ] && [ -s "$TARGET/etc/debian_version" ]; then
-        if grep -Fqx "suite=$SUITE" "$TARGET/.dawnshell-rootfs"; then
+        if grep -Fqx "suite=$SUITE" "$TARGET/.dawnshell-rootfs" && \
+           grep -Fqx "architecture=$DEBIAN_ARCH" "$TARGET/.dawnshell-rootfs"; then
             echo "ALREADY_INSTALLED: verified Debian 13 Trixie rootfs exists at $TARGET; no files changed"
             exit 0
         fi
-        fail 20 "$TARGET contains a different verified DawnShell rootfs; expected suite=$SUITE; refusing to overwrite or upgrade it"
+        fail 20 "$TARGET contains a different verified DawnShell rootfs; expected suite=$SUITE architecture=$DEBIAN_ARCH; refusing to overwrite or upgrade it"
     fi
     fail 20 "$TARGET already exists but is not a verified DawnShell rootfs; refusing to overwrite it"
 fi
@@ -201,12 +218,29 @@ RUNNER="$WORK/debootstrap-portable"
 [ -s "$SOURCE_ROOT/functions" ] || fail 25 "upstream debootstrap functions were not extracted"
 [ -s "$KEYRING" ] || fail 26 "Debian archive keyring was not extracted"
 
+# --arch supplies the target and this file supplies the matching host ABI,
+# avoiding debootstrap's optional dependency on a host dpkg installation.
+printf '%s\n' "$DEBIAN_ARCH" > "$SOURCE_ROOT/arch"
+cp "$PKGDETAILS_BINARY" "$SOURCE_ROOT/pkgdetails"
+chmod 700 "$SOURCE_ROOT/pkgdetails"
+
+# Keep host chroot resolution on the source-built BFU toolbox even while
+# upstream temporarily assigns the target's PATH to an eval builtin.
+# The replacement is intentionally literal.
+# shellcheck disable=SC2016
+sed 's|CHROOT_CMD="chroot \\"$TARGET\\""|CHROOT_CMD="$DAWNSHELL_HOST_CHROOT \\"$TARGET\\""|' \
+    "$SOURCE_ROOT/debootstrap" > "$RUNNER"
+chmod 700 "$RUNNER"
+# Verify the literal code written above.
+# shellcheck disable=SC2016
+grep -Fq 'CHROOT_CMD="$DAWNSHELL_HOST_CHROOT \"$TARGET\""' "$RUNNER" || \
+    fail 27 "the Android host-chroot portability patch was not applied"
+export DAWNSHELL_HOST_CHROOT="$BIN/chroot"
+
 # Upstream temporarily assigns the target PATH to the special shell builtin
-# `eval` in in_target(). Android's mksh keeps that assignment in the parent
-# shell, so later host-side helpers unexpectedly resolve to Android toybox.
-# In particular, toybox sed does not interpret debootstrap's GNU-BRE `\+` URL
-# expression, producing https:__... instead of the downloaded apt-list name.
-# Keep the target PATH inside a subshell while preserving upstream diagnostics.
+# `eval` in in_target(). A POSIX shell may retain that assignment in the parent,
+# so later host helpers could escape the source-built BFU PATH. Scope it to a
+# subshell while preserving upstream diagnostics.
 cat >> "$SOURCE_ROOT/functions" <<'EOF'
 
 # DAWNSHELL_ANDROID_PATH_SCOPE
@@ -255,14 +289,6 @@ EOF
 grep -Fq 'DAWNSHELL_ANDROID_PATH_SCOPE' "$SOURCE_ROOT/functions" || \
     fail 28 "the Android host-PATH compatibility patch was not applied"
 
-# Upstream assumes host dpkg is always /usr/bin/dpkg. Android has no /usr tree;
-# keep every other upstream behavior intact and resolve dpkg through the AFU PATH.
-sed 's|HOST_ARCH=$(/usr/bin/dpkg --print-architecture)|HOST_ARCH=$(dpkg --print-architecture)|' \
-    "$SOURCE_ROOT/debootstrap" > "$RUNNER"
-chmod 700 "$RUNNER"
-grep -Fq 'HOST_ARCH=$(dpkg --print-architecture)' "$RUNNER" || \
-    fail 27 "the Android host-dpkg portability patch was not applied"
-
 mkdir -p "$STAGE"
 
 WGETRC="$WORK/wgetrc"
@@ -274,11 +300,13 @@ retry_connrefused = on
 EOF
 export WGETRC
 
-echo "Starting Debian 13 Trixie arm64 minbase bootstrap"
+echo "Starting Debian 13 Trixie $DEBIAN_ARCH minbase bootstrap"
 echo "Target: $STAGE"
 echo "Mirror: $MIRROR"
-DEBOOTSTRAP_DIR="$SOURCE_ROOT" /system/bin/sh "$RUNNER" \
-    --arch=arm64 \
+DEBOOTSTRAP_DIR="$SOURCE_ROOT" PKGDETAILS="$SOURCE_ROOT/pkgdetails" \
+    "$TOOLBOX" ash "$RUNNER" \
+    --arch="$DEBIAN_ARCH" \
+    --extractor=ar \
     --variant=minbase \
     --keyring="$KEYRING" \
     --force-check-sig \
@@ -300,14 +328,14 @@ grep -Fqx 'VERSION_CODENAME=trixie' "$STAGE/etc/os-release" || \
     fail 37 "completed tree is not Debian Trixie"
 
 rootfs_arch="$(chroot "$STAGE" /usr/bin/dpkg --print-architecture)"
-[ "$rootfs_arch" = "arm64" ] || fail 33 "unexpected rootfs architecture: $rootfs_arch"
+[ "$rootfs_arch" = "$DEBIAN_ARCH" ] || fail 33 "unexpected rootfs architecture: $rootfs_arch"
 passwd_owner="$(stat -c '%u:%g' "$STAGE/etc/passwd")"
 [ "$passwd_owner" = "0:0" ] || fail 34 "root ownership was not preserved: /etc/passwd=$passwd_owner"
 
 cat > "$STAGE/.dawnshell-rootfs" <<EOF
 format=1
 suite=$SUITE
-architecture=arm64
+architecture=$DEBIAN_ARCH
 mirror=$MIRROR
 debootstrap=$DEBOOTSTRAP_VERSION
 archive_keyring=$ARCHIVE_KEYRING_VERSION

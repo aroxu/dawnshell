@@ -26,6 +26,14 @@ sleep "$wait_seconds"
 echo "Now unlock once so ADB can reconnect and the DE evidence can be read."
 adb wait-for-device
 
+android_abi="$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+case "$android_abi" in
+  armeabi-v7a) debian_arch=armhf ;;
+  arm64-v8a) debian_arch=arm64 ;;
+  x86_64) debian_arch=amd64 ;;
+  *) echo "Unsupported Android ABI: $android_abi" >&2; exit 2 ;;
+esac
+
 boot_results="$(adb shell run-as me.aroxu.dawnshell cat "$boot_log")"
 root_results="$(adb shell run-as me.aroxu.dawnshell cat "$root_log")"
 rootfs_results="$(adb shell run-as me.aroxu.dawnshell cat "$rootfs_log")"
@@ -49,6 +57,6 @@ printf '%s\n' "$latest_runtime" | grep -Fq ' namespace_chroot=true '
 printf '%s\n' "$latest_runtime" | grep -Fq ' user_unlocked_before=false '
 printf '%s\n' "$latest_runtime" | grep -Fq ' user_unlocked_after=false '
 printf '%s\n' "$latest_runtime" | grep -Fq \
-  'BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=arm64 debian=13'
+  "BFU_DEBIAN_NAMESPACE_OK pid=1 proc1=sh arch=$debian_arch debian=13"
 
 echo "PASS: private namespaces, PID-namespace /proc, and Debian chroot worked during BFU."
