@@ -9,6 +9,3 @@ local.properties
 test-results/
 dist/
 .build-*.log
-termux-app/
-termux-boot/
-termux-packages/
