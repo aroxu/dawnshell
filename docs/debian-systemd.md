@@ -8,18 +8,19 @@ Android init (host PID 1)
   -> Termux: BFU direct-Boot-aware foreground service
   -> pre-authorized Magisk su
   -> root start-debian helper
-  -> private mount + PID + UTS + cgroup + network namespaces
-  -> Android IPC namespace retained
-  -> veth + NAT to Android's selected uplink
+  -> private mount + PID + UTS + cgroup namespaces
+  -> Android IPC + network namespaces retained
+  -> shared NIC + Tailscale bypass-mark route shim
   -> Debian 13 Trixie arm64 chroot
   -> /sbin/init (PID 1 in the Debian PID namespace)
   -> enabled systemd services
 ```
 
-No IPC namespace is created on the target. Debian instead receives a private
-network namespace with `tbfu-guest`, a default route through `tbfu-host`, and a
-private TUN such as `tailscale0`. A host manager NATs the dedicated /30 and tracks
-Android's selected Wi-Fi, mobile, USB Ethernet, or other default table. The IPC exception
+No IPC or network namespace is created on the target. Debian directly sees
+Android's Wi-Fi, mobile, USB Ethernet, IP addresses, and `tailscale0`. A manager
+tracks Android's selected default table and maintains a priority-5200 route rule
+only for Tailscale's `0x80000/0xff0000` bypass mark. No veth, NAT, forwarding, or
+port DNAT is used. The IPC exception
 is mandatory: pstore proves the Samsung 4.4.302 kernel panics in
 `copy_ipcs -> mq_init_ns -> mqueue_mount -> mount_ns` when this process requests
 `CLONE_NEWIPC`. First unlock is recorded but does not stop or restart the BFU
@@ -95,12 +96,12 @@ avoids the clipboard.
 After unlock, the activity can set local passwords for `root` and `debian` by
 feeding `chpasswd` through stdin. It does not enable SSH password or root login.
 The local root password is intentionally powerful: `su root` uses Debian's setuid
-binary on the private rootfs mount and becomes Android uid 0 within the private
-network namespace and retained Android IPC namespace.
+binary on the private rootfs mount and becomes Android uid 0 within the retained
+Android network and IPC namespaces.
 
 After the initial PID 1 grace period, the launcher records all namespace inodes
-and rejects the instance unless PID/mount/UTS/cgroup/network are private while
-IPC matches Android. Java then polls the fixed native `health` operation until it
+and rejects the instance unless PID/mount/UTS/cgroup are private while IPC and
+network match Android. Java then polls the fixed native `health` operation until it
 proves systemd PID 1, active D-Bus service and bus, `multi-user.target`, active
 `ssh.service`, an active independent boot-proof service with its `/run` marker,
 and a TCP 22 listener. It checks both that `multi-user.target` is configured as
@@ -136,8 +137,8 @@ and [v257 release notes](https://github.com/systemd/systemd/blob/v257/NEWS).
 1. BFU `su -c id` returns `uid=0` and persists the result in DE.
 2. BFU root validates the selected Debian rootfs structure, shell mode, and
    temporary read/write access.
-3. Root helper creates mount/PID/UTS/cgroup/network namespaces, retains Android
-   IPC, creates the veth/NAT path, and PID 1 sees its own `/proc`.
+3. Root helper creates mount/PID/UTS/cgroup namespaces, retains Android IPC and
+   network, starts the bypass-mark watcher, and PID 1 sees its own `/proc`.
 4. `chroot` executes Debian `/bin/sh` as namespace PID 1.
 5. `/sbin/init` becomes namespace PID 1.
 6. D-Bus and `systemctl` work and the default target is reached.

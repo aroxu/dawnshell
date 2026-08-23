@@ -57,9 +57,9 @@ LOCKED_BOOT_COMPLETED
   -> app-owned CE-isolation sentinel check
   -> pre-authorized Magisk root probe
   -> /data/local/debian rootfs gate
-  -> private mount/PID/UTS/cgroup/network namespaces
-     (Android IPC retained for Samsung Linux 4.4 compatibility)
-  -> managed veth + NAT to Android's current active network
+  -> private mount/PID/UTS/cgroup namespaces
+     (Android IPC and network retained for Samsung Linux 4.4 compatibility)
+  -> direct shared-NIC networking with a managed Tailscale fwmark route shim
   -> Debian 13 systemd as namespace PID 1
   -> D-Bus + ssh.service + boot-proof service
 
@@ -139,9 +139,11 @@ provisioned-helper equality with the staged APK, process memory evidence, and
 poweroff/reboot/shutdown namespace isolation. It does not test normal
 Termux:Boot handoff because that belongs to the separate `com.termux.boot` app.
 
-The network manager follows the table selected by Android, so Wi-Fi, mobile data,
-and USB Ethernet can be hot-plugged without restarting Debian. Android/ROM support
-must still bring the physical interface up and obtain its address during BFU.
+The network manager follows the table selected by Android and routes Tailscale's
+Linux bypass mark directly through it, without veth, NAT, or forwarding. Wi-Fi,
+mobile data, and USB Ethernet can be hot-plugged without restarting Debian.
+Android/ROM support must still bring the physical interface up and obtain its
+address during BFU.
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
 [testing](docs/testing.md), [rootfs installation](docs/rootfs-installation.md),

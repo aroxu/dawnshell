@@ -216,10 +216,11 @@ once for AFU validation.
 
 Press **Refresh Debian systemd status**. A successful launcher status contains
 `BFU_DEBIAN_RUNNING`, identity-valid supervisor/init, valid namespace topology,
-`network_namespace=private-veth`, and a native health line proving D-Bus,
-`ssh.service`, and TCP 22. Host inspection must show `tbfu-host`, destination-only
-and veth-ingress policy rules, and dedicated `TBFU_NAT`/`TBFU_FWD` chains. After
-an explicit stop all of those objects must be absent and `ip_forward` restored.
+`network_namespace=android-shared network_mode=shared-nic`, and a native health
+line proving D-Bus, `ssh.service`, and TCP 22. With an uplink, host inspection
+must show priority 5200 matching `fwmark 0x80000/0xff0000` and looking up Android's
+selected table. It must show no `tbfu-host`, `TBFU_NAT`, or `TBFU_FWD`. After an
+explicit stop, the priority-5200 IPv4/IPv6 rules must be absent.
 Then confirm from another computer:
 
 ```sh
@@ -269,12 +270,12 @@ gate. Debian 13's systemd 257 requires the explicit cgroup-v1 legacy-force path;
 never repair a failure by remounting or delegating Android's host controller tree.
 
 For network-mode validation, start with no uplink and confirm systemd/sshd stay
-running with `tbfu-guest` up. Enable Wi-Fi and require outbound IPv4 plus SSH to
-the phone address without restarting Debian. If USB Ethernet is available,
-hot-plug it, confirm Android assigned the interface and route, then repeat SSH
-from its local subnet and outbound connectivity. The lifecycle log must record a
-new `active_android_table=` when Android changes its selected default table.
-Kernel-mode Tailscale validation requires `tailscale0` inside Debian's netns and
+running. Enable Wi-Fi and require outbound IPv4 plus SSH to the phone address
+without restarting Debian. If USB Ethernet is available, hot-plug it, confirm
+Android assigned the interface and route, then repeat SSH from its local subnet
+and outbound connectivity. The lifecycle log must record a new
+`tailscale_bypass_table=` when Android changes its selected default table.
+Kernel-mode Tailscale validation requires `tailscale0` in the shared netns and
 successful IPv4 control-plane access; an unavailable IPv6 uplink may still log
 IPv6 fallback failures.
 

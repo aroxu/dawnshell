@@ -252,7 +252,7 @@ grep -Fq 'cgroup_v1_name_systemd_mounted' <<<"$lifecycle_new"
 grep -Fq 'private_systemd_cgroup_view_mounted' <<<"$lifecycle_new"
 grep -Fq 'label=debian_pid1_cgroup' <<<"$lifecycle_new"
 grep -Fq 'ipc_namespace=android-shared' <<<"$lifecycle_new"
-grep -Fq 'network_namespace=private-veth' <<<"$lifecycle_new"
+grep -Fq 'network_namespace=android-shared network_mode=shared-nic' <<<"$lifecycle_new"
 grep -Fq 'ANDROID_HEALTH attempt=' <<<"$lifecycle_new"
 grep -Fq 'ready=true' <<<"$lifecycle_new"
 

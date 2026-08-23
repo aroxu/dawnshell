@@ -17,8 +17,8 @@
    and Debian.
 5. Root is required for the Debian launcher but is never assumed: each boot must
    prove `su -c id` returned `uid=0`, and failure cannot crash the BFU controller.
-6. The Debian launcher creates a private network namespace and exposes only its
-   managed veth uplink, not Android interfaces or Android's controller mounts, to
+6. The Debian launcher intentionally shares Android's network namespace for
+   native-NIC performance. It does not expose Android's controller mounts to
    systemd. Its named tracking cgroup and every bind mount are visible only
    through the private mount/cgroup namespace view.
 7. The locked-boot standalone app process must prove that its provisioned CE sentinel
@@ -73,9 +73,11 @@ its normal setuid binary, while retaining `nodev`; the host `/data` mount is nev
 remounted. Consequently, a Debian root shell has device-level root authority and
 is not a container security boundary. `/sys` and `/proc/sys` are read-only. The
 state file records all requested namespace inodes and requires the Debian network
-namespace to differ from Android's while IPC remains shared. Host policy rules
-are limited to the BFU veth and /30 destination; dedicated iptables chains and
-`ip_forward` are removed or restored when the identity-verified supervisor exits.
+and IPC namespaces to match Android's. The launcher adds no veth, NAT, forwarding,
+or DNAT. Its only host route mutation is priority 5200, matching Tailscale's exact
+`0x80000/0xff0000` bypass mark and looking up Android's current active table. The
+IPv4/IPv6 rules are updated on uplink changes and removed when the
+identity-verified supervisor exits.
 
 The host reboot bridge is intentionally privileged. Its source FIFO is a fixed
 file under the private DE control directory, owned by root with mode 0600, and is
@@ -162,7 +164,9 @@ and must be handled as credentials. Rotation destroys the app's previous identit
 updates DE public-key state, and requires Debian system reconfiguration before the
 new key replaces the installed `authorized_keys`.
 
-Tailscale may run in kernel TUN mode inside the private network namespace. Never
+Tailscale may run in kernel TUN mode inside the shared network namespace. Its
+`tailscale0`, route rules, and netfilter state are consequently Android-global;
+this mode is a performance choice, not a network isolation boundary. Never
 store a reusable enrollment auth key in DE or the BFU rootfs. Interactive login
 is preferred. Once enrolled, `/var/lib/tailscale/tailscaled.state` is necessarily
 available during BFU and must be treated as a device credential with weaker
@@ -172,8 +176,8 @@ The target's IPC namespace is a documented compatibility exception, not a
 container-security boundary. A captured kernel panic proves that Samsung's
 4.4.302 kernel faults while creating a new IPC namespace, so the launcher never
 requests `CLONE_NEWIPC`; its build rejects any reintroduction of that call. The
-launcher still requires private mount/PID/UTS/cgroup/network namespaces and
-shared IPC. Only the dedicated public-key-authenticated emergency account
+launcher still requires private mount/PID/UTS/cgroup namespaces and shared
+IPC/network. Only the dedicated public-key-authenticated emergency account
 and reviewed BFU services should run in this environment. A kernel with a fixed
 IPC namespace implementation is required before claiming IPC isolation.
 

@@ -41,7 +41,7 @@ final class DebianSystemProvisioner {
             updateStage(deContext, log,
                     "Preparing Debian 13 systemd, D-Bus, and OpenSSH configuration");
             log.line("Rootfs: " + BfuRootfsProbe.ROOTFS_PATH);
-            log.line("SSH policy: user=debian port=22 public-key-only; private veth network namespace");
+            log.line("SSH policy: user=debian port=22 public-key-only; Android NIC shared directly");
 
             if (!layout.authorizedKeys.isFile() || layout.authorizedKeys.length() == 0) {
                 throw new IOException("DE authorized_keys is missing or empty");
