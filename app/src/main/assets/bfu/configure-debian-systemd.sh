@@ -89,8 +89,9 @@ key_size="$(stat -c '%s' "$AUTHORIZED_KEYS")"
 case "$key_size" in
     ''|*[!0-9]*) fail 16 "could not determine authorized_keys size" ;;
 esac
-[ "$key_size" -gt 0 ] && [ "$key_size" -le 32768 ] || \
+if [ "$key_size" -le 0 ] || [ "$key_size" -gt 32768 ]; then
     fail 16 "authorized_keys must contain 1..32768 bytes"
+fi
 
 echo "Making Android mounts recursively private"
 mount --make-rprivate /
