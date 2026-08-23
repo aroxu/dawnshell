@@ -10,6 +10,7 @@ ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/29.0.14206865}"
 export ANDROID_NDK_HOME
 
 "$root_dir/scripts/build-bfu-namespace-probe.sh"
+"$root_dir/scripts/test-compatibility-policy.sh"
 "$root_dir/gradlew" -p "$root_dir" \
   clean :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
 

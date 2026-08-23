@@ -177,7 +177,7 @@
     <string name="dawnshell_log_copied">Log copied to the clipboard.</string>
     <string name="dawnshell_log_copy_empty">There is no log text to copy.</string>
     <string name="dawnshell_log_summary_none">No status yet</string>
-    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s</string>
+    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nDocker network policy: %4$s</string>
     <string name="dawnshell_log_section_format">===== %1$s =====\n%2$s</string>
     <string name="dawnshell_log_section_status">Status</string>
     <string name="dawnshell_log_section_output">Output</string>
@@ -187,4 +187,31 @@
     <string name="dawnshell_log_section_ce_probe">CE isolation probe</string>
     <string name="dawnshell_log_section_rootfs_probe">Rootfs probe</string>
     <string name="dawnshell_log_section_runtime_probe">Namespace / chroot probe</string>
+    <string name="dawnshell_section_compatibility">Kernel &amp; Docker compatibility</string>
+    <string name="dawnshell_section_compatibility_description">DawnShell checks kernel capabilities at runtime instead of guessing from the version string. Auto modes try the modern backend first and fall back only after a bounded probe fails and temporary probe state is cleaned.</string>
+    <string name="dawnshell_cgroup_policy_title">Systemd and Docker cgroups</string>
+    <string name="dawnshell_cgroup_policy_auto">Automatic: cgroup v2 → v1 fallback (recommended)</string>
+    <string name="dawnshell_cgroup_policy_v2">Force cgroup v2 only (experimental)</string>
+    <string name="dawnshell_cgroup_policy_v1">Force cgroup v1 legacy mode</string>
+    <string name="dawnshell_cgroup_policy_warning">This selection takes effect on the next Debian start or restart. Automatic mode adopts v2 only after a dedicated cgroup2 subtree in a private mount view and cgroup-device BPF attach both succeed. Force v2 disables the known-good v1 fallback and can prevent Debian from booting. Force v1 skips modern isolation and attaches the legacy devices controller to a hierarchy; Android tasks remain outside DawnShell’s delegated child, but this is still a kernel-global controller attachment.</string>
+    <string name="dawnshell_docker_policy_title">Docker networking</string>
+    <string name="dawnshell_docker_policy_host">Safe host network only (recommended)</string>
+    <string name="dawnshell_docker_policy_auto">Automatic bridge: native nftables → iptables-nft → legacy</string>
+    <string name="dawnshell_docker_policy_nft">Force native nftables (Docker 29+, experimental)</string>
+    <string name="dawnshell_docker_policy_iptables_nft">Force iptables-nft bridge</string>
+    <string name="dawnshell_docker_policy_legacy">Force legacy iptables bridge (older kernels)</string>
+    <string name="dawnshell_docker_policy_warning">DANGER: DawnShell deliberately shares Android’s network namespace for native NIC speed. Every bridge option lets Docker modify Android-global firewall, NAT, forwarding, and routes. It can break Wi-Fi, mobile data, USB Ethernet, VPN/Tailscale, or remote access. Host-only mode disables Docker bridge/firewall management and requires Docker host networking.</string>
+    <string name="dawnshell_apply_docker_policy">Apply Docker network policy</string>
+    <string name="dawnshell_view_compatibility_log">View compatibility log</string>
+    <string name="dawnshell_docker_policy_requires_unlock">Unlock Android before changing Docker networking.</string>
+    <string name="dawnshell_docker_policy_confirm_title">Apply Docker network policy?</string>
+    <string name="dawnshell_docker_policy_confirm_host">DawnShell will stop Debian if it is running, disable Docker bridge, NAT, forwarding, and firewall management, then restore the previous Debian running state. Containers must use Docker host networking.</string>
+    <string name="dawnshell_docker_policy_confirm_bridge">This mode can modify Android-global firewall, NAT, forwarding, and routes because Debian shares Android’s network namespace. DawnShell will stop Debian, probe the selected backend, apply the managed Docker configuration, and restore the previous running state.</string>
+    <string name="dawnshell_docker_policy_confirm_button">Apply policy</string>
+    <string name="dawnshell_docker_policy_requested">Docker network policy queued. Follow the compatibility log.</string>
+    <string name="dawnshell_docker_policy_status">Docker policy status:\n%1$s</string>
+    <string name="dawnshell_docker_policy_status_none">No Docker network policy has been applied yet.</string>
+    <string name="dawnshell_docker_policy_status_failed">Failed to read Docker policy status: %1$s</string>
+    <string name="dawnshell_log_compatibility_title">Compatibility policy</string>
+    <string name="dawnshell_log_compatibility_description">Cgroup negotiation and Docker nft/legacy/host-network policy output.</string>
 </resources>

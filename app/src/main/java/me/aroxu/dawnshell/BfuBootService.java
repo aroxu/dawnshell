@@ -36,6 +36,8 @@ public class BfuBootService extends Service {
             "me.aroxu.dawnshell.action.STOP_DEBIAN_SYSTEMD";
     static final String ACTION_REMOVE_DEBIAN_ROOTFS =
             "me.aroxu.dawnshell.action.REMOVE_DEBIAN_ROOTFS";
+    static final String ACTION_APPLY_DOCKER_NETWORK_POLICY =
+            "me.aroxu.dawnshell.action.APPLY_DOCKER_NETWORK_POLICY";
 
     private static final String TAG = "DawnShell";
     private static final String NOTIFICATION_CHANNEL_ID = "dawnshell";
@@ -47,6 +49,7 @@ public class BfuBootService extends Service {
     private final AtomicBoolean systemConfigurationStarted = new AtomicBoolean(false);
     private final AtomicBoolean lifecycleOperationStarted = new AtomicBoolean(false);
     private final AtomicBoolean rootfsRemovalStarted = new AtomicBoolean(false);
+    private final AtomicBoolean dockerPolicyStarted = new AtomicBoolean(false);
 
     private final BroadcastReceiver userUnlockedReceiver = new BroadcastReceiver() {
         @Override
@@ -92,7 +95,19 @@ public class BfuBootService extends Service {
             Log.i(TAG, "BFU startup checks skipped because Android is already unlocked");
         }
 
-        if (ACTION_REMOVE_DEBIAN_ROOTFS.equals(action)) {
+        if (ACTION_APPLY_DOCKER_NETWORK_POLICY.equals(action)) {
+            String policy = BfuPreferences.dockerNetworkPolicy(this);
+            if (!userUnlocked) {
+                DockerNetworkProvisioner.recordRejected(this,
+                        "unlock Android before applying Docker network policy");
+            } else if (dockerPolicyStarted.compareAndSet(false, true)) {
+                DockerNetworkProvisioner.recordQueued(this, policy);
+                executor.execute(() -> runDockerNetworkPolicy(policy));
+            } else {
+                DockerNetworkProvisioner.recordRejected(this,
+                        "another Docker policy operation is already running");
+            }
+        } else if (ACTION_REMOVE_DEBIAN_ROOTFS.equals(action)) {
             if (!userUnlocked) {
                 recordOperation("DEBIAN_ROOTFS_REMOVE_REJECTED user_locked=true");
             } else if (rootfsInstallStarted.get() || systemConfigurationStarted.get()
@@ -160,6 +175,10 @@ public class BfuBootService extends Service {
 
     static void requestDebianRootfsRemoval(Context context) {
         startServiceAction(context, ACTION_REMOVE_DEBIAN_ROOTFS);
+    }
+
+    static void requestDockerNetworkPolicy(Context context) {
+        startServiceAction(context, ACTION_APPLY_DOCKER_NETWORK_POLICY);
     }
 
     static void requestDebianLifecycle(Context context, DebianLauncher.Operation operation) {
@@ -321,6 +340,36 @@ public class BfuBootService extends Service {
         } finally {
             rootfsRemovalStarted.set(false);
             if (!BfuPreferences.isEnabled(this)) stopSelf();
+        }
+    }
+
+    private void runDockerNetworkPolicy(String policy) {
+        BfuRuntime.Layout layout = null;
+        boolean wasRunning = false;
+        try {
+            layout = BfuRuntime.provision(this);
+            wasRunning = DebianLauncher.isRunning(layout);
+            if (wasRunning && !runDebianLifecycleNow(layout,
+                    DebianLauncher.Operation.STOP, "AFU_Docker_policy")) {
+                DockerNetworkProvisioner.recordRejected(this,
+                        "could not prove that Debian PID 1 stopped");
+                return;
+            }
+            DockerNetworkProvisioner.apply(this, layout, policy);
+        } catch (IOException | IllegalStateException e) {
+            DockerNetworkProvisioner.recordRejected(this,
+                    "Docker policy provisioning failed: "
+                            + BfuSu.sanitize(e.getMessage()));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            DockerNetworkProvisioner.recordRejected(this,
+                    "Docker policy operation interrupted");
+        } finally {
+            if (wasRunning && layout != null && !Thread.currentThread().isInterrupted()) {
+                runDebianLifecycleNow(layout, DebianLauncher.Operation.START,
+                        "AFU_Docker_policy_completed");
+            }
+            dockerPolicyStarted.set(false);
         }
     }
 

@@ -46,6 +46,27 @@ for marker in "${required_devices_markers[@]}"; do
     }
 done
 
+required_negotiation_markers=(
+    'prepare_unified_cgroup_mount(control_dir)'
+    'cgroup_v2_device_bpf_verified'
+    'cgroup_requested=auto'
+    'fallback=v1'
+    'cgroup_delegation=delegated'
+    'CGROUP_POLICY_FORCE_V2'
+    'CGROUP_POLICY_FORCE_V1'
+)
+for marker in "${required_negotiation_markers[@]}"; do
+    grep -Fq "$marker" "$source_file" || {
+        echo "Missing cgroup capability-negotiation invariant: $marker" >&2
+        exit 8
+    }
+done
+
+if grep -Eq 'uname[[:space:]]*\([^)]*-r|/proc/version' "$source_file"; then
+    echo "Cgroup selection must probe capabilities, not kernel version strings" >&2
+    exit 9
+fi
+
 "$compiler" \
     -std=c17 -Os -fPIE -fstack-protector-strong \
     -Wall -Wextra -Werror -Wformat=2 \

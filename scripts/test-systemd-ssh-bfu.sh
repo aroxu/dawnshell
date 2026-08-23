@@ -91,12 +91,21 @@ health_command='set -eu
 [ "$(systemctl is-active multi-user.target)" = active ]
 busctl --system --no-pager list >/dev/null
 ss -H -ltn | awk '\''$4 ~ /:22$/ { found=1 } END { exit !found }'\''
-devices_hierarchy="$(awk '\''$1 == "devices" { print $2 }'\'' /proc/cgroups)"
-[ "${devices_hierarchy:-0}" -gt 0 ]
-[ -r /sys/fs/cgroup/devices/devices.list ]
-devices_path="$(awk -F: '\''$2 == "devices" { print $3 }'\'' /proc/self/cgroup)"
-case "$devices_path" in /*) ;; *) exit 1 ;; esac
-printf "pid1=%s start_ticks=%s machine_id=%s android_boot_id=%s system_state=%s dbus_state=%s ssh_state=%s proof_state=%s proof_marker=present target=%s target_state=%s devices_cgroup=delegated devices_hierarchy=%s devices_path=%s\n" \
+if [ -r /sys/fs/cgroup/cgroup.controllers ]; then
+  cgroup_mode=v2
+  cgroup_path="$(awk -F: '\''$1 == "0" && $2 == "" { print $3 }'\'' /proc/self/cgroup)"
+  [ "$cgroup_path" = / ]
+  [ -w /sys/fs/cgroup/cgroup.procs ]
+  devices_hierarchy=0
+else
+  cgroup_mode=v1
+  devices_hierarchy="$(awk '\''$1 == "devices" { print $2 }'\'' /proc/cgroups)"
+  [ "${devices_hierarchy:-0}" -gt 0 ]
+  [ -r /sys/fs/cgroup/devices/devices.list ]
+  cgroup_path="$(awk -F: '\''$2 == "devices" { print $3 }'\'' /proc/self/cgroup)"
+  [ "$cgroup_path" = / ]
+fi
+printf "pid1=%s start_ticks=%s machine_id=%s android_boot_id=%s system_state=%s dbus_state=%s ssh_state=%s proof_state=%s proof_marker=present target=%s target_state=%s cgroup_mode=%s cgroup_delegation=delegated devices_hierarchy=%s cgroup_path=%s\n" \
   "$(cat /proc/1/comm)" \
   "$(awk '\''{print $22}'\'' /proc/1/stat)" \
   "$(cat /etc/machine-id)" \
@@ -107,8 +116,9 @@ printf "pid1=%s start_ticks=%s machine_id=%s android_boot_id=%s system_state=%s 
   "$(systemctl is-active dawnshell-boot-proof.service)" \
   "$(systemctl get-default)" \
   "$(systemctl is-active multi-user.target)" \
+  "$cgroup_mode" \
   "$devices_hierarchy" \
-  "$devices_path"'
+  "$cgroup_path"'
 
 adb get-state >/dev/null
 operation_before="$( (read_boot_de_file "$operation_log_path" || true) \
@@ -212,7 +222,7 @@ grep -Fq 'boot_proof_service=active' <<<"$lifecycle_status"
 grep -Fq 'boot_proof_marker=present' <<<"$lifecycle_status"
 grep -Fq 'target_state=active' <<<"$lifecycle_status"
 grep -Fq 'listen_22=true' <<<"$lifecycle_status"
-grep -Fq 'devices_cgroup=delegated' <<<"$lifecycle_status"
+grep -Fq 'cgroup_delegation=delegated' <<<"$lifecycle_status"
 
 locked_boot_new="$(fresh_log_lines "$locked_boot_log_path" "$locked_boot_before")"
 printf '%s\n' "$locked_boot_new"
@@ -257,12 +267,20 @@ printf '%s\n' "$lifecycle_new"
 grep -Fq 'BFU_DEBIAN_SYSTEMD_STARTED' <<<"$lifecycle_new"
 grep -Fq 'label=host_proc_cgroups' <<<"$lifecycle_new"
 grep -Fq 'label=host_cgroup_v2_controllers' <<<"$lifecycle_new"
-grep -Fq 'cgroup_v1_devices_mounted' <<<"$lifecycle_new"
-grep -Fq 'label=delegated_devices_list' <<<"$lifecycle_new"
-grep -Fq 'cgroup_v1_name_systemd_mounted' <<<"$lifecycle_new"
-grep -Fq 'init_moved_to_devices_cgroup' <<<"$lifecycle_new"
-grep -Fq 'private_cgroup_views_mounted views=systemd,devices delegated_subtree=true' \
-  <<<"$lifecycle_new"
+if grep -Fq 'cgroup_mode=v2' <<<"$locked_health"; then
+  grep -Fq 'cgroup_v2_device_bpf_verified' <<<"$lifecycle_new"
+  grep -Fq 'cgroup_resolved=v2' <<<"$lifecycle_new"
+  grep -Fq 'init_moved_to_cgroup_v2_payload' <<<"$lifecycle_new"
+  grep -Fq 'private_cgroup_views_mounted mode=v2 delegated_subtree=true' \
+    <<<"$lifecycle_new"
+else
+  grep -Fq 'cgroup_v1_devices_mounted' <<<"$lifecycle_new"
+  grep -Fq 'label=delegated_devices_list' <<<"$lifecycle_new"
+  grep -Fq 'cgroup_v1_name_systemd_mounted' <<<"$lifecycle_new"
+  grep -Fq 'init_moved_to_devices_cgroup' <<<"$lifecycle_new"
+  grep -Fq 'private_cgroup_views_mounted mode=v1 delegated_subtree=true' \
+    <<<"$lifecycle_new"
+fi
 grep -Fq 'label=debian_pid1_cgroup' <<<"$lifecycle_new"
 grep -Fq 'ipc_namespace=android-shared' <<<"$lifecycle_new"
 grep -Fq 'network_namespace=android-shared network_mode=shared-nic' <<<"$lifecycle_new"

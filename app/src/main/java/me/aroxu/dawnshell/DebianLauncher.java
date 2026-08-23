@@ -53,6 +53,16 @@ final class DebianLauncher {
 
     private DebianLauncher() {}
 
+    static boolean isRunning(BfuRuntime.Layout layout)
+            throws IOException, InterruptedException {
+        String command = BfuSu.shellQuote(layout.namespaceProbeBinary.getAbsolutePath())
+                + " status " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
+                + " " + BfuSu.shellQuote(layout.run.getAbsolutePath());
+        BfuSu.Result result = BfuSu.run(command, 12_000L);
+        return result.exitedSuccessfully()
+                && result.output.contains("BFU_DEBIAN_RUNNING");
+    }
+
     static boolean run(Context context, BfuRuntime.Layout layout, Operation operation,
                        String trigger) throws IOException, InterruptedException {
         appendLog(layout.lifecycleLog,
@@ -61,7 +71,7 @@ final class DebianLauncher {
         writeStatus(context, "RUNNING " + operation.name() + " requested by " + trigger);
         boolean userUnlockedBefore = isUserUnlocked(context);
 
-        String command = lifecycleCommand(layout, operation);
+        String command = lifecycleCommand(context, layout, operation);
         long timeoutMs;
         if (operation == Operation.START) {
             timeoutMs = 35_000L;
@@ -112,7 +122,8 @@ final class DebianLauncher {
         return successful;
     }
 
-    private static String lifecycleCommand(BfuRuntime.Layout layout, Operation operation) {
+    private static String lifecycleCommand(Context context, BfuRuntime.Layout layout,
+                                           Operation operation) {
         String command = BfuSu.shellQuote(layout.namespaceProbeBinary.getAbsolutePath())
                 + " " + operation.name().toLowerCase(Locale.US)
                 + " " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
@@ -124,6 +135,7 @@ final class DebianLauncher {
                     + " > " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH + "/etc/motd")
                     + " && " + command;
             command += " " + BfuSu.shellQuote(layout.lifecycleLog.getAbsolutePath());
+            command += " " + BfuSu.shellQuote(BfuPreferences.cgroupPolicy(context));
         }
         return command;
     }
@@ -151,7 +163,7 @@ final class DebianLauncher {
                     && result.output.contains("boot_proof_marker=present")
                     && result.output.contains("target_state=active")
                     && result.output.contains("listen_22=true")
-                    && result.output.contains("devices_cgroup=delegated");
+                    && result.output.contains("cgroup_delegation=delegated");
             appendLog(layout.lifecycleLog,
                     "ANDROID_HEALTH attempt=" + attempts
                             + " exit=" + result.exitCode

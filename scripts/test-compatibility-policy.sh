@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+preferences="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuPreferences.java"
+launcher="$repo_dir/app/src/main/java/me/aroxu/dawnshell/DebianLauncher.java"
+policy_script="$repo_dir/app/src/main/assets/bfu/configure-docker-network.sh"
+layout="$repo_dir/app/src/main/res/layout/activity_boot.xml"
+strings="$repo_dir/app/src/main/res/values/strings.xml"
+
+bash -n "$policy_script"
+
+grep -Fq 'CGROUP_AUTO = "auto"' "$preferences"
+grep -Fq 'DOCKER_HOST_ONLY = "host"' "$preferences"
+grep -Fq 'DOCKER_NATIVE_NFT_BRIDGE = "native_nft"' "$preferences"
+grep -Fq 'DOCKER_IPTABLES_NFT_BRIDGE = "iptables_nft"' "$preferences"
+grep -Fq 'BfuPreferences.cgroupPolicy(context)' "$launcher"
+grep -Fq 'cgroup_delegation=delegated' "$launcher"
+
+grep -Fq 'trying native Docker nftables first' "$policy_script"
+grep -Fq 'trying iptables-nft' "$policy_script"
+grep -Fq 'trying iptables-legacy' "$policy_script"
+native_line="$(grep -nF 'trying native Docker nftables first' "$policy_script" | cut -d: -f1)"
+nft_line="$(grep -nF 'trying iptables-nft' "$policy_script" | cut -d: -f1)"
+legacy_line="$(grep -nF 'trying iptables-legacy' "$policy_script" | cut -d: -f1)"
+(( native_line < nft_line && nft_line < legacy_line ))
+
+grep -Fq 'existing unmanaged /etc/docker/daemon.json was preserved' "$policy_script"
+grep -Fq '"bridge": "none"' "$policy_script"
+grep -Fq '"iptables": false' "$policy_script"
+grep -Fq '"ip6tables": false' "$policy_script"
+grep -Fq '"ip-forward": false' "$policy_script"
+grep -Fq '"ip-masq": false' "$policy_script"
+grep -Fq 'android:id="@+id/docker_network_policy_group"' "$layout"
+grep -Fq 'android:id="@+id/cgroup_policy_group"' "$layout"
+grep -Fq 'Android-global firewall, NAT, forwarding, and routes' "$strings"
+
+echo "PASS: capability negotiation, safe defaults, fallback order, and warnings are pinned."

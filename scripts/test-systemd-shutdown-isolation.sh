@@ -61,17 +61,27 @@ health_command='set -eu
 [ "$(systemctl is-active multi-user.target)" = active ]
 busctl --system --no-pager list >/dev/null
 ss -H -ltn | awk '\''$4 ~ /:22$/ { found=1 } END { exit !found }'\''
-devices_hierarchy="$(awk '\''$1 == "devices" { print $2 }'\'' /proc/cgroups)"
-[ "${devices_hierarchy:-0}" -gt 0 ]
-[ -r /sys/fs/cgroup/devices/devices.list ]
-devices_path="$(awk -F: '\''$2 == "devices" { print $3 }'\'' /proc/self/cgroup)"
-case "$devices_path" in /*) ;; *) exit 1 ;; esac
-printf "pid1_start_ticks=%s machine_id=%s proof_state=%s proof_marker=present target_state=%s devices_cgroup=delegated devices_hierarchy=%s devices_path=%s\n" \
+if [ -r /sys/fs/cgroup/cgroup.controllers ]; then
+  cgroup_mode=v2
+  cgroup_path="$(awk -F: '\''$1 == "0" && $2 == "" { print $3 }'\'' /proc/self/cgroup)"
+  [ "$cgroup_path" = / ]
+  [ -w /sys/fs/cgroup/cgroup.procs ]
+  devices_hierarchy=0
+else
+  cgroup_mode=v1
+  devices_hierarchy="$(awk '\''$1 == "devices" { print $2 }'\'' /proc/cgroups)"
+  [ "${devices_hierarchy:-0}" -gt 0 ]
+  [ -r /sys/fs/cgroup/devices/devices.list ]
+  cgroup_path="$(awk -F: '\''$2 == "devices" { print $3 }'\'' /proc/self/cgroup)"
+  [ "$cgroup_path" = / ]
+fi
+printf "pid1_start_ticks=%s machine_id=%s proof_state=%s proof_marker=present target_state=%s cgroup_mode=%s cgroup_delegation=delegated devices_hierarchy=%s cgroup_path=%s\n" \
   "$(awk '\''{print $22}'\'' /proc/1/stat)" "$(cat /etc/machine-id)" \
   "$(systemctl is-active dawnshell-boot-proof.service)" \
   "$(systemctl is-active multi-user.target)" \
+  "$cgroup_mode" \
   "$devices_hierarchy" \
-  "$devices_path"'
+  "$cgroup_path"'
 
 wait_for_ssh() {
   local deadline=$((SECONDS + wait_seconds))
@@ -163,9 +173,14 @@ cleanup_log="$(adb exec-out run-as me.aroxu.dawnshell \
   cat "$lifecycle_log" 2>/dev/null | tr -d '\r' \
   | sed -n "$((lifecycle_before_stop + 1)),\$p")"
 printf '%s\n' "$cleanup_log"
-grep -Fq 'cgroup_subtree_removed label=devices' <<<"$cleanup_log"
-grep -Fq 'mount_detached label=devices' <<<"$cleanup_log"
-grep -Fq 'cgroup_subtree_removed label=systemd' <<<"$cleanup_log"
+if grep -Fq 'cgroup_mode=v2' <<<"$initial_health"; then
+  grep -Fq 'cgroup_subtree_removed label=unified' <<<"$cleanup_log"
+  grep -Fq 'mount_detached label=unified' <<<"$cleanup_log"
+else
+  grep -Fq 'cgroup_subtree_removed label=devices' <<<"$cleanup_log"
+  grep -Fq 'mount_detached label=devices' <<<"$cleanup_log"
+  grep -Fq 'cgroup_subtree_removed label=systemd' <<<"$cleanup_log"
+fi
 if grep -Fq 'cleanup_cgroup_subtree_failed' <<<"$cleanup_log"; then
   echo "FAIL: delegated cgroup cleanup reported a residual subtree" >&2
   exit 6

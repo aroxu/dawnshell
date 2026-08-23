@@ -13,6 +13,7 @@ final class DawnShellLogRepository {
     static final String OPERATIONS = "operations";
     static final String INSTALLATION = "installation";
     static final String CONFIGURATION = "configuration";
+    static final String COMPATIBILITY = "compatibility";
     static final String LIFECYCLE = "lifecycle";
     static final String DIAGNOSTICS = "diagnostics";
 
@@ -24,6 +25,7 @@ final class DawnShellLogRepository {
         return OPERATIONS.equals(type)
                 || INSTALLATION.equals(type)
                 || CONFIGURATION.equals(type)
+                || COMPATIBILITY.equals(type)
                 || LIFECYCLE.equals(type)
                 || DIAGNOSTICS.equals(type);
     }
@@ -36,6 +38,8 @@ final class DawnShellLogRepository {
                 return R.string.dawnshell_log_installation_title;
             case CONFIGURATION:
                 return R.string.dawnshell_log_configuration_title;
+            case COMPATIBILITY:
+                return R.string.dawnshell_log_compatibility_title;
             case LIFECYCLE:
                 return R.string.dawnshell_log_lifecycle_title;
             case DIAGNOSTICS:
@@ -53,6 +57,8 @@ final class DawnShellLogRepository {
                 return R.string.dawnshell_log_installation_description;
             case CONFIGURATION:
                 return R.string.dawnshell_log_configuration_description;
+            case COMPATIBILITY:
+                return R.string.dawnshell_log_compatibility_description;
             case LIFECYCLE:
                 return R.string.dawnshell_log_lifecycle_description;
             case DIAGNOSTICS:
@@ -72,6 +78,10 @@ final class DawnShellLogRepository {
             case CONFIGURATION:
                 return statusAndOutput(context, DebianSystemProvisioner.readStatus(context),
                         DebianSystemProvisioner.readLogTail(context));
+            case COMPATIBILITY:
+                return statusAndOutput(context,
+                        DockerNetworkProvisioner.readStatus(context),
+                        DockerNetworkProvisioner.readLogTail(context));
             case LIFECYCLE:
                 return statusAndOutput(context, DebianLauncher.readStatus(context),
                         DebianLauncher.readLogTail(context));
@@ -93,6 +103,9 @@ final class DawnShellLogRepository {
                 break;
             case CONFIGURATION:
                 value = DebianSystemProvisioner.readStatus(context);
+                break;
+            case COMPATIBILITY:
+                value = DockerNetworkProvisioner.readStatus(context);
                 break;
             case LIFECYCLE:
                 value = DebianLauncher.readStatus(context);
@@ -128,7 +141,9 @@ final class DawnShellLogRepository {
         StringBuilder result = new StringBuilder();
         result.append(context.getString(R.string.dawnshell_diagnostics_settings,
                 Boolean.toString(BfuPreferences.isEnabled(context)),
-                Boolean.toString(BfuPreferences.allowCeReadableBfu(context))));
+                Boolean.toString(BfuPreferences.allowCeReadableBfu(context)),
+                BfuPreferences.cgroupPolicy(context),
+                BfuPreferences.dockerNetworkPolicy(context)));
         appendSection(result, context, R.string.dawnshell_log_section_locked_boot,
                 readProbeSafely(context, () -> readBootEvents(context)));
         appendSection(result, context, R.string.dawnshell_log_section_root_authorization,

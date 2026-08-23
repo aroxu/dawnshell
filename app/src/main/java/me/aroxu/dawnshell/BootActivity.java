@@ -30,6 +30,7 @@ import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -54,6 +55,8 @@ public class BootActivity extends AppCompatActivity {
 
     private CompoundButton enableBfu;
     private CompoundButton allowCeReadableBfu;
+    private RadioGroup cgroupPolicyGroup;
+    private RadioGroup dockerNetworkPolicyGroup;
     private TextView generatedPublicKey;
     private TextView probeSummary;
     private TextView settingsDirty;
@@ -69,6 +72,7 @@ public class BootActivity extends AppCompatActivity {
     private TextView systemConfigStatus;
     private TextView systemConfigLog;
     private TextView lifecycleStatus;
+    private TextView dockerPolicyStatus;
     private TextView lifecycleLog;
     private EditText rootPassword;
     private EditText rootPasswordConfirm;
@@ -98,6 +102,7 @@ public class BootActivity extends AppCompatActivity {
             refreshInstallerStatus();
             refreshSystemConfigurationStatus();
             refreshLifecycleStatus();
+            refreshDockerPolicyStatus();
             liveLogHandler.postDelayed(this, 1_000L);
         }
     };
@@ -179,6 +184,8 @@ public class BootActivity extends AppCompatActivity {
 
         enableBfu = findViewById(R.id.switch_enable_bfu);
         allowCeReadableBfu = findViewById(R.id.switch_allow_ce_readable_bfu);
+        cgroupPolicyGroup = findViewById(R.id.cgroup_policy_group);
+        dockerNetworkPolicyGroup = findViewById(R.id.docker_network_policy_group);
         generatedPublicKey = findViewById(R.id.generated_public_key);
         probeSummary = findViewById(R.id.probe_summary);
         settingsDirty = findViewById(R.id.settings_dirty_text);
@@ -187,6 +194,7 @@ public class BootActivity extends AppCompatActivity {
         installStatus = findViewById(R.id.install_status);
         systemConfigStatus = findViewById(R.id.system_config_status);
         lifecycleStatus = findViewById(R.id.lifecycle_status);
+        dockerPolicyStatus = findViewById(R.id.docker_policy_status);
         rootPassword = findViewById(R.id.root_password);
         rootPasswordConfirm = findViewById(R.id.root_password_confirm);
         debianPassword = findViewById(R.id.debian_password);
@@ -203,6 +211,11 @@ public class BootActivity extends AppCompatActivity {
                 .setOnClickListener(view -> confirmDebianInstall());
         findViewById(R.id.configure_system_button)
                 .setOnClickListener(view -> confirmSystemConfiguration());
+        findViewById(R.id.apply_docker_policy_button)
+                .setOnClickListener(view -> confirmDockerNetworkPolicy());
+        findViewById(R.id.open_compatibility_log_button).setOnClickListener(view ->
+                startActivity(LogDetailActivity.createIntent(
+                        this, DawnShellLogRepository.COMPATIBILITY)));
         findViewById(R.id.start_debian_button).setOnClickListener(view ->
                 requestLifecycle(DebianLauncher.Operation.START));
         findViewById(R.id.restart_debian_button)
@@ -238,6 +251,10 @@ public class BootActivity extends AppCompatActivity {
                 settingsDirty.setVisibility(View.VISIBLE);
         enableBfu.setOnCheckedChangeListener(listener);
         allowCeReadableBfu.setOnCheckedChangeListener(listener);
+        RadioGroup.OnCheckedChangeListener radioListener = (group, checkedId) ->
+                settingsDirty.setVisibility(View.VISIBLE);
+        cgroupPolicyGroup.setOnCheckedChangeListener(radioListener);
+        dockerNetworkPolicyGroup.setOnCheckedChangeListener(radioListener);
     }
 
     private void openLogs() {
@@ -716,12 +733,15 @@ public class BootActivity extends AppCompatActivity {
     private void loadSettings() {
         enableBfu.setChecked(BfuPreferences.isEnabled(this));
         allowCeReadableBfu.setChecked(BfuPreferences.allowCeReadableBfu(this));
+        selectCgroupPolicy(BfuPreferences.cgroupPolicy(this));
+        selectDockerNetworkPolicy(BfuPreferences.dockerNetworkPolicy(this));
         refreshGeneratedSshIdentity(true);
         refreshRootAuthorizationStatus();
         refreshProbeStatus(false);
         refreshInstallerStatus();
         refreshSystemConfigurationStatus();
         refreshLifecycleStatus();
+        refreshDockerPolicyStatus();
     }
 
     private void refreshProbeStatus(boolean recordOperation) {
@@ -794,7 +814,9 @@ public class BootActivity extends AppCompatActivity {
 
     private void saveAndProvision() {
         recordOperation("PROVISION_STARTED enable_bfu=" + enableBfu.isChecked()
-                + " allow_ce_readable_bfu=" + allowCeReadableBfu.isChecked());
+                + " allow_ce_readable_bfu=" + allowCeReadableBfu.isChecked()
+                + " cgroup_policy=" + selectedCgroupPolicy()
+                + " docker_network_policy=" + selectedDockerNetworkPolicy());
         try {
             savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
@@ -1061,6 +1083,51 @@ public class BootActivity extends AppCompatActivity {
         }
     }
 
+    private void confirmDockerNetworkPolicy() {
+        if (!enableBfu.isChecked()) {
+            recordOperation("DOCKER_POLICY_REJECTED bfu_disabled=true");
+            Toast.makeText(this, R.string.bfu_install_requires_enabled,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!isUserUnlocked()) {
+            recordOperation("DOCKER_POLICY_REJECTED user_locked=true");
+            Toast.makeText(this, R.string.dawnshell_docker_policy_requires_unlock,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        String policy = selectedDockerNetworkPolicy();
+        int message = BfuPreferences.DOCKER_HOST_ONLY.equals(policy)
+                ? R.string.dawnshell_docker_policy_confirm_host
+                : R.string.dawnshell_docker_policy_confirm_bridge;
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dawnshell_docker_policy_confirm_title)
+                .setMessage(message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.dawnshell_docker_policy_confirm_button,
+                        (dialog, which) -> startDockerNetworkPolicy())
+                .show();
+    }
+
+    private void startDockerNetworkPolicy() {
+        try {
+            savePreferences();
+            BfuRuntime.provision(this);
+            String policy = selectedDockerNetworkPolicy();
+            BfuBootService.requestDockerNetworkPolicy(this);
+            recordOperation("DOCKER_POLICY_REQUESTED policy=" + policy
+                    + " android_network_namespace=shared");
+            Toast.makeText(this, R.string.dawnshell_docker_policy_requested,
+                    Toast.LENGTH_LONG).show();
+            refreshDockerPolicyStatus();
+        } catch (IOException | IllegalStateException e) {
+            recordOperation("DOCKER_POLICY_REQUEST_FAILED "
+                    + BfuSu.sanitize(e.getMessage()));
+            Toast.makeText(this, getString(R.string.bfu_provision_failed,
+                    e.getMessage()), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void requestLifecycle(DebianLauncher.Operation operation) {
         if ((operation == DebianLauncher.Operation.START
                 || operation == DebianLauncher.Operation.RESTART)
@@ -1093,8 +1160,50 @@ public class BootActivity extends AppCompatActivity {
 
     private void savePreferences() {
         BfuPreferences.save(this, enableBfu.isChecked(),
-                allowCeReadableBfu.isChecked());
+                allowCeReadableBfu.isChecked(), selectedCgroupPolicy(),
+                selectedDockerNetworkPolicy());
         if (settingsDirty != null) settingsDirty.setVisibility(View.GONE);
+    }
+
+    private void selectCgroupPolicy(String policy) {
+        int id = R.id.cgroup_policy_auto;
+        if (BfuPreferences.CGROUP_V2.equals(policy)) id = R.id.cgroup_policy_v2;
+        else if (BfuPreferences.CGROUP_V1.equals(policy)) id = R.id.cgroup_policy_v1;
+        cgroupPolicyGroup.check(id);
+    }
+
+    private String selectedCgroupPolicy() {
+        int id = cgroupPolicyGroup.getCheckedRadioButtonId();
+        if (id == R.id.cgroup_policy_v2) return BfuPreferences.CGROUP_V2;
+        if (id == R.id.cgroup_policy_v1) return BfuPreferences.CGROUP_V1;
+        return BfuPreferences.CGROUP_AUTO;
+    }
+
+    private void selectDockerNetworkPolicy(String policy) {
+        int id = R.id.docker_policy_host;
+        if (BfuPreferences.DOCKER_AUTO_BRIDGE.equals(policy)) {
+            id = R.id.docker_policy_auto;
+        } else if (BfuPreferences.DOCKER_NATIVE_NFT_BRIDGE.equals(policy)) {
+            id = R.id.docker_policy_nft;
+        } else if (BfuPreferences.DOCKER_IPTABLES_NFT_BRIDGE.equals(policy)) {
+            id = R.id.docker_policy_iptables_nft;
+        } else if (BfuPreferences.DOCKER_LEGACY_BRIDGE.equals(policy)) {
+            id = R.id.docker_policy_legacy;
+        }
+        dockerNetworkPolicyGroup.check(id);
+    }
+
+    private String selectedDockerNetworkPolicy() {
+        int id = dockerNetworkPolicyGroup.getCheckedRadioButtonId();
+        if (id == R.id.docker_policy_auto) return BfuPreferences.DOCKER_AUTO_BRIDGE;
+        if (id == R.id.docker_policy_nft) {
+            return BfuPreferences.DOCKER_NATIVE_NFT_BRIDGE;
+        }
+        if (id == R.id.docker_policy_iptables_nft) {
+            return BfuPreferences.DOCKER_IPTABLES_NFT_BRIDGE;
+        }
+        if (id == R.id.docker_policy_legacy) return BfuPreferences.DOCKER_LEGACY_BRIDGE;
+        return BfuPreferences.DOCKER_HOST_ONLY;
     }
 
     private void updateDebianPassword(String account, EditText passwordEditor,
@@ -1222,6 +1331,23 @@ public class BootActivity extends AppCompatActivity {
         } catch (IOException e) {
             replaceConsoleText(lifecycleStatus, getString(
                     R.string.bfu_lifecycle_status_failed, e.getMessage()), false);
+        }
+    }
+
+    private void refreshDockerPolicyStatus() {
+        if (dockerPolicyStatus == null) return;
+        try {
+            String status = DockerNetworkProvisioner.readStatus(this);
+            if (status.isEmpty()) {
+                status = getString(R.string.dawnshell_docker_policy_status_none);
+            }
+            replaceConsoleText(dockerPolicyStatus, getString(
+                    R.string.dawnshell_docker_policy_status,
+                    compact(status, 420)), false);
+        } catch (IOException e) {
+            replaceConsoleText(dockerPolicyStatus, getString(
+                    R.string.dawnshell_docker_policy_status_failed,
+                    e.getMessage()), false);
         }
     }
 

@@ -35,6 +35,7 @@ final class BfuRuntime {
         final File namespaceProbeBinary;
         final File rootfsInstallerScript;
         final File systemdConfiguratorScript;
+        final File dockerNetworkConfiguratorScript;
         final File lifecycleLog;
         final File debootstrapArchive;
         final File archiveKeyringPackage;
@@ -55,6 +56,8 @@ final class BfuRuntime {
             rootfsInstallerScript = new File(scripts, "install-debian-rootfs.sh");
             systemdConfiguratorScript = new File(scripts,
                     "configure-debian-systemd.sh");
+            dockerNetworkConfiguratorScript = new File(scripts,
+                    "configure-docker-network.sh");
             lifecycleLog = new File(run, "debian-lifecycle.log");
             debootstrapArchive = new File(downloads, "debootstrap_1.0.141.tar.gz");
             archiveKeyringPackage = new File(downloads,
@@ -90,6 +93,8 @@ final class BfuRuntime {
                 layout.rootfsInstallerScript, true);
         copyPrivateAsset(deContext, "bfu/configure-debian-systemd.sh",
                 layout.systemdConfiguratorScript, true);
+        copyPrivateAsset(deContext, "bfu/configure-docker-network.sh",
+                layout.dockerNetworkConfiguratorScript, true);
         ensurePrivateFile(layout.lifecycleLog);
         return layout;
     }

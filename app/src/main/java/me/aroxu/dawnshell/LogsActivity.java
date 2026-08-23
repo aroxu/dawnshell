@@ -37,6 +37,7 @@ public final class LogsActivity extends AppCompatActivity {
         bind(R.id.log_card_operations, DawnShellLogRepository.OPERATIONS);
         bind(R.id.log_card_installation, DawnShellLogRepository.INSTALLATION);
         bind(R.id.log_card_configuration, DawnShellLogRepository.CONFIGURATION);
+        bind(R.id.log_card_compatibility, DawnShellLogRepository.COMPATIBILITY);
         bind(R.id.log_card_lifecycle, DawnShellLogRepository.LIFECYCLE);
         bind(R.id.log_card_diagnostics, DawnShellLogRepository.DIAGNOSTICS);
     }
@@ -65,6 +66,7 @@ public final class LogsActivity extends AppCompatActivity {
         refreshSummary(R.id.log_summary_operations, DawnShellLogRepository.OPERATIONS);
         refreshSummary(R.id.log_summary_installation, DawnShellLogRepository.INSTALLATION);
         refreshSummary(R.id.log_summary_configuration, DawnShellLogRepository.CONFIGURATION);
+        refreshSummary(R.id.log_summary_compatibility, DawnShellLogRepository.COMPATIBILITY);
         refreshSummary(R.id.log_summary_lifecycle, DawnShellLogRepository.LIFECYCLE);
         refreshSummary(R.id.log_summary_diagnostics, DawnShellLogRepository.DIAGNOSTICS);
     }
