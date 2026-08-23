@@ -117,6 +117,10 @@ signing key; see [Google's app-signing guide](https://developer.android.com/stud
 Android app. Artifacts include the APK, corresponding source, licenses, build
 metadata, and `SHA256SUMS`.
 
+Successful `main` builds update the `continuous` GitHub prerelease with a
+debug-signed APK and its complete distribution set. Use this channel for
+testing only. Version tags publish separately signed stable releases.
+
 Tags matching `vMAJOR.MINOR.PATCH` run the GitHub Release workflow. Release builds
 require these Actions secrets:
 

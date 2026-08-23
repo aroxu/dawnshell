@@ -80,11 +80,16 @@ done
 source_date_epoch="$(git -C "$repo_dir" show -s --format=%ct "$revision")"
 short_revision="${revision:0:12}"
 safe_version="${version//+/_}"
+apk_suffix="${DAWNSHELL_APK_SUFFIX:-}"
+if [[ -n "$apk_suffix" && ! "$apk_suffix" =~ ^[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+    echo "Invalid APK suffix: $apk_suffix" >&2
+    exit 2
+fi
 prefix="dawnshell-${safe_version}-${short_revision}"
 
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
-apk_name="dawnshell-${safe_version}.apk"
+apk_name="dawnshell-${safe_version}${apk_suffix:+-$apk_suffix}.apk"
 source_name="${prefix}-corresponding-source.tar.gz"
 licenses_name="${prefix}-licenses.tar.gz"
 build_info_name="${prefix}-build-info.txt"
@@ -118,6 +123,7 @@ done
     printf 'android_package=me.aroxu.dawnshell\n'
     printf 'android_abis=armeabi-v7a,arm64-v8a,x86_64\n'
     printf 'android_ndk=29.0.14206865\n'
+    printf 'apk_channel=%s\n' "${apk_suffix:-release}"
     printf 'corresponding_source=%s\n' "$source_name"
     printf 'license_bundle=%s\n' "$licenses_name"
 } > "$output_dir/$build_info_name"
@@ -126,6 +132,10 @@ done
 # shellcheck disable=SC2016
 {
     printf '# DawnShell %s\n\n' "$version"
+    if [[ "$apk_suffix" == debug ]]; then
+        printf '> Continuous prerelease: this APK uses the public development signing key. '
+        printf 'Use a versioned release for production installation.\n\n'
+    fi
     printf 'Built from commit [`%s`](https://github.com/aroxu/dawnshell/commit/%s).\n\n' \
         "$revision" "$revision"
     printf 'This release contains the installable APK, SHA-256 checksums, a separate '

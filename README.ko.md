@@ -138,6 +138,10 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 도구와 Android 앱을 빌드하고 검사합니다. Artifact에는 APK, 대응 소스,
 라이선스, 빌드 정보와 `SHA256SUMS`가 포함됩니다.
 
+`main` 빌드가 성공하면 공개 개발 키로 서명한 APK와 전체 배포 묶음을 GitHub의
+`continuous` 프리릴리스에 갱신합니다. 이 채널은 시험용입니다. 버전 태그의
+안정 Release는 별도의 개인 키로 서명합니다.
+
 `vMAJOR.MINOR.PATCH` 형식의 태그를 push하면 GitHub Release 배포 작업이
 실행됩니다. 정식 배포에는 다음 Actions secret이 모두 필요합니다.
 
