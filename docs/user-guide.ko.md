@@ -143,6 +143,13 @@ DawnShell은 위임된 비공개 cgroup 계층 안에서 Docker의 cgroup driver
 컨테이너 transient scope 생성을 요청하지 않습니다. `docker info --format
 '{{.CgroupDriver}}'` 결과가 `cgroupfs`인지 확인할 수 있습니다.
 
+커널에서 컨테이너의 private IPC 또는 mqueue 마운트가 실패하면 **Docker
+run/create에 호스트 IPC 자동 적용**을 켠 뒤 **Docker 네트워크 정책 적용**을
+누릅니다. 관리형 `/usr/local/bin/docker` 래퍼가 `run`과 `create`에
+`--ipc=host`를 추가합니다. 사용자가 명시한 `--ipc=...`가 우선하며
+`/usr/bin/docker`로 래퍼를 우회할 수 있습니다. 호스트 IPC는 컨테이너 격리를
+낮추고 공유 IPC 객체를 컨테이너에 노출합니다.
+
 bridge 모드는 Android 전체의 방화벽, NAT(Network Address Translation), 경로와
 전달 설정을 변경할 수 있습니다. Wi-Fi, 모바일 데이터, USB Ethernet, VPN,
 Tailscale, 현재 SSH 연결이 끊길 수 있습니다. 별도 복구 방법이 없으면 강제 bridge

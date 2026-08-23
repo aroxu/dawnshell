@@ -16,6 +16,8 @@ final class BfuPreferences {
             "allow_ce_readable_bfu";
     private static final String KEY_CGROUP_POLICY = "cgroup_policy";
     private static final String KEY_DOCKER_NETWORK_POLICY = "docker_network_policy";
+    private static final String KEY_DOCKER_HOST_IPC_COMPATIBILITY =
+            "docker_host_ipc_compatibility";
     private static final String KEY_SHARE_HOST_USB_LEGACY = "share_host_usb";
     private static final String KEY_USB_PASSTHROUGH_MODE = "usb_passthrough_mode";
     private static final String KEY_USB_EXCLUSIVE_DEVICE_IDS =
@@ -67,6 +69,10 @@ final class BfuPreferences {
                 KEY_DOCKER_NETWORK_POLICY, DOCKER_HOST_ONLY));
     }
 
+    static boolean dockerHostIpcCompatibility(Context context) {
+        return get(context).getBoolean(KEY_DOCKER_HOST_IPC_COMPATIBILITY, false);
+    }
+
     static String usbPassthroughMode(Context context) {
         SharedPreferences preferences = get(context);
         String stored = preferences.getString(KEY_USB_PASSTHROUGH_MODE, null);
@@ -87,6 +93,7 @@ final class BfuPreferences {
 
     static void save(Context context, boolean enabled, boolean allowCeReadableBfu,
                      String cgroupPolicy, String dockerNetworkPolicy,
+                     boolean dockerHostIpcCompatibility,
                      String usbPassthroughMode, String usbExclusiveDeviceIds) {
         String validatedUsbMode = validatedUsbPassthroughMode(usbPassthroughMode);
         String normalizedUsbIds = normalizeUsbExclusiveDeviceIds(
@@ -102,6 +109,8 @@ final class BfuPreferences {
                 .putString(KEY_CGROUP_POLICY, validatedCgroupPolicy(cgroupPolicy))
                 .putString(KEY_DOCKER_NETWORK_POLICY,
                         validatedDockerNetworkPolicy(dockerNetworkPolicy))
+                .putBoolean(KEY_DOCKER_HOST_IPC_COMPATIBILITY,
+                        dockerHostIpcCompatibility)
                 .putString(KEY_USB_PASSTHROUGH_MODE, validatedUsbMode)
                 .putString(KEY_USB_EXCLUSIVE_DEVICE_IDS, normalizedUsbIds)
                 .remove(KEY_SHARE_HOST_USB_LEGACY)

@@ -144,6 +144,7 @@ final class DawnShellLogRepository {
                 Boolean.toString(BfuPreferences.allowCeReadableBfu(context)),
                 BfuPreferences.cgroupPolicy(context),
                 BfuPreferences.dockerNetworkPolicy(context),
+                Boolean.toString(BfuPreferences.dockerHostIpcCompatibility(context)),
                 BfuPreferences.usbPassthroughMode(context),
                 BfuPreferences.usbExclusiveDeviceIds(context)));
         appendSection(result, context, R.string.dawnshell_log_section_locked_boot,

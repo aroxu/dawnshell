@@ -88,6 +88,12 @@ Docker defaults to **safe host-network-only** mode. Container bridge networking
 can change Android-wide firewall, NAT, forwarding, and routes. Enable it only
 after reading the in-app warning and preparing a separate recovery path.
 
+On kernels where private IPC or `mqueue` container setup fails, the optional
+**Docker host IPC compatibility** switch installs a managed Docker CLI wrapper.
+It adds `--ipc=host` to `docker run` and `docker create` unless an explicit IPC
+mode was supplied. This weakens container isolation because Android, Debian,
+and the container share IPC objects. `/usr/bin/docker` bypasses the wrapper.
+
 **USB passthrough** is disabled by default. Direct mode exposes Android's
 `/dev/bus/usb` view to Debian while retaining Android kernel drivers. Exclusive
 mode additionally unbinds only interfaces whose `VID:PID` is explicitly listed,

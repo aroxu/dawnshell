@@ -29,7 +29,8 @@ final class DockerNetworkProvisioner {
 
     private DockerNetworkProvisioner() {}
 
-    static boolean apply(Context context, BfuRuntime.Layout layout, String policy) {
+    static boolean apply(Context context, BfuRuntime.Layout layout, String policy,
+                         boolean hostIpcCompatibility) {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
         LogSink log = null;
         Process process = null;
@@ -37,8 +38,10 @@ final class DockerNetworkProvisioner {
             String validated = validatePolicy(policy);
             log = new LogSink(logFile(deContext));
             log.line("============================================================");
-            log.line("STAGE: Applying Docker network policy requested=" + validated);
-            writeStatus(deContext, "RUNNING requested=" + validated);
+            log.line("STAGE: Applying Docker network policy requested=" + validated
+                    + " host_ipc_compatibility=" + hostIpcCompatibility);
+            writeStatus(deContext, "RUNNING requested=" + validated
+                    + " host_ipc_compatibility=" + hostIpcCompatibility);
 
             String command = "/system/bin/sh "
                     + BfuSu.shellQuote(
@@ -47,7 +50,9 @@ final class DockerNetworkProvisioner {
                     + " " + BfuSu.shellQuote(layout.root.getAbsolutePath())
                     + " " + BfuSu.shellQuote(validated)
                     + " " + BfuSu.shellQuote(
-                    layout.architecture.debianArchitecture);
+                    layout.architecture.debianArchitecture)
+                    + " " + BfuSu.shellQuote(
+                    Boolean.toString(hostIpcCompatibility));
             BfuSu.StartedProcess started = BfuSu.start(command);
             process = started.process;
             log.line("Magisk command accepted by " + started.command);
@@ -102,9 +107,11 @@ final class DockerNetworkProvisioner {
         }
     }
 
-    static void recordQueued(Context context, String policy) {
+    static void recordQueued(Context context, String policy,
+                             boolean hostIpcCompatibility) {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
-        String message = "Docker policy queued: requested=" + validatePolicy(policy);
+        String message = "Docker policy queued: requested=" + validatePolicy(policy)
+                + " host_ipc_compatibility=" + hostIpcCompatibility;
         try (LogSink log = new LogSink(logFile(deContext))) {
             log.line("QUEUED: " + message);
             writeStatus(deContext, "QUEUED " + message);

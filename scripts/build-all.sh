@@ -24,6 +24,7 @@ if [[ "${DAWNSHELL_SKIP_BOOTSTRAP_SOURCE_BUILD:-0}" != 1 ]]; then
   "$root_dir/scripts/build-bootstrap-runtime.sh"
 fi
 "$root_dir/scripts/test-compatibility-policy.sh"
+"$root_dir/scripts/test-docker-ipc-wrapper.sh"
 "$root_dir/scripts/test-rootfs-path-resolution.sh"
 "$root_dir/scripts/test-lifecycle-control-policy.sh"
 "$root_dir/gradlew" -p "$root_dir" \

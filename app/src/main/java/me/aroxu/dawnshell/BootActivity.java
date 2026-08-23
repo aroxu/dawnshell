@@ -60,6 +60,7 @@ public class BootActivity extends AppCompatActivity {
     private CompoundButton allowCeReadableBfu;
     private RadioGroup cgroupPolicyGroup;
     private RadioGroup dockerNetworkPolicyGroup;
+    private CompoundButton dockerHostIpcCompatibility;
     private RadioGroup usbPassthroughGroup;
     private TextInputLayout usbExclusiveDeviceIdsLayout;
     private EditText usbExclusiveDeviceIds;
@@ -196,6 +197,8 @@ public class BootActivity extends AppCompatActivity {
         allowCeReadableBfu = findViewById(R.id.switch_allow_ce_readable_bfu);
         cgroupPolicyGroup = findViewById(R.id.cgroup_policy_group);
         dockerNetworkPolicyGroup = findViewById(R.id.docker_network_policy_group);
+        dockerHostIpcCompatibility = findViewById(
+                R.id.switch_docker_host_ipc_compatibility);
         usbPassthroughGroup = findViewById(R.id.usb_passthrough_group);
         usbExclusiveDeviceIdsLayout = findViewById(
                 R.id.usb_exclusive_device_ids_layout);
@@ -272,6 +275,7 @@ public class BootActivity extends AppCompatActivity {
                 settingsDirty.setVisibility(View.VISIBLE);
         cgroupPolicyGroup.setOnCheckedChangeListener(radioListener);
         dockerNetworkPolicyGroup.setOnCheckedChangeListener(radioListener);
+        dockerHostIpcCompatibility.setOnCheckedChangeListener(listener);
         usbPassthroughGroup.setOnCheckedChangeListener((group, checkedId) -> {
             settingsDirty.setVisibility(View.VISIBLE);
             refreshUsbExclusiveEditorState();
@@ -771,6 +775,8 @@ public class BootActivity extends AppCompatActivity {
         allowCeReadableBfu.setChecked(BfuPreferences.allowCeReadableBfu(this));
         selectCgroupPolicy(BfuPreferences.cgroupPolicy(this));
         selectDockerNetworkPolicy(BfuPreferences.dockerNetworkPolicy(this));
+        dockerHostIpcCompatibility.setChecked(
+                BfuPreferences.dockerHostIpcCompatibility(this));
         selectUsbPassthroughMode(BfuPreferences.usbPassthroughMode(this));
         usbExclusiveDeviceIds.setText(BfuPreferences.usbExclusiveDeviceIds(this));
         refreshUsbExclusiveEditorState();
@@ -857,7 +863,9 @@ public class BootActivity extends AppCompatActivity {
                 + " allow_ce_readable_bfu=" + allowCeReadableBfu.isChecked()
                 + " usb_passthrough_mode=" + selectedUsbPassthroughMode()
                 + " cgroup_policy=" + selectedCgroupPolicy()
-                + " docker_network_policy=" + selectedDockerNetworkPolicy());
+                + " docker_network_policy=" + selectedDockerNetworkPolicy()
+                + " docker_host_ipc_compatibility="
+                + dockerHostIpcCompatibility.isChecked());
         try {
             savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
@@ -1159,7 +1167,9 @@ public class BootActivity extends AppCompatActivity {
             String policy = selectedDockerNetworkPolicy();
             BfuBootService.requestDockerNetworkPolicy(this);
             recordOperation("DOCKER_POLICY_REQUESTED policy=" + policy
-                    + " android_network_namespace=shared");
+                    + " android_network_namespace=shared"
+                    + " host_ipc_compatibility="
+                    + dockerHostIpcCompatibility.isChecked());
             Toast.makeText(this, R.string.dawnshell_docker_policy_requested,
                     Toast.LENGTH_LONG).show();
             refreshDockerPolicyStatus();
@@ -1222,7 +1232,8 @@ public class BootActivity extends AppCompatActivity {
         }
         BfuPreferences.save(this, enableBfu.isChecked(),
                 allowCeReadableBfu.isChecked(), selectedCgroupPolicy(),
-                selectedDockerNetworkPolicy(), usbMode, usbDeviceIds);
+                selectedDockerNetworkPolicy(),
+                dockerHostIpcCompatibility.isChecked(), usbMode, usbDeviceIds);
         usbExclusiveDeviceIdsLayout.setError(null);
         if (settingsDirty != null) settingsDirty.setVisibility(View.GONE);
     }

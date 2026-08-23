@@ -114,6 +114,12 @@ root 네트워크 변경이 Android 전체에 영향을 줄 수 있다는 뜻입
 Ethernet, VPN, Tailscale, SSH를 끊을 수 있으므로 별도 복구 경로가 있을 때만
 사용해 주세요.
 
+Docker 호스트 IPC 호환 옵션은 기본적으로 꺼져 있습니다. 관리형 CLI 래퍼가
+컨테이너 생성에 `--ipc=host`를 추가하므로 컨테이너가 Android 및 Debian과
+공유하는 IPC 객체를 보거나 변경할 수 있습니다. private IPC/mqueue 경로가
+고장 난 커널에서만 사용하고 신뢰하지 않는 컨테이너는 실행하지 마세요. private
+IPC가 필요하고 커널이 지원한다면 `/usr/bin/docker`로 래퍼를 우회할 수 있습니다.
+
 ## 호스트 USB
 
 raw 호스트 USB 접근은 명시적으로 켜야 합니다. 기본 정책은 Debian mount

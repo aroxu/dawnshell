@@ -182,7 +182,7 @@
     <string name="dawnshell_log_copied">Log copied to the clipboard.</string>
     <string name="dawnshell_log_copy_empty">There is no log text to copy.</string>
     <string name="dawnshell_log_summary_none">No status yet</string>
-    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nDocker network policy: %4$s\nUSB passthrough mode: %5$s\nExclusive USB VID:PID filters: %6$s</string>
+    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nDocker network policy: %4$s\nDocker host IPC compatibility: %5$s\nUSB passthrough mode: %6$s\nExclusive USB VID:PID filters: %7$s</string>
     <string name="dawnshell_log_section_format">===== %1$s =====\n%2$s</string>
     <string name="dawnshell_log_section_status">Status</string>
     <string name="dawnshell_log_section_output">Output</string>
@@ -216,6 +216,8 @@
     <string name="dawnshell_docker_policy_nft">Force native nftables (Docker 29+, experimental)</string>
     <string name="dawnshell_docker_policy_iptables_nft">Force iptables-nft bridge</string>
     <string name="dawnshell_docker_policy_legacy">Force legacy iptables bridge (older kernels)</string>
+    <string name="dawnshell_docker_host_ipc_compatibility">Automatically use host IPC for Docker run/create</string>
+    <string name="dawnshell_docker_host_ipc_warning">Compatibility option for kernels where private IPC/mqueue fails. Containers share Android and Debian IPC objects, reducing isolation. Apply the Docker policy after changing it. An explicit --ipc option overrides this default; /usr/bin/docker bypasses the wrapper.</string>
     <string name="dawnshell_docker_policy_warning">DANGER: DawnShell deliberately shares Android’s network namespace for native NIC speed. Every bridge option lets Docker modify Android-global firewall, NAT, forwarding, and routes. It can break Wi-Fi, mobile data, USB Ethernet, VPN/Tailscale, or remote access. Host-only mode disables Docker bridge/firewall management and requires Docker host networking. All managed modes use Docker’s cgroupfs driver inside DawnShell’s private delegated hierarchy; the systemd driver is incompatible with some Android kernels.</string>
     <string name="dawnshell_apply_docker_policy">Apply Docker network policy</string>
     <string name="dawnshell_view_compatibility_log">View compatibility log</string>

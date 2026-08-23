@@ -14,14 +14,15 @@ fail() {
     exit "$code"
 }
 
-[ "$#" -eq 4 ] || [ "$#" -eq 5 ] || \
-    fail 2 "usage: configure-docker-network.sh ROOT BFU_ROOT POLICY DEBIAN_ARCH [--inside-mount-ns]"
+[ "$#" -eq 5 ] || [ "$#" -eq 6 ] || \
+    fail 2 "usage: configure-docker-network.sh ROOT BFU_ROOT POLICY DEBIAN_ARCH HOST_IPC_COMPATIBILITY [--inside-mount-ns]"
 
 REQUESTED_ROOT="$1"
 BFU_ROOT="$2"
 POLICY="$3"
 EXPECTED_ARCH="$4"
-MODE="${5-}"
+HOST_IPC_COMPATIBILITY="$5"
+MODE="${6-}"
 BIN="$BFU_ROOT/bin"
 TOOLBOX="$BIN/busybox"
 
@@ -41,13 +42,17 @@ case "$EXPECTED_ARCH" in
     armhf|arm64|amd64) ;;
     *) fail 3 "unsupported Debian architecture: $EXPECTED_ARCH" ;;
 esac
+case "$HOST_IPC_COMPATIBILITY" in
+    true|false) ;;
+    *) fail 3 "Docker host IPC compatibility must be true or false" ;;
+esac
 
 if [ "$MODE" != "--inside-mount-ns" ]; then
     [ -x "$TOOLBOX" ] || fail 10 "source-built DawnShell toolbox is missing"
     echo "Creating private AFU mount namespace for Docker policy"
     exec "$TOOLBOX" unshare --mount --fork \
         /system/bin/sh "$0" "$ROOT" "$BFU_ROOT" "$POLICY" \
-        "$EXPECTED_ARCH" --inside-mount-ns
+        "$EXPECTED_ARCH" "$HOST_IPC_COMPATIBILITY" --inside-mount-ns
 fi
 
 umask 022
@@ -117,21 +122,26 @@ mount -t tmpfs -o nosuid,nodev,mode=0755,size=32m tmpfs "$ROOT/run"
 mkdir -p "$ROOT/run/lock"
 
 echo "Entering Debian to negotiate Docker network compatibility"
-DAWNSHELL_DOCKER_POLICY="$POLICY" container=dawnshell \
+DAWNSHELL_DOCKER_POLICY="$POLICY" \
+DAWNSHELL_DOCKER_HOST_IPC="$HOST_IPC_COMPATIBILITY" container=dawnshell \
     chroot "$ROOT" /usr/bin/env -i \
     HOME=/root \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 \
     container=dawnshell \
     DAWNSHELL_DOCKER_POLICY="$POLICY" \
+    DAWNSHELL_DOCKER_HOST_IPC="$HOST_IPC_COMPATIBILITY" \
     /bin/bash -s <<'DEBIAN_POLICY'
 set -Eeuo pipefail
 
 policy="${DAWNSHELL_DOCKER_POLICY:?}"
+host_ipc_compatibility="${DAWNSHELL_DOCKER_HOST_IPC:?}"
 docker_dir=/etc/docker
 daemon_json=$docker_dir/daemon.json
 managed_hash=$docker_dir/.dawnshell-daemon-json.sha256
 policy_record=/etc/dawnshell/docker-network-policy
+docker_wrapper=/usr/local/bin/docker
+docker_wrapper_hash=/etc/dawnshell/docker-wrapper.sha256
 
 source /etc/os-release
 [ "${VERSION_CODENAME:-}" = trixie ] || {
@@ -161,6 +171,88 @@ if [ -s "$daemon_json" ]; then
         exit 32
     }
 fi
+
+verify_managed_wrapper() {
+    [ -e "$docker_wrapper" ] || return 0
+    [ -f "$docker_wrapper" ] && [ ! -L "$docker_wrapper" ] || {
+        echo "ERROR: existing non-regular $docker_wrapper was preserved"
+        exit 32
+    }
+    [ -f "$docker_wrapper_hash" ] || {
+        echo "ERROR: existing unmanaged $docker_wrapper was preserved"
+        exit 32
+    }
+    expected_wrapper_hash="$(sed -n '1p' "$docker_wrapper_hash")"
+    actual_wrapper_hash="$(sha256sum "$docker_wrapper" | awk '{print $1}')"
+    [ -n "$expected_wrapper_hash" ] \
+        && [ "$actual_wrapper_hash" = "$expected_wrapper_hash" ] || {
+        echo "ERROR: managed Docker wrapper was modified outside DawnShell; refusing to overwrite it"
+        exit 32
+    }
+}
+
+configure_host_ipc_wrapper() {
+    verify_managed_wrapper
+    if [ "$host_ipc_compatibility" = false ]; then
+        rm -f "$docker_wrapper" "$docker_wrapper_hash"
+        echo "POLICY: Docker host IPC compatibility wrapper disabled"
+        return
+    fi
+
+    install -d -m 0755 -o root -g root /usr/local/bin
+    wrapper_temporary="${docker_wrapper}.dawnshell.$$"
+    cat > "$wrapper_temporary" <<'EOF_DOCKER_WRAPPER'
+#!/bin/bash
+set -e
+
+real_docker=/usr/bin/docker
+[ -x "$real_docker" ] || {
+    echo "DawnShell: $real_docker is missing; install the Docker CLI" >&2
+    exit 127
+}
+
+arguments=("$@")
+command_index=-1
+if (( ${#arguments[@]} > 0 )); then
+    case "${arguments[0]}" in
+        run|create) command_index=0 ;;
+        container)
+            if (( ${#arguments[@]} > 1 )); then
+                case "${arguments[1]}" in
+                    run|create) command_index=1 ;;
+                esac
+            fi
+            ;;
+    esac
+fi
+
+if (( command_index >= 0 )); then
+    explicit_ipc=false
+    for argument in "${arguments[@]}"; do
+        case "$argument" in
+            --ipc|--ipc=*) explicit_ipc=true ;;
+        esac
+    done
+    if [ "$explicit_ipc" = false ]; then
+        rewritten=("${arguments[@]:0:$((command_index + 1))}")
+        rewritten+=(--ipc=host)
+        rewritten+=("${arguments[@]:$((command_index + 1))}")
+        exec "$real_docker" "${rewritten[@]}"
+    fi
+fi
+
+exec "$real_docker" "${arguments[@]}"
+EOF_DOCKER_WRAPPER
+    chown 0:0 "$wrapper_temporary"
+    chmod 0755 "$wrapper_temporary"
+    new_wrapper_hash="$(sha256sum "$wrapper_temporary" | awk '{print $1}')"
+    mv "$wrapper_temporary" "$docker_wrapper"
+    printf '%s\n' "$new_wrapper_hash" > "$docker_wrapper_hash"
+    chown 0:0 "$docker_wrapper_hash"
+    chmod 0600 "$docker_wrapper_hash"
+    echo "POLICY: Docker run/create wrapper enables --ipc=host by default"
+    echo "WARNING: containers share Android/Debian host IPC; use /usr/bin/docker to bypass"
+}
 
 probe_iptables_check() {
     binary="$1"
@@ -341,12 +433,16 @@ printf '%s\n' "$new_hash" > "$managed_hash"
 chown 0:0 "$managed_hash"
 chmod 0600 "$managed_hash"
 
+configure_host_ipc_wrapper
+
 cat > "${policy_record}.new" <<EOF_RECORD
-format=1
+format=2
 requested_policy=$policy
 resolved_backend=$backend
 network_namespace=android-shared
 cgroup_driver=cgroupfs
+host_ipc_compatibility=$host_ipc_compatibility
+docker_cli_wrapper=$([ "$host_ipc_compatibility" = true ] && echo /usr/local/bin/docker || echo none)
 bridge_mutates_android_global_netfilter=$([ "$backend" = none ] && echo false || echo true)
 configured_epoch=$(date +%s)
 EOF_RECORD
@@ -355,7 +451,7 @@ chmod 0644 "${policy_record}.new"
 mv "${policy_record}.new" "$policy_record"
 sync
 
-echo "DOCKER_POLICY_SUCCEEDED: requested=$policy resolved_backend=$backend cgroup_driver=cgroupfs"
+echo "DOCKER_POLICY_SUCCEEDED: requested=$policy resolved_backend=$backend cgroup_driver=cgroupfs host_ipc_compatibility=$host_ipc_compatibility"
 if [ "$backend" = none ]; then
     echo "USAGE: start containers with --network host"
 fi

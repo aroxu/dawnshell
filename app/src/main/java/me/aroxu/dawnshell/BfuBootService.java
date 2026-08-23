@@ -105,12 +105,16 @@ public class BfuBootService extends Service {
 
         if (ACTION_APPLY_DOCKER_NETWORK_POLICY.equals(action)) {
             String policy = BfuPreferences.dockerNetworkPolicy(this);
+            boolean hostIpcCompatibility =
+                    BfuPreferences.dockerHostIpcCompatibility(this);
             if (!userUnlocked) {
                 DockerNetworkProvisioner.recordRejected(this,
                         "unlock Android before applying Docker network policy");
             } else if (dockerPolicyStarted.compareAndSet(false, true)) {
-                DockerNetworkProvisioner.recordQueued(this, policy);
-                executor.execute(() -> runDockerNetworkPolicy(policy));
+                DockerNetworkProvisioner.recordQueued(this, policy,
+                        hostIpcCompatibility);
+                executor.execute(() -> runDockerNetworkPolicy(policy,
+                        hostIpcCompatibility));
             } else {
                 DockerNetworkProvisioner.recordRejected(this,
                         "another Docker policy operation is already running");
@@ -363,7 +367,8 @@ public class BfuBootService extends Service {
         }
     }
 
-    private void runDockerNetworkPolicy(String policy) {
+    private void runDockerNetworkPolicy(String policy,
+                                        boolean hostIpcCompatibility) {
         long controlGeneration = urgentControlGeneration.get();
         BfuRuntime.Layout layout = null;
         boolean wasRunning = false;
@@ -376,7 +381,8 @@ public class BfuBootService extends Service {
                         "could not prove that Debian PID 1 stopped");
                 return;
             }
-            DockerNetworkProvisioner.apply(this, layout, policy);
+            DockerNetworkProvisioner.apply(this, layout, policy,
+                    hostIpcCompatibility);
         } catch (IOException | IllegalStateException e) {
             DockerNetworkProvisioner.recordRejected(this,
                     "Docker policy provisioning failed: "

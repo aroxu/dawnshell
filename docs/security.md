@@ -64,6 +64,12 @@ affect the whole device. Docker defaults to host-network-only mode with bridge,
 iptables, forwarding, and masquerading disabled. Bridge mode should be used only
 with a separate recovery path.
 
+The Docker host IPC compatibility option is disabled by default. Its managed
+CLI wrapper adds `--ipc=host` to container creation, so containers can observe
+or interfere with IPC objects shared by Android and Debian. Use it only for
+kernels whose private IPC/mqueue path is broken, avoid untrusted containers,
+and use `/usr/bin/docker` when private IPC is required and supported.
+
 ## Host USB
 
 Raw host USB access is opt-in. The default policy hides `/dev/bus/usb` in the

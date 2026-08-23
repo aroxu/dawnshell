@@ -788,6 +788,22 @@
                             android:text="@string/dawnshell_docker_policy_legacy" />
                     </RadioGroup>
 
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switch_docker_host_ipc_compatibility"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:minHeight="48dp"
+                        android:text="@string/dawnshell_docker_host_ipc_compatibility" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/dawnshell_docker_host_ipc_warning"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="?attr/colorError" />
+
                     <com.google.android.material.card.MaterialCardView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
