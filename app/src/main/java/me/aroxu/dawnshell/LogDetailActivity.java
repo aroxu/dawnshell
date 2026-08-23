@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.view.MotionEvent;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -32,6 +33,7 @@ public final class LogDetailActivity extends AppCompatActivity {
     private boolean resumed;
     private boolean followingTail = true;
     private boolean programmaticScroll;
+    private boolean userScrollGesture;
 
     private final Runnable refreshTask = new Runnable() {
         @Override
@@ -78,8 +80,29 @@ public final class LogDetailActivity extends AppCompatActivity {
 
         logScroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
                 (view, scrollX, scrollY, oldScrollX, oldScrollY) -> {
-                    if (!programmaticScroll) followingTail = isNearBottom();
+                    if (!programmaticScroll || userScrollGesture) {
+                        if (scrollY < oldScrollY) {
+                            followingTail = false;
+                        } else if (isAtBottom()) {
+                            followingTail = true;
+                        }
+                    }
                 });
+        logScroll.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    userScrollGesture = true;
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    userScrollGesture = false;
+                    logScroll.post(() -> followingTail = isAtBottom());
+                    break;
+                default:
+                    break;
+            }
+            return false;
+        });
     }
 
     @Override
@@ -112,26 +135,42 @@ public final class LogDetailActivity extends AppCompatActivity {
         boolean follow = displayed.isEmpty() || followingTail;
         int previousScroll = logScroll.getScrollY();
         displayed = value;
+        // setText() itself may synchronously reset NestedScrollView to the top.
+        // Suppress that callback before changing the text, not only in post().
+        programmaticScroll = true;
         logText.setText(value);
         logScroll.post(() -> {
-            programmaticScroll = true;
-            if (follow) {
-                logScroll.fullScroll(NestedScrollView.FOCUS_DOWN);
+            if (follow && !userScrollGesture) {
+                scrollToBottom();
                 followingTail = true;
             } else {
-                logScroll.scrollTo(0, previousScroll);
+                logScroll.scrollTo(0, Math.min(previousScroll, maximumScrollY()));
+                followingTail = isAtBottom();
             }
-            logScroll.post(() -> programmaticScroll = false);
+            // A second frame handles late TextView re-layout for long logs.
+            logScroll.postOnAnimation(() -> {
+                if (follow && !userScrollGesture) scrollToBottom();
+                programmaticScroll = false;
+                if (!userScrollGesture) followingTail = isAtBottom();
+            });
         });
     }
 
-    private boolean isNearBottom() {
-        if (logScroll.getChildCount() == 0) return true;
-        int contentHeight = logScroll.getChildAt(0).getHeight();
-        int visibleBottom = logScroll.getScrollY() + logScroll.getHeight()
-                - logScroll.getPaddingBottom();
-        int tolerance = (int) (24f * getResources().getDisplayMetrics().density + 0.5f);
-        return visibleBottom >= contentHeight - tolerance;
+    private void scrollToBottom() {
+        logScroll.scrollTo(0, maximumScrollY());
+    }
+
+    private int maximumScrollY() {
+        if (logScroll.getChildCount() == 0) return 0;
+        int viewport = logScroll.getHeight()
+                - logScroll.getPaddingTop() - logScroll.getPaddingBottom();
+        return Math.max(0, logScroll.getChildAt(0).getHeight() - viewport);
+    }
+
+    private boolean isAtBottom() {
+        // Allow only layout rounding, not a visible "near bottom" band: any
+        // deliberate upward scroll must pause live following immediately.
+        return logScroll.getScrollY() >= maximumScrollY() - 2;
     }
 
     private boolean hasSelection() {
