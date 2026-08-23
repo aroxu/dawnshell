@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.os.SystemClock;
@@ -28,7 +28,7 @@ import javax.net.ssl.HttpsURLConnection;
 
 final class DebianRootfsInstaller {
 
-    private static final String TAG = "TermuxBFU";
+    private static final String TAG = "DawnShell";
     private static final String LOG_FILE = "debian-install.log";
     private static final String STATUS_FILE = "debian-install.status";
     private static final int CONNECT_TIMEOUT_MS = 30_000;
@@ -209,7 +209,7 @@ final class DebianRootfsInstaller {
         connection.setInstanceFollowRedirects(false);
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
-        connection.setRequestProperty("User-Agent", "Termux-BFU/0.8.1");
+        connection.setRequestProperty("User-Agent", "DawnShell/0.8.1");
         int responseCode = connection.getResponseCode();
         if (responseCode != HttpsURLConnection.HTTP_OK) {
             connection.disconnect();

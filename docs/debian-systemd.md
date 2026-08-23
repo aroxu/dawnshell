@@ -5,7 +5,7 @@
 ```text
 Android init (host PID 1)
   -> LOCKED_BOOT_COMPLETED
-  -> Termux: BFU direct-Boot-aware foreground service
+  -> DawnShell direct-Boot-aware foreground service
   -> pre-authorized Magisk su
   -> root start-debian helper
   -> private mount + PID + UTS + cgroup namespaces
@@ -40,7 +40,7 @@ Termux CE paths are forbidden. `/data/local/debian` is accepted only after a
 BFU root process proves its directories and `bin/sh` mode are readable and the
 rootfs can be written. The launcher rejects every other root path.
 The app-owned DE `files/bfu/` tree remains for bootstrap/control files and logs,
-not the full rootfs, so uninstalling Termux: BFU does not silently remove Debian.
+not the full rootfs, so uninstalling DawnShell does not silently remove Debian.
 
 ## Launcher contract
 
@@ -61,7 +61,7 @@ executable device/inode), not a pid file alone. Within a new mount namespace it:
 4. mount a `mode=755,nosuid,nodev` tmpfs at `$ROOT/run` and create `/run/lock`.
 5. presents a private `name=systemd` cgroup-v1 subtree while hiding Android's
    controller mounts;
-6. executes `env container=termux-bfu chroot "$ROOT" /sbin/init`.
+6. executes `env container=dawnshell chroot "$ROOT" /sbin/init`.
 
 Host Android mount propagation remains untouched. The helper never makes host
 mounts shared. Lifecycle checkpoints and
@@ -81,12 +81,12 @@ enables an independent oneshot service that creates a volatile marker in private
 `/run` at `multi-user.target`; this proves configured enabled services ran rather
 than inferring that only from SSH. It masks units that would write Android-owned
 kernel, module, udev, sysctl, clock, or network state. The
-`.termux-bfu-systemd-ready` marker is written last and removed before any
+`.dawnshell-systemd-ready` marker is written last and removed before any
 reconfiguration attempt, so a partial setup fails closed.
 
 The app generates the client identity in its own CE storage and automatically
 provisions its public half. The first optional normal-Termux command installs the
-explicitly exported private half as `~/.ssh/termux-bfu-ed25519`; the second
+explicitly exported private half as `~/.ssh/dawnshell-ed25519`; the second
 connects to `debian@127.0.0.1:22`, so it is independent of the phone's current
 Wi-Fi address. No client private-key bytes enter app DE, the Debian rootfs, or
 logs. The optional one-line import helper does place the key in a sensitive

@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.os.Build;
@@ -26,7 +26,7 @@ final class BfuSshClientKeyStore {
         }
     }
 
-    private static final String FORMAT = "TERMUX-BFU-SSH-KEY-V1";
+    private static final String FORMAT = "DAWNSHELL-SSH-KEY-V1";
     private static final int MAX_BYTES = 16 * 1024;
 
     private BfuSshClientKeyStore() {}
@@ -58,7 +58,7 @@ final class BfuSshClientKeyStore {
             throw new IOException("could not create CE SSH key directory");
         }
         setOwnerOnly(directory, true);
-        return new File(directory, "termux-bfu-client.identity");
+        return new File(directory, "dawnshell-client.identity");
     }
 
     private static void write(File destination, Identity identity) throws IOException {

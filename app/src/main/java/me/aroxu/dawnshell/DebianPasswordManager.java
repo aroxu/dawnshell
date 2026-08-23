@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.os.Build;
@@ -83,7 +83,7 @@ final class DebianPasswordManager {
     }
 
     private static void requireConfiguredRootfs() {
-        if (!new File(ROOTFS + "/.termux-bfu-systemd-ready").isFile()
+        if (!new File(ROOTFS + "/.dawnshell-systemd-ready").isFile()
                 || !new File(ROOTFS + "/usr/sbin/chpasswd").isFile()) {
             throw new IllegalStateException("Debian systemd rootfs is not configured");
         }

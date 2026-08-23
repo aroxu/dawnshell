@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-marker_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-boot.log"
+marker_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu-boot.log"
 
 marker_count() {
-  adb shell run-as me.aroxu.termux.bfu cat "$marker_path" 2>/dev/null \
+  adb shell run-as me.aroxu.dawnshell cat "$marker_path" 2>/dev/null \
     | grep -c '^LOCKED_BOOT_COMPLETED ' || true
 }
 
@@ -25,11 +25,11 @@ for _ in $(seq 1 60); do
 done
 
 adb shell dumpsys user | grep -i unlocked || true
-adb logcat -d -s TermuxBFU:I '*:S'
-adb shell run-as me.aroxu.termux.bfu cat "$marker_path"
+adb logcat -d -s DawnShell:I '*:S'
+adb shell run-as me.aroxu.dawnshell cat "$marker_path"
 
 (( marker_count_after > marker_count_before ))
-adb logcat -d -s TermuxBFU:I '*:S' | grep -q 'LOCKED_BOOT_COMPLETED received'
-adb logcat -d -s TermuxBFU:I '*:S' | grep -q 'DE executable probe succeeded'
+adb logcat -d -s DawnShell:I '*:S' | grep -q 'LOCKED_BOOT_COMPLETED received'
+adb logcat -d -s DawnShell:I '*:S' | grep -q 'DE executable probe succeeded'
 
 echo "PASS: fresh DE locked-boot marker, receiver log, and DE executable probe observed."

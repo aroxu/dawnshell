@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import org.junit.Test;
 
@@ -25,7 +25,7 @@ public class OpenSshEd25519KeyTest {
         assertTrue(generated.privateKey.startsWith(
                 "-----BEGIN OPENSSH PRIVATE KEY-----\n"));
 
-        File directory = Files.createTempDirectory("termux-bfu-key-test").toFile();
+        File directory = Files.createTempDirectory("dawnshell-key-test").toFile();
         File privateKey = new File(directory, "id_ed25519");
         try {
             try (FileOutputStream output = new FileOutputStream(privateKey)) {

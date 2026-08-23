@@ -28,9 +28,9 @@ fail() {
 [ -r "$ROOT/bin/sh" ] || fail shell_not_readable 23
 [ -x "$ROOT/bin/sh" ] || fail shell_not_executable 24
 
-PROBE="$ROOT/.termux-bfu-access-probe.$$"
+PROBE="$ROOT/.dawnshell-access-probe.$$"
 trap '/system/bin/rm -f "$PROBE"' 0 1 2 3 15
-TOKEN="termux-bfu-rootfs-probe-$$"
+TOKEN="dawnshell-rootfs-probe-$$"
 umask 077
 
 printf '%s\n' "$TOKEN" > "$PROBE" || fail write_failed 25

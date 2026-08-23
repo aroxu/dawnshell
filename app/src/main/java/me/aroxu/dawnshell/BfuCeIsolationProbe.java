@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -21,13 +21,13 @@ final class BfuCeIsolationProbe {
     private static final String LOG_FILE = "bfu-ce-isolation.log";
     private static final String RECEIPT_FILE = "bfu-ce-sentinel.provisioned";
     private static final String SUCCESS_MARKER = "BFU_APP_CE_ISOLATED";
-    private static final String SENTINEL_VALUE = "TERMUX_BFU_CE_SENTINEL_V1";
-    private static final String SENTINEL_FILE_NAME = "termux-bfu-ce-sentinel";
+    private static final String SENTINEL_VALUE = "DAWNSHELL_CE_SENTINEL_V1";
+    private static final String SENTINEL_FILE_NAME = "dawnshell-ce-sentinel";
     private static final String SENTINEL_PATH =
-            "/data/user/0/me.aroxu.termux.bfu/files/termux-bfu-ce-sentinel";
+            "/data/user/0/me.aroxu.dawnshell/files/dawnshell-ce-sentinel";
     private static final String PROBE =
             "for path in " + SENTINEL_PATH + " "
-                    + "/data/data/me.aroxu.termux.bfu/files/termux-bfu-ce-sentinel; do "
+                    + "/data/data/me.aroxu.dawnshell/files/dawnshell-ce-sentinel; do "
                     + "value=$(/system/bin/cat \"$path\" 2>/dev/null) || continue; "
                     + "if [ \"$value\" = " + SENTINEL_VALUE + " ]; then "
                     + "echo BFU_APP_CE_CONTENT_ACCESSIBLE path=\"$path\"; exit 41; fi; "

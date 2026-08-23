@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.os.Build;
@@ -12,15 +12,17 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
-/** Proves namespace isolation, private /proc, and Debian chroot execution during BFU. */
-final class BfuDebianRuntimeProbe {
+final class BfuRootfsProbe {
 
-    private static final long PROBE_TIMEOUT_MS = 35_000L;
-    private static final String SUCCESS_MARKER = "BFU_DEBIAN_NAMESPACE_OK";
-    private static final String LOG_FILE = "bfu-debian-runtime.log";
+    static final String ROOTFS_PATH = "/data/local/debian";
+
+    private static final long PROBE_TIMEOUT_MS = 15_000L;
+    private static final String SUCCESS_MARKER =
+            "Debian-rootfs-access-ok root=" + ROOTFS_PATH;
 
     static final class Result {
-        final boolean successful;
+        final boolean accessible;
+        final String rootfs;
         final String command;
         final int exitCode;
         final boolean timedOut;
@@ -28,9 +30,10 @@ final class BfuDebianRuntimeProbe {
         final boolean userUnlockedAfter;
         final String output;
 
-        Result(boolean successful, String command, int exitCode, boolean timedOut,
+        Result(boolean accessible, String command, int exitCode, boolean timedOut,
                boolean userUnlockedBefore, boolean userUnlockedAfter, String output) {
-            this.successful = successful;
+            this.accessible = accessible;
+            this.rootfs = ROOTFS_PATH;
             this.command = command;
             this.exitCode = exitCode;
             this.timedOut = timedOut;
@@ -40,34 +43,34 @@ final class BfuDebianRuntimeProbe {
         }
 
         String summary() {
-            return "rootfs=" + BfuRootfsProbe.ROOTFS_PATH
+            return "rootfs=" + rootfs
                     + " command=" + command
                     + " exit=" + exitCode
                     + " timeout=" + timedOut
-                    + " namespace_chroot=" + successful
+                    + " accessible=" + accessible
                     + " user_unlocked_before=" + userUnlockedBefore
                     + " user_unlocked_after=" + userUnlockedAfter
                     + " output=" + output;
         }
 
         boolean succeededDuringBfu() {
-            return successful && !userUnlockedBefore && !userUnlockedAfter;
+            return accessible && !userUnlockedBefore && !userUnlockedAfter;
         }
     }
 
-    private BfuDebianRuntimeProbe() {}
+    private BfuRootfsProbe() {}
 
     static Result run(Context context, BfuRuntime.Layout layout)
             throws IOException, InterruptedException {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
         boolean userUnlockedBefore = isUserUnlocked(context);
-        String shellCommand = BfuSu.shellQuote(layout.namespaceProbeBinary.getAbsolutePath())
-                + " probe " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH);
-        BfuSu.Result commandResult = BfuSu.run(shellCommand, PROBE_TIMEOUT_MS);
+        String command = BfuSu.shellQuote(layout.rootfsProbeScript.getAbsolutePath())
+                + " " + BfuSu.shellQuote(ROOTFS_PATH);
+        BfuSu.Result commandResult = BfuSu.run(command, PROBE_TIMEOUT_MS);
         boolean userUnlockedAfter = isUserUnlocked(context);
-        boolean successful = commandResult.exitedSuccessfully()
+        boolean accessible = commandResult.exitedSuccessfully()
                 && commandResult.output.contains(SUCCESS_MARKER);
-        Result result = new Result(successful, commandResult.command,
+        Result result = new Result(accessible, commandResult.command,
                 commandResult.exitCode, commandResult.timedOut, userUnlockedBefore,
                 userUnlockedAfter, commandResult.output);
         appendPersistentResult(deContext, result);
@@ -76,7 +79,7 @@ final class BfuDebianRuntimeProbe {
 
     static String readLastPersistentResult(Context context) throws IOException {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
-        File log = new File(deContext.getFilesDir(), LOG_FILE);
+        File log = new File(deContext.getFilesDir(), "bfu-rootfs.log");
         if (!log.isFile()) return "";
 
         String lastLine = "";
@@ -98,8 +101,8 @@ final class BfuDebianRuntimeProbe {
 
     private static void appendPersistentResult(Context deContext, Result result)
             throws IOException {
-        File log = new File(deContext.getFilesDir(), LOG_FILE);
-        String line = "DEBIAN_RUNTIME_PROBE " + System.currentTimeMillis() + " "
+        File log = new File(deContext.getFilesDir(), "bfu-rootfs.log");
+        String line = "ROOTFS_PROBE " + System.currentTimeMillis() + " "
                 + result.summary() + "\n";
         try (FileOutputStream output = new FileOutputStream(log, true)) {
             output.write(line.getBytes(StandardCharsets.UTF_8));

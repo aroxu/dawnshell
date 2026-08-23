@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import net.i2p.crypto.eddsa.EdDSAPrivateKey;
 import net.i2p.crypto.eddsa.EdDSAPublicKey;
@@ -30,7 +30,7 @@ final class OpenSshEd25519Key {
             "openssh-key-v1\0".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] KEY_TYPE =
             "ssh-ed25519".getBytes(StandardCharsets.US_ASCII);
-    private static final String COMMENT = "termux-bfu-client";
+    private static final String COMMENT = "dawnshell-client";
 
     private OpenSshEd25519Key() {}
 

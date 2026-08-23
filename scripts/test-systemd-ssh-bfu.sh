@@ -15,14 +15,14 @@ ssh_user="${BFU_SSH_USER:-debian}"
 ssh_port="${BFU_SSH_PORT:-22}"
 wait_seconds="${BFU_SSH_WAIT_SECONDS:-120}"
 expect_ce_override="${BFU_EXPECT_CE_READABLE_OVERRIDE:-0}"
-operation_log_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-operation.log"
-locked_boot_log_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-boot.log"
-root_log_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-root.log"
-rootfs_log_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-rootfs.log"
-runtime_log_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-debian-runtime.log"
-lifecycle_status_path="/data/user_de/0/me.aroxu.termux.bfu/files/debian-lifecycle.status"
-lifecycle_log_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/run/debian-lifecycle.log"
-ce_isolation_log_path="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-ce-isolation.log"
+operation_log_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu-operation.log"
+locked_boot_log_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu-boot.log"
+root_log_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu-root.log"
+rootfs_log_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu-rootfs.log"
+runtime_log_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu-debian-runtime.log"
+lifecycle_status_path="/data/user_de/0/me.aroxu.dawnshell/files/debian-lifecycle.status"
+lifecycle_log_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu/run/debian-lifecycle.log"
+ce_isolation_log_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu-ce-isolation.log"
 
 [[ -f "$BFU_SSH_KEY" ]] || {
   echo "Private key does not exist: $BFU_SSH_KEY" >&2
@@ -37,7 +37,7 @@ for tool in adb ssh sed; do
 done
 
 read_boot_de_file() {
-  adb exec-out run-as me.aroxu.termux.bfu cat "$1" 2>/dev/null | tr -d '\r'
+  adb exec-out run-as me.aroxu.dawnshell cat "$1" 2>/dev/null | tr -d '\r'
 }
 
 fresh_log_lines() {
@@ -85,8 +85,8 @@ health_command='set -eu
 [ "$(systemctl is-system-running)" = running ]
 [ "$(systemctl is-active dbus.service)" = active ]
 [ "$(systemctl is-active ssh.service)" = active ]
-[ "$(systemctl is-active termux-bfu-boot-proof.service)" = active ]
-[ -f /run/termux-bfu-enabled-service.ready ]
+[ "$(systemctl is-active dawnshell-boot-proof.service)" = active ]
+[ -f /run/dawnshell-enabled-service.ready ]
 [ "$(systemctl get-default)" = multi-user.target ]
 [ "$(systemctl is-active multi-user.target)" = active ]
 busctl --system --no-pager list >/dev/null
@@ -99,7 +99,7 @@ printf "pid1=%s start_ticks=%s machine_id=%s android_boot_id=%s system_state=%s 
   "$(systemctl is-system-running 2>/dev/null || true)" \
   "$(systemctl is-active dbus.service)" \
   "$(systemctl is-active ssh.service)" \
-  "$(systemctl is-active termux-bfu-boot-proof.service)" \
+  "$(systemctl is-active dawnshell-boot-proof.service)" \
   "$(systemctl get-default)" \
   "$(systemctl is-active multi-user.target)"'
 
@@ -191,7 +191,7 @@ unlocked_identity="$(printf '%s\n' "$unlocked_health" \
 }
 
 adb wait-for-device
-adb logcat -d -s TermuxBFU:I '*:S' || true
+adb logcat -d -s DawnShell:I '*:S' || true
 
 lifecycle_status="$(read_boot_de_file "$lifecycle_status_path")"
 printf 'Persisted lifecycle status: %s\n' "$lifecycle_status"

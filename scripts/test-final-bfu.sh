@@ -38,7 +38,7 @@ printf 'cycle\tandroid_boot_id\tboot_app_pid\ttotal_pss_kib\ttotal_rss_kib\tsupe
 preflight="$results_dir/preflight.txt"
 crypto_state="$(adb shell getprop ro.crypto.state | tr -d '\r')"
 crypto_type="$(adb shell getprop ro.crypto.type | tr -d '\r')"
-bfu_app_id="$(adb shell dumpsys package me.aroxu.termux.bfu \
+bfu_app_id="$(adb shell dumpsys package me.aroxu.dawnshell \
   | tr -d '\r' | sed -n 's/^ *appId=\([0-9][0-9]*\).*$/\1/p' | sed -n '1p')"
 {
   echo "reported_model=$(adb shell getprop ro.product.model | tr -d '\r')"
@@ -46,8 +46,8 @@ bfu_app_id="$(adb shell dumpsys package me.aroxu.termux.bfu \
   echo "crypto_state=$crypto_state"
   echo "crypto_type=${crypto_type:-<unset>}"
   echo "cpu_abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
-  echo "termux_bfu_app_id=$bfu_app_id"
-  adb shell dumpsys package me.aroxu.termux.bfu \
+  echo "dawnshell_app_id=$bfu_app_id"
+  adb shell dumpsys package me.aroxu.dawnshell \
     | tr -d '\r' | grep -E 'appId=|dataDir=|targetSdk='
 } | tee "$preflight"
 [[ "$crypto_state" = "encrypted" ]] || {
@@ -63,16 +63,16 @@ if [[ -z "$crypto_type" ]]; then
 fi
 grep -Fq 'cpu_abi=arm64-v8a' "$preflight"
 [[ -n "$bfu_app_id" ]] || {
-  echo "FAIL: standalone Termux: BFU app is not installed" >&2
+  echo "FAIL: standalone DawnShell app is not installed" >&2
   exit 2
 }
 target_count="$(grep -Fc 'targetSdk=28' "$preflight" || true)"
 [[ "$target_count" -ge 1 ]] || {
-  echo "FAIL: Termux: BFU must report targetSdk=28" >&2
+  echo "FAIL: DawnShell must report targetSdk=28" >&2
   exit 2
 }
 
-bfu_apk="$repo_dir/dist/termux-bfu_0.1.0_debug.apk"
+bfu_apk="$repo_dir/dist/dawnshell_0.1.0_debug.apk"
 [[ -f "$bfu_apk" ]] || {
   echo "FAIL: missing staged APK: $bfu_apk" >&2
   exit 2
@@ -111,7 +111,7 @@ verify_installed_apk() {
   }
 }
 
-verify_installed_apk me.aroxu.termux.bfu "$actual_bfu_hash"
+verify_installed_apk me.aroxu.dawnshell "$actual_bfu_hash"
 cat "$artifact_evidence"
 
 for ((cycle = 1; cycle <= cycles; cycle++)); do
@@ -121,29 +121,29 @@ for ((cycle = 1; cycle <= cycles; cycle++)); do
   "$repo_dir/scripts/test-systemd-ssh-bfu.sh" 2>&1 | tee "$cycle_log"
 
   boot_id="$(adb shell cat /proc/sys/kernel/random/boot_id | tr -d '\r\n')"
-  app_pid="$(adb shell pidof me.aroxu.termux.bfu | tr -d '\r\n' || true)"
-  meminfo="$(adb shell dumpsys meminfo me.aroxu.termux.bfu 2>/dev/null | tr -d '\r')"
+  app_pid="$(adb shell pidof me.aroxu.dawnshell | tr -d '\r\n' || true)"
+  meminfo="$(adb shell dumpsys meminfo me.aroxu.dawnshell 2>/dev/null | tr -d '\r')"
   total_pss="$(printf '%s\n' "$meminfo" \
     | sed -n 's/^ *TOTAL PSS: *\([0-9][0-9]*\).*/\1/p' \
     | head -n 1)"
   total_rss="$(printf '%s\n' "$meminfo" \
     | sed -n 's/^ *TOTAL PSS:.*TOTAL RSS: *\([0-9][0-9]*\).*/\1/p' \
     | head -n 1)"
-  state="$(adb exec-out run-as me.aroxu.termux.bfu cat \
-    /data/user_de/0/me.aroxu.termux.bfu/files/bfu/run/debian-supervisor.state \
+  state="$(adb exec-out run-as me.aroxu.dawnshell cat \
+    /data/user_de/0/me.aroxu.dawnshell/files/bfu/run/debian-supervisor.state \
     2>/dev/null | tr -d '\r')"
   supervisor_pid="$(sed -n 's/^supervisor_pid=//p' <<<"$state")"
   init_host_pid="$(sed -n 's/^init_host_pid=//p' <<<"$state")"
-  helper="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/bin/bfu-namespace-probe-arm64"
+  helper="/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/bfu-namespace-probe-arm64"
   rootfs="/data/local/debian"
-  control="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/run"
+  control="/data/user_de/0/me.aroxu.dawnshell/files/bfu/run"
   launcher_status="$(adb shell su -c \
     "$helper status $rootfs $control" | tr -d '\r')"
   grep -Fq 'BFU_DEBIAN_RUNNING' <<<"$launcher_status"
   grep -Fq 'namespace_topology_valid=true' <<<"$launcher_status"
   grep -Fq 'ipc_namespace=android-shared' <<<"$launcher_status"
   grep -Fq 'network_namespace=android-shared network_mode=shared-nic' <<<"$launcher_status"
-  device_helper_hash="$(adb exec-out run-as me.aroxu.termux.bfu cat "$helper" \
+  device_helper_hash="$(adb exec-out run-as me.aroxu.dawnshell cat "$helper" \
     | sha256sum | awk '{print toupper($1)}')"
   [[ "$device_helper_hash" = "$embedded_helper_hash" ]] || {
     echo "FAIL: provisioned BFU helper does not match the installed APK artifact" >&2
@@ -177,7 +177,7 @@ if ! awk -F '\t' '
   { previous=$4; last=$4 }
   END { if (have && monotonic && last-first > 32768) exit 1 }
 ' "$summary"; then
-  echo "FAIL: Termux: BFU TOTAL PSS rose monotonically by more than 32 MiB" >&2
+  echo "FAIL: DawnShell TOTAL PSS rose monotonically by more than 32 MiB" >&2
   exit 7
 fi
 

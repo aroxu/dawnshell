@@ -14,9 +14,9 @@ export ANDROID_NDK_HOME
   clean :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
 
 mkdir -p "$dist_dir"
-cp "$root_dir/app/build/outputs/apk/debug/termux-bfu-app_v0.1.0+debug.apk" \
-   "$dist_dir/termux-bfu_0.1.0_debug.apk"
+cp "$root_dir/app/build/outputs/apk/debug/dawnshell-app_v0.1.0+debug.apk" \
+   "$dist_dir/dawnshell_0.1.0_debug.apk"
 
-sha256sum "$dist_dir/termux-bfu_0.1.0_debug.apk"
-echo "Package: me.aroxu.termux.bfu"
+sha256sum "$dist_dir/dawnshell_0.1.0_debug.apk"
+echo "Package: me.aroxu.dawnshell"
 echo "Debug APK uses a public development key; use a private key for production."

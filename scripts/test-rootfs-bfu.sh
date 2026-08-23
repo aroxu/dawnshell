@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-boot_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-boot.log"
-root_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-root.log"
-rootfs_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-rootfs.log"
+boot_log="/data/user_de/0/me.aroxu.dawnshell/files/bfu-boot.log"
+root_log="/data/user_de/0/me.aroxu.dawnshell/files/bfu-root.log"
+rootfs_log="/data/user_de/0/me.aroxu.dawnshell/files/bfu-rootfs.log"
 
 line_count() {
   local path="$1"
-  adb shell run-as me.aroxu.termux.bfu cat "$path" 2>/dev/null \
+  adb shell run-as me.aroxu.dawnshell cat "$path" 2>/dev/null \
     | wc -l | tr -d '[:space:]' || true
 }
 
@@ -28,9 +28,9 @@ boot_count_after="$(line_count "$boot_log")"
 root_count_after="$(line_count "$root_log")"
 rootfs_count_after="$(line_count "$rootfs_log")"
 
-boot_results="$(adb shell run-as me.aroxu.termux.bfu cat "$boot_log")"
-root_results="$(adb shell run-as me.aroxu.termux.bfu cat "$root_log")"
-rootfs_results="$(adb shell run-as me.aroxu.termux.bfu cat "$rootfs_log")"
+boot_results="$(adb shell run-as me.aroxu.dawnshell cat "$boot_log")"
+root_results="$(adb shell run-as me.aroxu.dawnshell cat "$root_log")"
+rootfs_results="$(adb shell run-as me.aroxu.dawnshell cat "$rootfs_log")"
 printf '%s\n' "$boot_results"
 printf '%s\n' "$root_results"
 printf '%s\n' "$rootfs_results"

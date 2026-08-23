@@ -6,7 +6,7 @@
    CE access is a bounded read attempt against a fixed, non-secret isolation
    sentinel; the default policy blocks startup if that content is readable.
 2. App control data is created only from a Device Protected Context owned by
-   Termux: BFU; the separately proven Debian rootfs is fixed at `/data/local/debian`.
+   DawnShell; the separately proven Debian rootfs is fixed at `/data/local/debian`.
 3. No CE-to-DE automatic synchronization exists.
 4. DE and the BFU rootfs must not contain user/client private SSH keys, Termux
    user keys, API tokens, Tailscale auth keys, plaintext passwords, cloud
@@ -36,7 +36,7 @@ available before PIN entry and require their own physical/offline threat review.
 
 ## Root and namespace restrictions
 
-Magisk authorization must be granted to the standalone Termux: BFU UID before
+Magisk authorization must be granted to the standalone DawnShell UID before
 reboot. The BFU path must never wait indefinitely for an authorization UI; the
 probe is bounded and records only command path, exit status, timeout state, root
 verdict, and sanitized `id` output.
@@ -44,7 +44,7 @@ verdict, and sanitized `id` output.
 Magisk stores superuser policy by numeric Linux UID. This app does not declare a
 shared UID, so its policy is independent of Termux and Termux:Boot. The interactive
 button still lists every package Android reports for the current UID before
-calling `su`; normally only `me.aroxu.termux.bfu` is present. Do not approve if an
+calling `su`; normally only `me.aroxu.dawnshell` is present. Do not approve if an
 unexpected package appears. The button cannot
 write Magisk's policy database; the operator must select permanent/forever in the
 Magisk UI. A successful AFU check is never copied into `bfu-root.log` or treated
@@ -95,7 +95,7 @@ validation and does not expose arbitrary command execution. Only the external
 harness can prove that Android's boot ID stayed unchanged.
 
 The rootfs accessibility gate writes only a random-per-process marker named
-`.termux-bfu-access-probe.<pid>` at the rootfs top level, reads it back, and removes
+`.dawnshell-access-probe.<pid>` at the rootfs top level, reads it back, and removes
 it through an EXIT/signal trap. It does not modify Debian configuration, users,
 services, mounts, or CE storage.
 
@@ -183,14 +183,14 @@ IPC namespace implementation is required before claiming IPC isolation.
 
 ## Signing boundary
 
-`me.aroxu.termux.bfu` has no shared UID, so its certificate does not need to match
+`me.aroxu.dawnshell` has no shared UID, so its certificate does not need to match
 Termux, Termux:Boot, or any plugin. Android still requires all future updates of
 this package to use the same certificate. The checked-in debug key is public and
 unsuitable for production; production builds require a private signing key.
 
 ## Logging
 
-Use tag `TermuxBFU`. Allowed messages include lifecycle action, DE root, runtime
+Use tag `DawnShell`. Allowed messages include lifecycle action, DE root, runtime
 verification, child pid/status, and sanitized exit errors. Never log key contents,
 environment dumps, full command lines containing credentials, or SSH packet data.
 Automatic health diagnostics include unit names/states but deliberately do not

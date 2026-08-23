@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -6,7 +6,7 @@ import android.os.Build;
 
 final class BfuPreferences {
 
-    private static final String PREFS_NAME = "termux_bfu";
+    private static final String PREFS_NAME = "dawnshell";
     private static final String KEY_ENABLED = "enabled";
     private static final String KEY_ALLOW_CE_READABLE_BFU =
             "allow_ce_readable_bfu";

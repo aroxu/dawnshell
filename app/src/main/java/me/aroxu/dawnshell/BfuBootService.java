@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -21,24 +21,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class BfuBootService extends Service {
 
-    static final String ACTION_START = "me.aroxu.termux.bfu.action.START_BFU";
+    static final String ACTION_START = "me.aroxu.dawnshell.action.START_BFU";
     static final String ACTION_INSTALL_DEBIAN =
-            "me.aroxu.termux.bfu.action.INSTALL_DEBIAN_ROOTFS";
+            "me.aroxu.dawnshell.action.INSTALL_DEBIAN_ROOTFS";
     static final String ACTION_CONFIGURE_DEBIAN =
-            "me.aroxu.termux.bfu.action.CONFIGURE_DEBIAN_SYSTEM";
+            "me.aroxu.dawnshell.action.CONFIGURE_DEBIAN_SYSTEM";
     static final String ACTION_DEBIAN_START =
-            "me.aroxu.termux.bfu.action.START_DEBIAN_SYSTEMD";
+            "me.aroxu.dawnshell.action.START_DEBIAN_SYSTEMD";
     static final String ACTION_DEBIAN_RESTART =
-            "me.aroxu.termux.bfu.action.RESTART_DEBIAN_SYSTEMD";
+            "me.aroxu.dawnshell.action.RESTART_DEBIAN_SYSTEMD";
     static final String ACTION_DEBIAN_STATUS =
-            "me.aroxu.termux.bfu.action.STATUS_DEBIAN_SYSTEMD";
+            "me.aroxu.dawnshell.action.STATUS_DEBIAN_SYSTEMD";
     static final String ACTION_DEBIAN_STOP =
-            "me.aroxu.termux.bfu.action.STOP_DEBIAN_SYSTEMD";
+            "me.aroxu.dawnshell.action.STOP_DEBIAN_SYSTEMD";
     static final String ACTION_REMOVE_DEBIAN_ROOTFS =
-            "me.aroxu.termux.bfu.action.REMOVE_DEBIAN_ROOTFS";
+            "me.aroxu.dawnshell.action.REMOVE_DEBIAN_ROOTFS";
 
-    private static final String TAG = "TermuxBFU";
-    private static final String NOTIFICATION_CHANNEL_ID = "termux_bfu";
+    private static final String TAG = "DawnShell";
+    private static final String NOTIFICATION_CHANNEL_ID = "dawnshell";
     private static final int NOTIFICATION_ID = 2222;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -225,7 +225,7 @@ public class BfuBootService extends Service {
             BfuCeIsolationProbe.Result ceIsolationResult =
                     BfuCeIsolationProbe.run(this);
             if (ceIsolationResult.succeededDuringBfu()) {
-                Log.i(TAG, "Termux: BFU CE isolation proven; "
+                Log.i(TAG, "DawnShell CE isolation proven; "
                         + ceIsolationResult.summary());
             } else if (BfuPreferences.allowCeReadableBfu(this)
                     && ceIsolationResult.contentAccessibleDuringBfu()) {
@@ -234,7 +234,7 @@ public class BfuBootService extends Service {
                 Log.w(TAG, warning);
                 BfuOperationLog.append(this, warning);
             } else {
-                Log.e(TAG, "Refusing Debian launch because Termux: BFU CE isolation "
+                Log.e(TAG, "Refusing Debian launch because DawnShell CE isolation "
                         + "was not proven; " + ceIsolationResult.summary());
                 return;
             }
@@ -287,7 +287,6 @@ public class BfuBootService extends Service {
         BfuRuntime.Layout layout = null;
         try {
             layout = BfuRuntime.provision(this);
-            LegacyBfuGuard.requireStopped();
             // Reconfiguration must never mutate packages below a live PID 1.
             if (!runDebianLifecycleNow(layout, DebianLauncher.Operation.STOP,
                     "AFU_reconfiguration")) {
@@ -304,10 +303,6 @@ public class BfuBootService extends Service {
             DebianSystemProvisioner.recordRejected(this,
                     "configuration provisioning failed: "
                             + BfuSu.sanitize(e.getMessage()));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            DebianSystemProvisioner.recordRejected(this,
-                    "legacy supervisor check interrupted");
         } finally {
             systemConfigurationStarted.set(false);
         }

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-boot_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-boot.log"
-root_log="/data/user_de/0/me.aroxu.termux.bfu/files/bfu-root.log"
+boot_log="/data/user_de/0/me.aroxu.dawnshell/files/bfu-boot.log"
+root_log="/data/user_de/0/me.aroxu.dawnshell/files/bfu-root.log"
 
 line_count() {
   local path="$1"
-  adb shell run-as me.aroxu.termux.bfu cat "$path" 2>/dev/null \
+  adb shell run-as me.aroxu.dawnshell cat "$path" 2>/dev/null \
     | wc -l | tr -d '[:space:]' || true
 }
 
@@ -26,8 +26,8 @@ boot_count_after="$(line_count "$boot_log")"
 root_count_after="$(line_count "$root_log")"
 
 adb shell dumpsys user | grep -i unlocked || true
-adb shell run-as me.aroxu.termux.bfu cat "$boot_log"
-root_results="$(adb shell run-as me.aroxu.termux.bfu cat "$root_log")"
+adb shell run-as me.aroxu.dawnshell cat "$boot_log"
+root_results="$(adb shell run-as me.aroxu.dawnshell cat "$root_log")"
 printf '%s\n' "$root_results"
 
 (( boot_count_after > boot_count_before ))

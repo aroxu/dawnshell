@@ -4,7 +4,7 @@
 
 The original PoC was implemented in Termux:Boot, whose upstream AFU flow is
 summarized below. The production BFU split is now a standalone app with package
-`me.aroxu.termux.bfu`, target SDK 28, and no shared UID.
+`me.aroxu.dawnshell`, target SDK 28, and no shared UID.
 
 Termux:Boot has this AFU-only flow:
 
@@ -64,10 +64,10 @@ File root = new File(de.getFilesDir(), "bfu");
 ```
 
 No `/data/user_de/0/...` string is used to calculate the runtime layout. The owner
-package is `me.aroxu.termux.bfu`, so a typical user-0 path is
-`/data/user_de/0/me.aroxu.termux.bfu/files/bfu`, but the Context result is
-authoritative. A fixed legacy `com.termux.boot` path is consulted only by the
-migration guard to refuse a second supervisor while the old one is running.
+package is `me.aroxu.dawnshell`, so a typical user-0 path is
+`/data/user_de/0/me.aroxu.dawnshell/files/bfu`, but the Context result is
+authoritative. The runtime does not inspect or coordinate with an older
+Termux:Boot BFU implementation; migration is an explicit operator task.
 
 The PoC creates:
 
@@ -153,7 +153,7 @@ empty-password, and root login are disabled. The service binds wildcard IPv4 TCP
 22, so it can begin listening before Android finishes attaching an address. The
 validated public keys originate in DE; BFU-only host keys and the installed key
 copy live in the BFU-accessible Debian rootfs, never Termux CE. A separate enabled
-oneshot service touches `/run/termux-bfu-enabled-service.ready` during
+oneshot service touches `/run/dawnshell-enabled-service.ready` during
 `multi-user.target`, providing proof that systemd launched a configured unit other
 than the SSH/D-Bus dependencies.
 
@@ -214,7 +214,7 @@ terminal unreachable rule without veth, conntrack NAT, forwarding, or DNAT.
 Wi-Fi, mobile, and USB Ethernet can hot-plug without restarting Debian; if no
 default network exists, systemd and sshd remain running while the watcher retries.
 The host-side manager also owns a root-only mode-0600 FIFO bind-mounted at
-`/run/termux-bfu-host-reboot`. Debian's `/usr/local/sbin/reboot` accepts only no
+`/run/dawnshell-host-reboot`. Debian's `/usr/local/sbin/reboot` accepts only no
 argument, `now`, or the non-mutating `--check`; a valid reboot request is executed
 by the manager while it remains in Android's host PID namespace. Direct
 `systemctl reboot` remains PID-namespace isolated.
@@ -243,7 +243,7 @@ supervisor lock to be released. The host test script separately compares Android
 boot IDs; the helper never claims Android isolation by itself.
 
 For systemd 257 on this cgroup-v1 kernel, the helper mounts a private
-`name=systemd` hierarchy, creates a dedicated `termux-bfu` child, moves only the
+`name=systemd` hierarchy, creates a dedicated `dawnshell` child, moves only the
 future Debian PID 1 into it, enters a cgroup namespace rooted there, and bind
 mounts only that view at Debian `/sys/fs/cgroup/systemd`. Android controller
 mounts are hidden from systemd rather than delegated. A process-local

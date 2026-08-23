@@ -1,15 +1,15 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "me.aroxu.termux.bfu"
+    namespace "me.aroxu.dawnshell"
 
     compileSdk project.properties.compileSdkVersion.toInteger()
 
-    def appVersionName = System.getenv("TERMUX_BFU_APP_BUILD__APP_VERSION_NAME") ?: ""
-    def apkVersionTag = System.getenv("TERMUX_BFU_APP_BUILD__APK_VERSION_TAG") ?: ""
+    def appVersionName = System.getenv("DAWNSHELL_APP_BUILD__APP_VERSION_NAME") ?: ""
+    def apkVersionTag = System.getenv("DAWNSHELL_APP_BUILD__APK_VERSION_TAG") ?: ""
 
     defaultConfig {
-        applicationId "me.aroxu.termux.bfu"
+        applicationId "me.aroxu.dawnshell"
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
         versionCode 1
@@ -47,7 +47,7 @@ android {
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            outputFileName = new File("termux-bfu-app_" +
+            outputFileName = new File("dawnshell-app_" +
                     (apkVersionTag ? apkVersionTag : "v" + versionName + "+" + variant.buildType.name) + ".apk")
         }
     }

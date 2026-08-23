@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 
@@ -29,7 +29,6 @@ final class DebianRootfsRemover {
                 || !presence.output.contains("ROOTFS_PRESENT")) {
             throw new IOException("Could not verify rootfs presence: " + presence.output);
         }
-        LegacyBfuGuard.requireStopped();
         if (!DebianLauncher.run(context, layout, DebianLauncher.Operation.STOP,
                 "rootfs_removal")) {
             throw new IOException("Could not prove the standalone Debian supervisor stopped");

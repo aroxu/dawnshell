@@ -26,13 +26,13 @@
 #endif
 
 static const char *const kAllowedRoot = "/data/local/debian";
-static const char *const kReadyMarker = ".termux-bfu-systemd-ready";
+static const char *const kReadyMarker = ".dawnshell-systemd-ready";
 static const char *const kLockName = "debian-supervisor.lock";
 static const char *const kStateName = "debian-supervisor.state";
 static const char *const kLifecycleLogName = "debian-lifecycle.log";
 static const char *const kHostRebootFifoName = "host-reboot.fifo";
 static const char *const kCgroupMountName = "systemd-cgroup";
-static const char *const kCgroupChildName = "termux-bfu";
+static const char *const kCgroupChildName = "dawnshell";
 static const int kStartTimeoutMs = 20000;
 static const int kStartGraceMs = 3000;
 static const int kStopTimeoutMs = 30000;
@@ -317,7 +317,7 @@ static int validate_rootfs(const char *root, bool require_systemd) {
         return fail_message("root_resolved_elsewhere", "rootfs_symlink_is_forbidden", 25);
     }
 
-    if (joined_path(path, sizeof(path), root, ".termux-bfu-rootfs") != 0
+    if (joined_path(path, sizeof(path), root, ".dawnshell-rootfs") != 0
             || !is_safe_root_marker(path)
             || !file_has_exact_line(path, "suite=trixie")
             || !file_has_exact_line(path, "architecture=arm64")) {
@@ -348,7 +348,7 @@ static int validate_rootfs(const char *root, bool require_systemd) {
                 || !file_has_exact_line(path, "architecture=arm64")
                 || !file_has_exact_line(path, "ssh_service=ssh.service")
                 || !file_has_exact_line(path,
-                                        "boot_proof_service=termux-bfu-boot-proof.service")
+                                        "boot_proof_service=dawnshell-boot-proof.service")
                 || !file_has_exact_line(path, "ssh_user=debian")
                 || !file_has_exact_line(path, "ssh_port=22")) {
             return fail_message("systemd_not_provisioned",
@@ -771,7 +771,7 @@ static int prepare_systemd_cgroup_mount(const char *control_dir) {
     }
     int result = ensure_directory_path(mount_path, 0700, "cgroup_mount_dir");
     if (result != 0) return result;
-    if (mount("termux-bfu", mount_path, "cgroup",
+    if (mount("dawnshell", mount_path, "cgroup",
               MS_NOSUID | MS_NODEV | MS_NOEXEC, "none,name=systemd") != 0) {
         return fail_errno("cgroup_v1_name_systemd_mount", 46);
     }
@@ -932,7 +932,7 @@ static int prepare_child_mounts(const char *root, const char *control_dir,
         if (joined_path(source, sizeof(source), control_dir,
                         kHostRebootFifoName) != 0
                 || joined_path(target, sizeof(target), root,
-                               "run/termux-bfu-host-reboot") != 0) {
+                               "run/dawnshell-host-reboot") != 0) {
             return fail_errno("host_reboot_fifo_path", 52);
         }
         if (lstat(source, &fifo_stat) != 0 || !S_ISFIFO(fifo_stat.st_mode)
@@ -1198,8 +1198,8 @@ static int enter_debian_probe(const char *root) {
 
     int result = prepare_child_mounts(root, NULL, false);
     if (result != 0) return result;
-    if (syscall(__NR_sethostname, "termux-bfu-probe",
-                strlen("termux-bfu-probe")) != 0) {
+    if (syscall(__NR_sethostname, "dawnshell-probe",
+                strlen("dawnshell-probe")) != 0) {
         return fail_errno("sethostname", 59);
     }
     if (chdir(root) != 0) return fail_errno("chdir_rootfs", 60);
@@ -1210,7 +1210,7 @@ static int enter_debian_probe(const char *root) {
     setenv("HOME", "/root", 1);
     setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
     setenv("LANG", "C.UTF-8", 1);
-    setenv("container", "termux-bfu", 1);
+    setenv("container", "dawnshell", 1);
 
     char *const arguments[] = {"sh", "-c", (char *) probe_command, NULL};
     execv("/bin/sh", arguments);
@@ -1299,8 +1299,8 @@ static int enter_debian_systemd(const char *root, const char *control_dir) {
     log_file_snapshot("debian_pid1_cgroup", "/proc/self/cgroup");
     log_matching_snapshot("debian_cgroup_mounts", "/proc/self/mountinfo",
                           "cgroup");
-    if (syscall(__NR_sethostname, "termux-bfu",
-                strlen("termux-bfu")) != 0) {
+    if (syscall(__NR_sethostname, "dawnshell",
+                strlen("dawnshell")) != 0) {
         return fail_errno("sethostname", 68);
     }
     if (chdir(root) != 0) return fail_errno("chdir_rootfs", 69);
@@ -1311,7 +1311,7 @@ static int enter_debian_systemd(const char *root, const char *control_dir) {
     setenv("HOME", "/root", 1);
     setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
     setenv("LANG", "C.UTF-8", 1);
-    setenv("container", "termux-bfu", 1);
+    setenv("container", "dawnshell", 1);
     setenv("SYSTEMD_LOG_TARGET", "console", 1);
     setenv("SYSTEMD_LOG_LEVEL", "info", 1);
     setenv("SYSTEMD_LOG_TIME", "1", 1);
@@ -1381,7 +1381,7 @@ static int request_systemd_manager_exit(const char *root, int lock_fd) {
         setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                1);
         setenv("LANG", "C.UTF-8", 1);
-        setenv("container", "termux-bfu", 1);
+        setenv("container", "dawnshell", 1);
         char *const arguments[] = {"systemctl", "--no-block", "exit", NULL};
         execv("/usr/bin/systemctl", arguments);
         _exit(127);
@@ -1731,8 +1731,8 @@ static int enter_debian_health(const char *root) {
             "ssh_service=$(/usr/bin/timeout -k 1 3 /usr/bin/systemctl "
             "is-active ssh.service 2>/dev/null || true); "
             "boot_proof_service=$(/usr/bin/timeout -k 1 3 /usr/bin/systemctl "
-            "is-active termux-bfu-boot-proof.service 2>/dev/null || true); "
-            "if [ -f /run/termux-bfu-enabled-service.ready ]; then "
+            "is-active dawnshell-boot-proof.service 2>/dev/null || true); "
+            "if [ -f /run/dawnshell-enabled-service.ready ]; then "
             "boot_proof_marker=present; else boot_proof_marker=missing; fi; "
             "default_target=$(/usr/bin/timeout -k 1 3 /usr/bin/systemctl "
             "get-default 2>/dev/null || true); "
@@ -1771,7 +1771,7 @@ static int enter_debian_health(const char *root) {
     setenv("HOME", "/root", 1);
     setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
     setenv("LANG", "C.UTF-8", 1);
-    setenv("container", "termux-bfu", 1);
+    setenv("container", "dawnshell", 1);
     char *const arguments[] = {"sh", "-c", (char *) health_command, NULL};
     execv("/bin/sh", arguments);
     return fail_errno("health_exec_shell", 106);
@@ -1797,7 +1797,7 @@ static int enter_debian_systemctl_shutdown(const char *root, const char *mode) {
     setenv("HOME", "/root", 1);
     setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
     setenv("LANG", "C.UTF-8", 1);
-    setenv("container", "termux-bfu", 1);
+    setenv("container", "dawnshell", 1);
     if (strcmp(mode, "shutdown") == 0) {
         char *const arguments[] = {
                 "shutdown", "--poweroff", "--no-wall", "now", NULL

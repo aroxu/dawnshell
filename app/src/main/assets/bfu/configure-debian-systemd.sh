@@ -67,10 +67,10 @@ done
 [ ! -L "$ROOT" ] || fail 13 "rootfs symlinks are forbidden"
 [ "$(readlink -f "$ROOT")" = "$ROOT" ] || fail 13 "rootfs resolves elsewhere"
 [ "$(stat -c '%u:%g' "$ROOT")" = "0:0" ] || fail 13 "rootfs is not root-owned"
-[ -f "$ROOT/.termux-bfu-rootfs" ] || fail 14 "Termux BFU rootfs marker is missing"
-grep -Fqx "suite=$SUITE" "$ROOT/.termux-bfu-rootfs" || \
+[ -f "$ROOT/.dawnshell-rootfs" ] || fail 14 "DawnShell rootfs marker is missing"
+grep -Fqx "suite=$SUITE" "$ROOT/.dawnshell-rootfs" || \
     fail 14 "rootfs is not Debian 13 Trixie"
-grep -Fqx 'architecture=arm64' "$ROOT/.termux-bfu-rootfs" || \
+grep -Fqx 'architecture=arm64' "$ROOT/.dawnshell-rootfs" || \
     fail 14 "rootfs is not arm64"
 [ -x "$ROOT/bin/bash" ] || fail 15 "rootfs has no executable /bin/bash"
 [ -f "$AUTHORIZED_KEYS" ] || fail 16 "save at least one SSH public key first"
@@ -86,7 +86,7 @@ esac
 echo "Making Android mounts recursively private"
 mount --make-rprivate /
 
-LOCK_DIR=/data/local/.termux-bfu-debian-config.lock
+LOCK_DIR=/data/local/.dawnshell-debian-config.lock
 LOCK_HELD=false
 cleanup() {
     result=$?
@@ -143,9 +143,9 @@ mount -t proc -o nosuid,nodev,noexec proc "$ROOT/proc"
 mount -t tmpfs -o nosuid,nodev,mode=0755,size=64m tmpfs "$ROOT/run"
 mkdir -p "$ROOT/run/lock"
 
-cp "$AUTHORIZED_KEYS" "$ROOT/run/termux-bfu-authorized-keys"
-chmod 0600 "$ROOT/run/termux-bfu-authorized-keys"
-chown 0:0 "$ROOT/run/termux-bfu-authorized-keys"
+cp "$AUTHORIZED_KEYS" "$ROOT/run/dawnshell-authorized-keys"
+chmod 0600 "$ROOT/run/dawnshell-authorized-keys"
+chown 0:0 "$ROOT/run/dawnshell-authorized-keys"
 
 dns="$(getprop net.dns1 2>/dev/null || true)"
 case "$dns" in
@@ -157,19 +157,19 @@ chmod 0644 "$ROOT/etc/resolv.conf"
 chown 0:0 "$ROOT/etc/resolv.conf"
 
 echo "Entering Debian 13 Trixie for systemd, D-Bus, and OpenSSH setup"
-container=termux-bfu DEBIAN_FRONTEND=noninteractive \
+container=dawnshell DEBIAN_FRONTEND=noninteractive \
     chroot "$ROOT" /usr/bin/env -i \
     HOME=/root \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 \
-    container=termux-bfu \
+    container=dawnshell \
     DEBIAN_FRONTEND=noninteractive \
     /bin/bash -s <<'DEBIAN_CONFIG'
 set -Eeuo pipefail
 
-READY_MARKER=/.termux-bfu-systemd-ready
+READY_MARKER=/.dawnshell-systemd-ready
 POLICY=/usr/sbin/policy-rc.d
-POLICY_BACKUP=/run/termux-bfu-policy-rc.d.backup
+POLICY_BACKUP=/run/dawnshell-policy-rc.d.backup
 POLICY_EXISTED=false
 
 restore_policy() {
@@ -179,7 +179,7 @@ restore_policy() {
     if [ "$POLICY_EXISTED" = true ]; then
         rm -f "$POLICY"
         cp -a "$POLICY_BACKUP" "$POLICY"
-    elif grep -Fq 'TERMUX_BFU_POLICY' "$POLICY" 2>/dev/null; then
+    elif grep -Fq 'DAWNSHELL_POLICY' "$POLICY" 2>/dev/null; then
         rm -f "$POLICY"
     fi
     exit "$result"
@@ -207,7 +207,7 @@ if [ -e "$POLICY" ]; then
 fi
 cat > "$POLICY" <<'EOF_POLICY'
 #!/bin/sh
-# TERMUX_BFU_POLICY
+# DAWNSHELL_POLICY
 exit 101
 EOF_POLICY
 chmod 0755 "$POLICY"
@@ -251,7 +251,7 @@ set -eu
     exit 1
 }
 
-bridge=/run/termux-bfu-host-reboot
+bridge=/run/dawnshell-host-reboot
 if [ "${1-}" = "--check" ] && [ "$#" -eq 1 ]; then
     [ -p "$bridge" ] || {
         echo "reboot: Android host bridge is unavailable" >&2
@@ -277,7 +277,7 @@ EOF_HOST_REBOOT
 chmod 0755 /usr/local/sbin/reboot
 chown 0:0 /usr/local/sbin/reboot
 
-echo termux-bfu > /etc/hostname
+echo dawnshell > /etc/hostname
 : > /etc/machine-id
 systemd-machine-id-setup
 mkdir -p /var/lib/dbus
@@ -289,7 +289,7 @@ fi
 usermod --shell /bin/bash --password x debian
 install -d -m 0700 -o debian -g debian /home/debian/.ssh
 
-normalized=/run/termux-bfu-authorized-keys.normalized
+normalized=/run/dawnshell-authorized-keys.normalized
 : > "$normalized"
 key_count=0
 while IFS= read -r line || [ -n "$line" ]; do
@@ -301,20 +301,20 @@ while IFS= read -r line || [ -n "$line" ]; do
         ssh-ed25519\ *|ssh-rsa\ *|ecdsa-sha2-nistp256\ *|ecdsa-sha2-nistp384\ *|ecdsa-sha2-nistp521\ *|sk-ssh-ed25519@openssh.com\ *|sk-ecdsa-sha2-nistp256@openssh.com\ *) ;;
         *) echo "ERROR: authorized_keys contains an option or unsupported key type"; exit 32 ;;
     esac
-    printf '%s\n' "$line" > /run/termux-bfu-one-key
-    ssh-keygen -l -f /run/termux-bfu-one-key >/dev/null || {
+    printf '%s\n' "$line" > /run/dawnshell-one-key
+    ssh-keygen -l -f /run/dawnshell-one-key >/dev/null || {
         echo "ERROR: authorized_keys contains an invalid public key"
         exit 33
     }
     printf '%s\n' "$line" >> "$normalized"
     key_count=$((key_count + 1))
-done < /run/termux-bfu-authorized-keys
+done < /run/dawnshell-authorized-keys
 [ "$key_count" -gt 0 ] || { echo "ERROR: no SSH public keys were supplied"; exit 34; }
 install -m 0600 -o debian -g debian "$normalized" /home/debian/.ssh/authorized_keys
-rm -f /run/termux-bfu-one-key "$normalized" /run/termux-bfu-authorized-keys
+rm -f /run/dawnshell-one-key "$normalized" /run/dawnshell-authorized-keys
 
 mkdir -p /etc/ssh/sshd_config.d
-cat > /etc/ssh/sshd_config.d/10-termux-bfu.conf <<'EOF_SSHD'
+cat > /etc/ssh/sshd_config.d/10-dawnshell.conf <<'EOF_SSHD'
 Port 22
 AddressFamily inet
 ListenAddress 0.0.0.0
@@ -335,7 +335,7 @@ PrintMotd yes
 EOF_SSHD
 
 cat > /etc/motd <<'EOF_MOTD'
-Termux BFU Debian 13 emergency environment
+DawnShell Debian 13 emergency environment
 Started during Direct Boot; remains active after Android unlock.
 EOF_MOTD
 
@@ -346,7 +346,7 @@ ssh-keygen -A
 # as well to keep reconfiguration idempotent.
 install -d -m 0755 -o root -g root /run/sshd
 sshd -t
-effective="$(sshd -T -C user=debian,host=termux-bfu,addr=127.0.0.1)"
+effective="$(sshd -T -C user=debian,host=dawnshell,addr=127.0.0.1)"
 grep -Fqx 'port 22' <<<"$effective"
 grep -Fqx 'passwordauthentication no' <<<"$effective"
 grep -Fqx 'kbdinteractiveauthentication no' <<<"$effective"
@@ -355,27 +355,27 @@ grep -Fqx 'usepam no' <<<"$effective"
 grep -Fqx 'authenticationmethods publickey' <<<"$effective"
 
 mkdir -p /etc/systemd/system.conf.d /etc/systemd/journald.conf.d
-cat > /etc/systemd/system.conf.d/10-termux-bfu.conf <<'EOF_SYSTEMD'
+cat > /etc/systemd/system.conf.d/10-dawnshell.conf <<'EOF_SYSTEMD'
 [Manager]
 DefaultTimeoutStartSec=30s
 DefaultTimeoutStopSec=20s
 ShowStatus=yes
 EOF_SYSTEMD
-cat > /etc/systemd/journald.conf.d/10-termux-bfu.conf <<'EOF_JOURNALD'
+cat > /etc/systemd/journald.conf.d/10-dawnshell.conf <<'EOF_JOURNALD'
 [Journal]
 Storage=volatile
 RuntimeMaxUse=16M
 ForwardToConsole=no
 EOF_JOURNALD
 
-cat > /etc/systemd/system/termux-bfu-boot-proof.service <<'EOF_BOOT_PROOF'
+cat > /etc/systemd/system/dawnshell-boot-proof.service <<'EOF_BOOT_PROOF'
 [Unit]
-Description=Termux BFU enabled-unit boot proof
+Description=DawnShell enabled-unit boot proof
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/touch /run/termux-bfu-enabled-service.ready
+ExecStart=/usr/bin/touch /run/dawnshell-enabled-service.ready
 RemainAfterExit=yes
 
 [Install]
@@ -408,10 +408,10 @@ systemctl --root=/ --no-reload mask \
 
 : > /etc/fstab
 systemctl --root=/ --no-reload enable \
-    ssh.service termux-bfu-boot-proof.service
+    ssh.service dawnshell-boot-proof.service
 systemctl --root=/ --no-reload set-default multi-user.target
 [ "$(systemctl --root=/ is-enabled ssh.service)" = enabled ]
-[ "$(systemctl --root=/ is-enabled termux-bfu-boot-proof.service)" = enabled ]
+[ "$(systemctl --root=/ is-enabled dawnshell-boot-proof.service)" = enabled ]
 [ -x /usr/local/sbin/reboot ]
 
 cat > "${READY_MARKER}.new" <<EOF_READY
@@ -420,7 +420,7 @@ suite=trixie
 architecture=arm64
 init=/sbin/init
 ssh_service=ssh.service
-boot_proof_service=termux-bfu-boot-proof.service
+boot_proof_service=dawnshell-boot-proof.service
 ssh_user=debian
 ssh_port=22
 host_reboot_bridge=/usr/local/sbin/reboot

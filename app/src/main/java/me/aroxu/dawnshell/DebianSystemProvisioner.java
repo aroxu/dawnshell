@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.os.SystemClock;
@@ -22,7 +22,7 @@ import java.util.TimeZone;
 /** AFU-only Debian 13 systemd, D-Bus, and OpenSSH configuration task. */
 final class DebianSystemProvisioner {
 
-    private static final String TAG = "TermuxBFU";
+    private static final String TAG = "DawnShell";
     private static final String LOG_FILE = "debian-system-config.log";
     private static final String STATUS_FILE = "debian-system-config.status";
     private static final int MAX_TAIL_BYTES = 48 * 1024;

@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -25,6 +25,7 @@ import android.util.Log;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -44,7 +45,7 @@ import java.util.concurrent.Executors;
 
 public class BootActivity extends Activity {
 
-    private static final String TAG = "TermuxBFU";
+    private static final String TAG = "DawnShell";
     private static final int REQUEST_EXPORT_SSH_PRIVATE_KEY = 1001;
 
     private CheckBox enableBfu;
@@ -161,252 +162,204 @@ public class BootActivity extends Activity {
     }
 
     private ScrollView buildSettingsView() {
-        int padding = dp(20);
+        int padding = dp(16);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(padding, padding, padding, padding);
 
-        TextView explanation = new TextView(this);
-        explanation.setText(R.string.bfu_settings_explanation);
-        content.addView(explanation, matchWrap());
+        TextView hero = new TextView(this);
+        hero.setText(R.string.dawnshell_home_title);
+        hero.setTextSize(28f);
+        hero.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        content.addView(hero, matchWrap());
 
-        TextView migrationWarning = new TextView(this);
-        migrationWarning.setText(R.string.bfu_migration_warning);
-        migrationWarning.setTextColor(Color.rgb(255, 183, 77));
-        LinearLayout.LayoutParams migrationLayout = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        migrationLayout.topMargin = dp(12);
-        migrationLayout.bottomMargin = dp(12);
-        content.addView(migrationWarning, migrationLayout);
+        TextView explanation = createBodyText(R.string.bfu_settings_explanation);
+        LinearLayout.LayoutParams heroBodyLayout = sectionSpacing(dp(6), dp(20));
+        content.addView(explanation, heroBodyLayout);
+
+        LinearLayout directBootCard = createSectionCard(content,
+                R.string.dawnshell_section_direct_boot,
+                R.string.dawnshell_section_direct_boot_description);
 
         enableBfu = new CheckBox(this);
         enableBfu.setText(R.string.bfu_enable);
-        content.addView(enableBfu, matchWrap());
+        directBootCard.addView(enableBfu, matchWrap());
 
-        allowCeReadableBfu = new CheckBox(this);
-        allowCeReadableBfu.setText(R.string.bfu_allow_ce_readable);
-        content.addView(allowCeReadableBfu, matchWrap());
+        TextView rootAuthorizationExplanation =
+                createBodyText(R.string.bfu_root_authorization_explanation);
+        directBootCard.addView(rootAuthorizationExplanation, sectionSpacing(dp(6), dp(8)));
 
-        TextView ceOverrideWarning = new TextView(this);
-        ceOverrideWarning.setText(R.string.bfu_allow_ce_readable_warning);
-        content.addView(ceOverrideWarning, matchWrap());
-
-        TextView generatedKeyExplanation = new TextView(this);
-        generatedKeyExplanation.setText(R.string.bfu_generated_key_explanation);
-        content.addView(generatedKeyExplanation, matchWrap());
-
-        generatedPublicKey = createLogConsole(3, 6);
-        LinearLayout.LayoutParams keysLayout = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        keysLayout.topMargin = dp(8);
-        keysLayout.bottomMargin = dp(16);
-        content.addView(generatedPublicKey, keysLayout);
-
-        Button rotateSshKey = new Button(this);
-        rotateSshKey.setText(R.string.bfu_rotate_ssh_client_key);
-        rotateSshKey.setOnClickListener(view -> confirmRotateSshClientKey());
-        content.addView(rotateSshKey, matchWrap());
-
-        TextView rootAuthorizationExplanation = new TextView(this);
-        rootAuthorizationExplanation.setText(R.string.bfu_root_authorization_explanation);
-        content.addView(rootAuthorizationExplanation, matchWrap());
-
-        rootAuthorizationButton = new Button(this);
-        rootAuthorizationButton.setText(R.string.bfu_request_root_authorization);
+        rootAuthorizationButton = createActionButton(
+                R.string.bfu_request_root_authorization);
         rootAuthorizationButton.setOnClickListener(view -> confirmRootAuthorization());
-        content.addView(rootAuthorizationButton, matchWrap());
+        directBootCard.addView(rootAuthorizationButton, matchWrap());
 
         rootAuthorizationStatus = createLogConsole(3, 8);
-        addLogConsole(content, rootAuthorizationStatus, dp(12));
+        addLogConsole(directBootCard, rootAuthorizationStatus, dp(8));
 
-        Button refreshRootStatus = new Button(this);
-        refreshRootStatus.setText(R.string.bfu_refresh_probe_status);
-        refreshRootStatus.setOnClickListener(view -> refreshProbeStatus(true));
-        content.addView(refreshRootStatus, matchWrap());
-
-        rootProbeStatus = createLogConsole(3, 8);
-        addLogConsole(content, rootProbeStatus, dp(8));
-
-        ceIsolationProbeStatus = createLogConsole(3, 8);
-        addLogConsole(content, ceIsolationProbeStatus, dp(8));
-
-        rootfsProbeStatus = createLogConsole(3, 8);
-        addLogConsole(content, rootfsProbeStatus, dp(8));
-
-        debianRuntimeProbeStatus = createLogConsole(4, 10);
-        addLogConsole(content, debianRuntimeProbeStatus, dp(12));
-
-        Button save = new Button(this);
-        save.setText(R.string.bfu_save_and_provision);
+        Button save = createActionButton(R.string.bfu_save_and_provision);
         save.setOnClickListener(view -> saveAndProvision());
-        content.addView(save, matchWrap());
+        directBootCard.addView(save, matchWrap());
 
-        TextView operationLogTitle = new TextView(this);
-        operationLogTitle.setText(R.string.bfu_operation_log_title);
-        operationLogTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        content.addView(operationLogTitle, matchWrap());
+        LinearLayout setupCard = createSectionCard(content,
+                R.string.dawnshell_section_debian_setup,
+                R.string.dawnshell_section_debian_setup_description);
 
-        TextView operationLogHint = new TextView(this);
-        operationLogHint.setText(R.string.bfu_log_console_hint);
-        operationLogHint.setTextSize(12f);
-        content.addView(operationLogHint, matchWrap());
+        TextView installExplanation = createBodyText(R.string.bfu_debian_install_explanation);
+        setupCard.addView(installExplanation, sectionSpacing(0, dp(8)));
 
-        operationLog = createLogConsole(7, 14);
-        addLogConsole(content, operationLog, padding);
-
-        TextView installExplanation = new TextView(this);
-        installExplanation.setText(R.string.bfu_debian_install_explanation);
-        content.addView(installExplanation, matchWrap());
-
-        Button install = new Button(this);
-        install.setText(R.string.bfu_install_debian);
+        Button install = createActionButton(R.string.bfu_install_debian);
         install.setOnClickListener(view -> confirmDebianInstall());
-        content.addView(install, matchWrap());
-
-        Button removeRootfs = new Button(this);
-        removeRootfs.setText(R.string.bfu_remove_debian_rootfs);
-        removeRootfs.setTextColor(Color.rgb(255, 82, 82));
-        removeRootfs.setOnClickListener(view -> confirmDebianRootfsRemoval());
-        content.addView(removeRootfs, matchWrap());
+        setupCard.addView(install, matchWrap());
 
         installStatus = createLogConsole(3, 7);
-        addLogConsole(content, installStatus, dp(12));
-
-        TextView installLogTitle = new TextView(this);
-        installLogTitle.setText(R.string.bfu_debian_install_log_title);
-        installLogTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        content.addView(installLogTitle, matchWrap());
-
-        TextView installLogHint = new TextView(this);
-        installLogHint.setText(R.string.bfu_log_console_hint);
-        installLogHint.setTextSize(12f);
-        content.addView(installLogHint, matchWrap());
-
+        addLogConsole(setupCard, installStatus, dp(6));
         installLog = createLogConsole(12, 22);
-        addLogConsole(content, installLog, padding);
+        addExpandableConsole(setupCard, R.string.bfu_debian_install_log_title, installLog);
 
-        TextView systemConfigExplanation = new TextView(this);
-        systemConfigExplanation.setText(R.string.bfu_system_config_explanation);
-        content.addView(systemConfigExplanation, matchWrap());
+        TextView systemConfigExplanation =
+                createBodyText(R.string.bfu_system_config_explanation);
+        setupCard.addView(systemConfigExplanation, sectionSpacing(dp(18), dp(8)));
 
-        Button configureSystem = new Button(this);
-        configureSystem.setText(R.string.bfu_configure_system);
+        Button configureSystem = createActionButton(R.string.bfu_configure_system);
         configureSystem.setOnClickListener(view -> confirmSystemConfiguration());
-        content.addView(configureSystem, matchWrap());
+        setupCard.addView(configureSystem, matchWrap());
 
         systemConfigStatus = createLogConsole(3, 7);
-        addLogConsole(content, systemConfigStatus, dp(12));
-
-        TextView systemConfigLogTitle = new TextView(this);
-        systemConfigLogTitle.setText(R.string.bfu_system_config_log_title);
-        systemConfigLogTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        content.addView(systemConfigLogTitle, matchWrap());
-
-        TextView systemConfigLogHint = new TextView(this);
-        systemConfigLogHint.setText(R.string.bfu_log_console_hint);
-        systemConfigLogHint.setTextSize(12f);
-        content.addView(systemConfigLogHint, matchWrap());
-
+        addLogConsole(setupCard, systemConfigStatus, dp(6));
         systemConfigLog = createLogConsole(12, 22);
-        addLogConsole(content, systemConfigLog, padding);
+        addExpandableConsole(setupCard, R.string.bfu_system_config_log_title,
+                systemConfigLog);
 
-        TextView lifecycleExplanation = new TextView(this);
-        lifecycleExplanation.setText(R.string.bfu_lifecycle_explanation);
-        content.addView(lifecycleExplanation, matchWrap());
+        LinearLayout runtimeCard = createSectionCard(content,
+                R.string.dawnshell_section_runtime,
+                R.string.dawnshell_section_runtime_description);
+        TextView lifecycleExplanation = createBodyText(R.string.bfu_lifecycle_explanation);
+        runtimeCard.addView(lifecycleExplanation, sectionSpacing(0, dp(8)));
 
-        Button startDebian = new Button(this);
-        startDebian.setText(R.string.bfu_start_debian);
-        startDebian.setOnClickListener(view -> requestLifecycle(
-                DebianLauncher.Operation.START));
-        content.addView(startDebian, matchWrap());
-
-        Button restartDebian = new Button(this);
-        restartDebian.setText(R.string.bfu_restart_debian);
+        Button startDebian = createActionButton(R.string.bfu_start_debian_short);
+        startDebian.setOnClickListener(view -> requestLifecycle(DebianLauncher.Operation.START));
+        Button restartDebian = createActionButton(R.string.bfu_restart_debian_short);
         restartDebian.setOnClickListener(view -> confirmRestartDebian());
-        content.addView(restartDebian, matchWrap());
+        runtimeCard.addView(createButtonRow(startDebian, restartDebian), matchWrap());
 
-        Button statusDebian = new Button(this);
-        statusDebian.setText(R.string.bfu_status_debian);
-        statusDebian.setOnClickListener(view -> requestLifecycle(
-                DebianLauncher.Operation.STATUS));
-        content.addView(statusDebian, matchWrap());
-
-        Button stopDebian = new Button(this);
-        stopDebian.setText(R.string.bfu_stop_debian);
+        Button statusDebian = createActionButton(R.string.bfu_status_debian_short);
+        statusDebian.setOnClickListener(view -> requestLifecycle(DebianLauncher.Operation.STATUS));
+        Button stopDebian = createActionButton(R.string.bfu_stop_debian_short);
         stopDebian.setOnClickListener(view -> confirmStopDebian());
-        content.addView(stopDebian, matchWrap());
+        runtimeCard.addView(createButtonRow(statusDebian, stopDebian),
+                sectionSpacing(dp(4), 0));
 
         lifecycleStatus = createLogConsole(3, 8);
-        addLogConsole(content, lifecycleStatus, dp(12));
-
-        TextView lifecycleLogTitle = new TextView(this);
-        lifecycleLogTitle.setText(R.string.bfu_lifecycle_log_title);
-        lifecycleLogTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        content.addView(lifecycleLogTitle, matchWrap());
-
-        TextView lifecycleLogHint = new TextView(this);
-        lifecycleLogHint.setText(R.string.bfu_log_console_hint);
-        lifecycleLogHint.setTextSize(12f);
-        content.addView(lifecycleLogHint, matchWrap());
-
+        addLogConsole(runtimeCard, lifecycleStatus, dp(6));
         lifecycleLog = createLogConsole(12, 24);
-        addLogConsole(content, lifecycleLog, padding);
+        addExpandableConsole(runtimeCard, R.string.bfu_lifecycle_log_title, lifecycleLog);
 
-        TextView passwordExplanation = new TextView(this);
-        passwordExplanation.setText(R.string.bfu_password_explanation);
-        content.addView(passwordExplanation, matchWrap());
+        LinearLayout accessCard = createSectionCard(content,
+                R.string.dawnshell_section_access,
+                R.string.dawnshell_section_access_description);
 
-        rootPassword = createPasswordEditor(R.string.bfu_root_password_hint);
-        content.addView(rootPassword, matchWrap());
-        rootPasswordConfirm = createPasswordEditor(
-                R.string.bfu_root_password_confirm_hint);
-        content.addView(rootPasswordConfirm, matchWrap());
-        rootPasswordButton = new Button(this);
-        rootPasswordButton.setText(R.string.bfu_set_root_password);
-        rootPasswordButton.setOnClickListener(view -> updateDebianPassword(
-                "root", rootPassword, rootPasswordConfirm));
-        content.addView(rootPasswordButton, matchWrap());
+        TextView generatedKeyExplanation =
+                createBodyText(R.string.bfu_generated_key_explanation);
+        accessCard.addView(generatedKeyExplanation, sectionSpacing(0, dp(8)));
 
-        debianPassword = createPasswordEditor(R.string.bfu_debian_password_hint);
-        content.addView(debianPassword, matchWrap());
-        debianPasswordConfirm = createPasswordEditor(
-                R.string.bfu_debian_password_confirm_hint);
-        content.addView(debianPasswordConfirm, matchWrap());
-        debianPasswordButton = new Button(this);
-        debianPasswordButton.setText(R.string.bfu_set_debian_password);
-        debianPasswordButton.setOnClickListener(view -> updateDebianPassword(
-                "debian", debianPassword, debianPasswordConfirm));
-        LinearLayout.LayoutParams passwordButtonLayout = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        passwordButtonLayout.bottomMargin = padding;
-        content.addView(debianPasswordButton, passwordButtonLayout);
+        generatedPublicKey = createLogConsole(3, 6);
+        addLogConsole(accessCard, generatedPublicKey, dp(8));
 
-        TextView sshClientExplanation = new TextView(this);
-        sshClientExplanation.setText(R.string.bfu_ssh_client_commands_explanation);
-        content.addView(sshClientExplanation, matchWrap());
-
-        Button exportPrivateKey = new Button(this);
-        exportPrivateKey.setText(R.string.bfu_export_private_key_file);
+        Button exportPrivateKey = createActionButton(R.string.bfu_export_private_key_file);
         exportPrivateKey.setOnClickListener(view -> confirmPrivateKeyFileExport());
-        content.addView(exportPrivateKey, matchWrap());
+        accessCard.addView(exportPrivateKey, matchWrap());
 
-        Button copyKeyImportCommand = new Button(this);
-        copyKeyImportCommand.setText(R.string.bfu_copy_key_import_command);
+        Button copyKeyImportCommand = createActionButton(R.string.bfu_copy_key_import_command);
         copyKeyImportCommand.setOnClickListener(view -> confirmCopyKeyImportCommand());
-        content.addView(copyKeyImportCommand, matchWrap());
+        accessCard.addView(copyKeyImportCommand, sectionSpacing(dp(4), 0));
 
-        Button copySshConnectCommand = new Button(this);
-        copySshConnectCommand.setText(R.string.bfu_copy_ssh_connect_command);
+        Button copySshConnectCommand = createActionButton(
+                R.string.bfu_copy_ssh_connect_command);
         copySshConnectCommand.setOnClickListener(view -> copySshClientCommand(
                 "ssh_connect", buildSshConnectCommand(),
                 R.string.bfu_ssh_connect_command_copied));
-        LinearLayout.LayoutParams connectLayout = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        connectLayout.bottomMargin = padding;
-        content.addView(copySshConnectCommand, connectLayout);
+        accessCard.addView(copySshConnectCommand, sectionSpacing(dp(4), 0));
+
+        Button rotateSshKey = createActionButton(R.string.bfu_rotate_ssh_client_key);
+        rotateSshKey.setOnClickListener(view -> confirmRotateSshClientKey());
+        accessCard.addView(rotateSshKey, sectionSpacing(dp(4), 0));
+
+        LinearLayout accountCard = createSectionCard(content,
+                R.string.dawnshell_section_accounts,
+                R.string.dawnshell_section_accounts_description);
+
+        TextView passwordExplanation = createBodyText(R.string.bfu_password_explanation);
+        accountCard.addView(passwordExplanation, sectionSpacing(0, dp(8)));
+
+        rootPassword = createPasswordEditor(R.string.bfu_root_password_hint);
+        accountCard.addView(rootPassword, matchWrap());
+        rootPasswordConfirm = createPasswordEditor(R.string.bfu_root_password_confirm_hint);
+        accountCard.addView(rootPasswordConfirm, matchWrap());
+        rootPasswordButton = createActionButton(R.string.bfu_set_root_password);
+        rootPasswordButton.setOnClickListener(view -> updateDebianPassword(
+                "root", rootPassword, rootPasswordConfirm));
+        accountCard.addView(rootPasswordButton, matchWrap());
+
+        debianPassword = createPasswordEditor(R.string.bfu_debian_password_hint);
+        accountCard.addView(debianPassword, sectionSpacing(dp(16), 0));
+        debianPasswordConfirm = createPasswordEditor(
+                R.string.bfu_debian_password_confirm_hint);
+        accountCard.addView(debianPasswordConfirm, matchWrap());
+        debianPasswordButton = createActionButton(R.string.bfu_set_debian_password);
+        debianPasswordButton.setOnClickListener(view -> updateDebianPassword(
+                "debian", debianPassword, debianPasswordConfirm));
+        accountCard.addView(debianPasswordButton, matchWrap());
+
+        LinearLayout advancedCard = createSectionCard(content,
+                R.string.dawnshell_section_advanced,
+                R.string.dawnshell_section_advanced_description);
+
+        LinearLayout advancedContent = new LinearLayout(this);
+        advancedContent.setOrientation(LinearLayout.VERTICAL);
+        advancedContent.setVisibility(View.GONE);
+        Button advancedToggle = createExpandableToggle(
+                R.string.dawnshell_show_advanced, R.string.dawnshell_hide_advanced,
+                advancedContent);
+        advancedCard.addView(advancedToggle, matchWrap());
+
+        allowCeReadableBfu = new CheckBox(this);
+        allowCeReadableBfu.setText(R.string.bfu_allow_ce_readable);
+        advancedContent.addView(allowCeReadableBfu, matchWrap());
+
+        TextView ceOverrideWarning = createBodyText(R.string.bfu_allow_ce_readable_warning);
+        ceOverrideWarning.setTextColor(Color.rgb(255, 183, 77));
+        advancedContent.addView(ceOverrideWarning, sectionSpacing(0, dp(10)));
+
+        Button refreshRootStatus = createActionButton(R.string.bfu_refresh_probe_status);
+        refreshRootStatus.setText(R.string.bfu_refresh_probe_status);
+        refreshRootStatus.setOnClickListener(view -> refreshProbeStatus(true));
+        advancedContent.addView(refreshRootStatus, matchWrap());
+
+        rootProbeStatus = createLogConsole(3, 8);
+        addLogConsole(advancedContent, rootProbeStatus, dp(8));
+
+        ceIsolationProbeStatus = createLogConsole(3, 8);
+        addLogConsole(advancedContent, ceIsolationProbeStatus, dp(8));
+
+        rootfsProbeStatus = createLogConsole(3, 8);
+        addLogConsole(advancedContent, rootfsProbeStatus, dp(8));
+
+        debianRuntimeProbeStatus = createLogConsole(4, 10);
+        addLogConsole(advancedContent, debianRuntimeProbeStatus, dp(12));
+
+        operationLog = createLogConsole(7, 14);
+        addExpandableConsole(advancedContent, R.string.bfu_operation_log_title,
+                operationLog);
+        advancedCard.addView(advancedContent, matchWrap());
+
+        LinearLayout dangerCard = createSectionCard(content,
+                R.string.dawnshell_section_danger,
+                R.string.dawnshell_section_danger_description);
+        Button removeRootfs = createActionButton(R.string.bfu_remove_debian_rootfs);
+        removeRootfs.setTextColor(Color.rgb(255, 82, 82));
+        removeRootfs.setOnClickListener(view -> confirmDebianRootfsRemoval());
+        dangerCard.addView(removeRootfs, matchWrap());
 
         ScrollView scrollView = new ScrollView(this);
         scrollView.setFillViewport(true);
@@ -416,6 +369,109 @@ public class BootActivity extends Activity {
         scrollView.setVerticalScrollBarEnabled(false);
         scrollView.addView(content);
         return scrollView;
+    }
+
+    private LinearLayout createSectionCard(LinearLayout parent, int titleRes,
+                                           int descriptionRes) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(16), dp(16), dp(16));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.argb(18, 127, 127, 127));
+        background.setCornerRadius(dp(16));
+        background.setStroke(Math.max(1, dp(1)), Color.argb(48, 127, 127, 127));
+        card.setBackground(background);
+
+        TextView title = new TextView(this);
+        title.setText(titleRes);
+        title.setTextSize(20f);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        card.addView(title, matchWrap());
+
+        TextView description = createBodyText(descriptionRes);
+        card.addView(description, sectionSpacing(dp(4), dp(12)));
+
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        layout.bottomMargin = dp(14);
+        parent.addView(card, layout);
+        return card;
+    }
+
+    private TextView createBodyText(int textRes) {
+        TextView text = new TextView(this);
+        text.setText(textRes);
+        text.setTextSize(14f);
+        text.setLineSpacing(0f, 1.15f);
+        return text;
+    }
+
+    private Button createActionButton(int textRes) {
+        Button button = new Button(this);
+        button.setText(textRes);
+        button.setAllCaps(false);
+        button.setMinHeight(dp(48));
+        return button;
+    }
+
+    private LinearLayout createButtonRow(Button first, Button second) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams firstLayout = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        firstLayout.rightMargin = dp(4);
+        row.addView(first, firstLayout);
+        LinearLayout.LayoutParams secondLayout = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        secondLayout.leftMargin = dp(4);
+        row.addView(second, secondLayout);
+        return row;
+    }
+
+    private void addExpandableConsole(LinearLayout parent, int titleRes,
+                                      TextView console) {
+        TextView title = createBodyText(titleRes);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        parent.addView(title, sectionSpacing(dp(12), 0));
+
+        LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        details.setVisibility(View.GONE);
+
+        TextView hint = createBodyText(R.string.bfu_log_console_hint);
+        hint.setTextSize(12f);
+        details.addView(hint, sectionSpacing(dp(4), 0));
+        addLogConsole(details, console, 0);
+
+        Button toggle = createExpandableToggle(R.string.dawnshell_show_details,
+                R.string.dawnshell_hide_details, details);
+        toggle.setContentDescription(getString(titleRes));
+        parent.addView(toggle, sectionSpacing(dp(4), 0));
+        parent.addView(details, matchWrap());
+    }
+
+    private Button createExpandableToggle(int showTextRes, int hideTextRes,
+                                          LinearLayout target) {
+        Button toggle = createActionButton(showTextRes);
+        toggle.setCompoundDrawablesWithIntrinsicBounds(0, 0,
+                android.R.drawable.arrow_down_float, 0);
+        toggle.setOnClickListener(view -> {
+            boolean show = target.getVisibility() != View.VISIBLE;
+            target.setVisibility(show ? View.VISIBLE : View.GONE);
+            toggle.setText(show ? hideTextRes : showTextRes);
+            toggle.setCompoundDrawablesWithIntrinsicBounds(0, 0,
+                    show ? android.R.drawable.arrow_up_float
+                            : android.R.drawable.arrow_down_float, 0);
+        });
+        return toggle;
+    }
+
+    private LinearLayout.LayoutParams sectionSpacing(int top, int bottom) {
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        layout.topMargin = top;
+        layout.bottomMargin = bottom;
+        return layout;
     }
 
     private void refreshGeneratedSshIdentity(boolean provisionPublicKey) {
@@ -487,7 +543,7 @@ public class BootActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/octet-stream");
-        intent.putExtra(Intent.EXTRA_TITLE, "termux-bfu-ed25519");
+        intent.putExtra(Intent.EXTRA_TITLE, "dawnshell-ed25519");
         startActivityForResult(intent, REQUEST_EXPORT_SSH_PRIVATE_KEY);
     }
 
@@ -537,18 +593,18 @@ public class BootActivity extends Activity {
         String encoded = Base64.encodeToString(
                 identity.privateKey.getBytes(java.nio.charset.StandardCharsets.US_ASCII),
                 Base64.NO_WRAP);
-        return "set -eu; umask 077; KEY=\"$HOME/.ssh/termux-bfu-ed25519\"; "
+        return "set -eu; umask 077; KEY=\"$HOME/.ssh/dawnshell-ed25519\"; "
                 + "mkdir -p \"$HOME/.ssh\"; chmod 0700 \"$HOME/.ssh\"; "
                 + "printf '%s' '" + encoded + "' | base64 -d > \"$KEY\"; "
                 + "chmod 0600 \"$KEY\"; "
-                + "printf 'Imported Termux: BFU client key: %s\\n' \"$KEY\"";
+                + "printf 'Imported DawnShell client key: %s\\n' \"$KEY\"";
     }
 
     private static String buildSshConnectCommand() {
-        return "ssh -i \"$HOME/.ssh/termux-bfu-ed25519\" -p 22 "
+        return "ssh -i \"$HOME/.ssh/dawnshell-ed25519\" -p 22 "
                 + "-o IdentitiesOnly=yes -o PasswordAuthentication=no "
                 + "-o StrictHostKeyChecking=accept-new "
-                + "-o UserKnownHostsFile=\"$HOME/.ssh/termux-bfu-known_hosts\" "
+                + "-o UserKnownHostsFile=\"$HOME/.ssh/dawnshell-known_hosts\" "
                 + "-o ConnectTimeout=10 debian@127.0.0.1";
     }
 
@@ -563,7 +619,7 @@ public class BootActivity extends Activity {
                     + " clipboard_unavailable=true");
             return;
         }
-        ClipData clip = ClipData.newPlainText("Termux BFU command", command);
+        ClipData clip = ClipData.newPlainText("DawnShell command", command);
         if (Build.VERSION.SDK_INT >= 33) {
             PersistableBundle extras = new PersistableBundle();
             extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);

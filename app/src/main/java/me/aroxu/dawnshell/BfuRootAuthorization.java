@@ -1,7 +1,8 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.os.Build;
+import android.os.Process;
 import android.os.UserManager;
 
 import java.io.BufferedReader;
@@ -12,12 +13,21 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
-final class BfuRootProbe {
+/**
+ * Requests Magisk root while the user can interact with its authorization UI.
+ *
+ * <p>This is deliberately separate from {@link BfuRootProbe}. An AFU grant is
+ * useful setup state, but it can never be recorded as evidence that root worked
+ * before first unlock.</p>
+ */
+final class BfuRootAuthorization {
 
-    private static final long PROBE_TIMEOUT_MS = 15_000L;
+    private static final long AUTHORIZATION_TIMEOUT_MS = 120_000L;
+    private static final String LOG_FILE = "bfu-root-authorization.log";
 
     static final class Result {
         final boolean root;
+        final int appUid;
         final String command;
         final int exitCode;
         final boolean timedOut;
@@ -25,9 +35,10 @@ final class BfuRootProbe {
         final boolean userUnlockedAfter;
         final String output;
 
-        Result(boolean root, String command, int exitCode, boolean timedOut,
+        Result(boolean root, int appUid, String command, int exitCode, boolean timedOut,
                boolean userUnlockedBefore, boolean userUnlockedAfter, String output) {
             this.root = root;
+            this.appUid = appUid;
             this.command = command;
             this.exitCode = exitCode;
             this.timedOut = timedOut;
@@ -37,7 +48,8 @@ final class BfuRootProbe {
         }
 
         String summary() {
-            return "command=" + command
+            return "app_uid=" + appUid
+                    + " command=" + command
                     + " exit=" + exitCode
                     + " timeout=" + timedOut
                     + " root=" + root
@@ -46,21 +58,26 @@ final class BfuRootProbe {
                     + " output=" + output;
         }
 
-        boolean succeededDuringBfu() {
-            return root && !userUnlockedBefore && !userUnlockedAfter;
+        boolean authorizedWhileUnlocked() {
+            return root && userUnlockedBefore && userUnlockedAfter;
         }
     }
 
-    private BfuRootProbe() {}
+    private BfuRootAuthorization() {}
 
-    static Result run(Context context) throws IOException, InterruptedException {
+    static Result request(Context context) throws IOException, InterruptedException {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
+        int appUid = Process.myUid();
         boolean userUnlockedBefore = isUserUnlocked(context);
-        BfuSu.Result commandResult = BfuSu.run("id", PROBE_TIMEOUT_MS);
+        if (!userUnlockedBefore) {
+            throw new IllegalStateException("Android must be unlocked to show Magisk approval UI");
+        }
+
+        BfuSu.Result commandResult = BfuSu.run("id", AUTHORIZATION_TIMEOUT_MS);
         boolean userUnlockedAfter = isUserUnlocked(context);
         boolean root = commandResult.exitedSuccessfully()
                 && BfuSu.containsRootUid(commandResult.output);
-        Result result = new Result(root, commandResult.command,
+        Result result = new Result(root, appUid, commandResult.command,
                 commandResult.exitCode, commandResult.timedOut, userUnlockedBefore,
                 userUnlockedAfter, commandResult.output);
         appendPersistentResult(deContext, result);
@@ -69,7 +86,7 @@ final class BfuRootProbe {
 
     static String readLastPersistentResult(Context context) throws IOException {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
-        File log = new File(deContext.getFilesDir(), "bfu-root.log");
+        File log = new File(deContext.getFilesDir(), LOG_FILE);
         if (!log.isFile()) return "";
 
         String lastLine = "";
@@ -91,13 +108,12 @@ final class BfuRootProbe {
 
     private static void appendPersistentResult(Context deContext, Result result)
             throws IOException {
-        File log = new File(deContext.getFilesDir(), "bfu-root.log");
-        String line = "ROOT_PROBE " + System.currentTimeMillis() + " "
+        File log = new File(deContext.getFilesDir(), LOG_FILE);
+        String line = "ROOT_AUTHORIZATION " + System.currentTimeMillis() + " "
                 + result.summary() + "\n";
         try (FileOutputStream output = new FileOutputStream(log, true)) {
             output.write(line.getBytes(StandardCharsets.UTF_8));
             output.getFD().sync();
         }
     }
-
 }

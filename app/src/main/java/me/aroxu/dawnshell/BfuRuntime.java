@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.os.Build;
@@ -16,7 +16,7 @@ final class BfuRuntime {
 
     private static final String TEST_SCRIPT =
             "#!/system/bin/sh\n" +
-            "echo 'TermuxBFU DE executable OK'\n" +
+            "echo 'DawnShell DE executable OK'\n" +
             "echo \"uid=$(id -u)\"\n" +
             "echo \"cwd=$(pwd)\"\n";
 

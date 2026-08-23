@@ -14,9 +14,9 @@ esac
 ssh_user="${BFU_SSH_USER:-debian}"
 ssh_port="${BFU_SSH_PORT:-22}"
 wait_seconds="${BFU_SSH_WAIT_SECONDS:-120}"
-helper="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/bin/bfu-namespace-probe-arm64"
+helper="/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/bfu-namespace-probe-arm64"
 rootfs="/data/local/debian"
-control="/data/user_de/0/me.aroxu.termux.bfu/files/bfu/run"
+control="/data/user_de/0/me.aroxu.dawnshell/files/bfu/run"
 lifecycle_log="$control/debian-lifecycle.log"
 
 [[ -f "$BFU_SSH_KEY" ]] || {
@@ -55,15 +55,15 @@ health_command='set -eu
 [ "$(systemctl is-system-running)" = running ]
 [ "$(systemctl is-active dbus.service)" = active ]
 [ "$(systemctl is-active ssh.service)" = active ]
-[ "$(systemctl is-active termux-bfu-boot-proof.service)" = active ]
-[ -f /run/termux-bfu-enabled-service.ready ]
+[ "$(systemctl is-active dawnshell-boot-proof.service)" = active ]
+[ -f /run/dawnshell-enabled-service.ready ]
 [ "$(systemctl get-default)" = multi-user.target ]
 [ "$(systemctl is-active multi-user.target)" = active ]
 busctl --system --no-pager list >/dev/null
 ss -H -ltn | awk '\''$4 ~ /:22$/ { found=1 } END { exit !found }'\''
 printf "pid1_start_ticks=%s machine_id=%s proof_state=%s proof_marker=present target_state=%s\n" \
   "$(awk '\''{print $22}'\'' /proc/1/stat)" "$(cat /etc/machine-id)" \
-  "$(systemctl is-active termux-bfu-boot-proof.service)" \
+  "$(systemctl is-active dawnshell-boot-proof.service)" \
   "$(systemctl is-active multi-user.target)"'
 
 wait_for_ssh() {
@@ -148,7 +148,7 @@ printf '%s\n' "$stopped_status"
 grep -Fq 'last_state=stopped' <<<"$stopped_status"
 grep -Fq 'wait_status=0' <<<"$stopped_status"
 grep -Fq 'systemd_manager_exit_queued' \
-  < <(adb exec-out run-as me.aroxu.termux.bfu cat "$lifecycle_log" 2>/dev/null \
+  < <(adb exec-out run-as me.aroxu.dawnshell cat "$lifecycle_log" 2>/dev/null \
       | tr -d '\r')
 if ssh "${ssh_args[@]}" "$ssh_user@$BFU_PHONE_HOST" true 2>/dev/null; then
   echo "FAIL: SSH still accepted a session after stop-debian completed" >&2

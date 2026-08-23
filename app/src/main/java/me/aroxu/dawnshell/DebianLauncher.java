@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.Context;
 import android.os.Build;
@@ -23,7 +23,7 @@ final class DebianLauncher {
 
     enum Operation { START, RESTART, STATUS, STOP }
 
-    private static final String TAG = "TermuxBFU";
+    private static final String TAG = "DawnShell";
     private static final String STATUS_FILE = "debian-lifecycle.status";
     private static final int MAX_TAIL_BYTES = 64 * 1024;
     private static final long HEALTH_WAIT_MS = 45_000L;
@@ -55,9 +55,6 @@ final class DebianLauncher {
 
     static boolean run(Context context, BfuRuntime.Layout layout, Operation operation,
                        String trigger) throws IOException, InterruptedException {
-        if (operation == Operation.START || operation == Operation.RESTART) {
-            LegacyBfuGuard.requireStopped();
-        }
         appendLog(layout.lifecycleLog,
                 "ANDROID_REQUEST operation=" + operation.name().toLowerCase(Locale.US)
                         + " trigger=" + BfuSu.sanitize(trigger));
@@ -121,7 +118,7 @@ final class DebianLauncher {
                 + " " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
                 + " " + BfuSu.shellQuote(layout.run.getAbsolutePath());
         if (operation == Operation.START || operation == Operation.RESTART) {
-            String motd = "Termux BFU Debian 13 emergency environment\n"
+            String motd = "DawnShell Debian 13 emergency environment\n"
                     + "Started during Direct Boot; remains active after Android unlock.\n";
             command = "printf %s " + BfuSu.shellQuote(motd)
                     + " > " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH + "/etc/motd")

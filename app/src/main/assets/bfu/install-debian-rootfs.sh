@@ -78,7 +78,7 @@ done
 echo "Making Android mounts recursively private inside the installer namespace"
 mount --make-rprivate /
 
-LOCK_DIR=/data/local/.termux-bfu-debian-install.lock
+LOCK_DIR=/data/local/.dawnshell-debian-install.lock
 WORK=""
 LOCK_HELD=false
 
@@ -142,15 +142,15 @@ LOCK_HELD=true
 echo "$$" > "$LOCK_DIR/owner"
 
 if [ -d "$TARGET" ]; then
-    if [ -f "$TARGET/.termux-bfu-rootfs" ] && \
+    if [ -f "$TARGET/.dawnshell-rootfs" ] && \
        [ -x "$TARGET/bin/sh" ] && [ -s "$TARGET/etc/debian_version" ]; then
-        if grep -Fqx "suite=$SUITE" "$TARGET/.termux-bfu-rootfs"; then
+        if grep -Fqx "suite=$SUITE" "$TARGET/.dawnshell-rootfs"; then
             echo "ALREADY_INSTALLED: verified Debian 13 Trixie rootfs exists at $TARGET; no files changed"
             exit 0
         fi
-        fail 20 "$TARGET contains a different verified Termux BFU rootfs; expected suite=$SUITE; refusing to overwrite or upgrade it"
+        fail 20 "$TARGET contains a different verified DawnShell rootfs; expected suite=$SUITE; refusing to overwrite or upgrade it"
     fi
-    fail 20 "$TARGET already exists but is not a verified Termux BFU rootfs; refusing to overwrite it"
+    fail 20 "$TARGET already exists but is not a verified DawnShell rootfs; refusing to overwrite it"
 fi
 
 if [ -e "$TARGET" ]; then
@@ -209,7 +209,7 @@ RUNNER="$WORK/debootstrap-portable"
 # Keep the target PATH inside a subshell while preserving upstream diagnostics.
 cat >> "$SOURCE_ROOT/functions" <<'EOF'
 
-# TERMUX_BFU_ANDROID_PATH_SCOPE
+# DAWNSHELL_ANDROID_PATH_SCOPE
 bfu_in_target () {
     (
         PATH=/sbin:/usr/sbin:/bin:/usr/bin
@@ -252,7 +252,7 @@ in_target_failmsg () {
     return 0
 }
 EOF
-grep -Fq 'TERMUX_BFU_ANDROID_PATH_SCOPE' "$SOURCE_ROOT/functions" || \
+grep -Fq 'DAWNSHELL_ANDROID_PATH_SCOPE' "$SOURCE_ROOT/functions" || \
     fail 28 "the Android host-PATH compatibility patch was not applied"
 
 # Upstream assumes host dpkg is always /usr/bin/dpkg. Android has no /usr tree;
@@ -304,7 +304,7 @@ rootfs_arch="$(chroot "$STAGE" /usr/bin/dpkg --print-architecture)"
 passwd_owner="$(stat -c '%u:%g' "$STAGE/etc/passwd")"
 [ "$passwd_owner" = "0:0" ] || fail 34 "root ownership was not preserved: /etc/passwd=$passwd_owner"
 
-cat > "$STAGE/.termux-bfu-rootfs" <<EOF
+cat > "$STAGE/.dawnshell-rootfs" <<EOF
 format=1
 suite=$SUITE
 architecture=arm64
@@ -313,7 +313,7 @@ debootstrap=$DEBOOTSTRAP_VERSION
 archive_keyring=$ARCHIVE_KEYRING_VERSION
 installed_epoch=$(date +%s)
 EOF
-chmod 644 "$STAGE/.termux-bfu-rootfs"
+chmod 644 "$STAGE/.dawnshell-rootfs"
 sync
 
 echo "Promoting completed staging tree to $TARGET"

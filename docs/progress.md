@@ -2,26 +2,26 @@
 
 ## Standalone split — 2026-08-23
 
-- [x] Create a root-level Android project with package `me.aroxu.termux.bfu`,
-  version `0.1.0`, and launcher name **Termux: BFU**.
+- [x] Create a root-level Android project with package `me.aroxu.dawnshell`,
+  version `0.1.0`, and launcher name **DawnShell**.
 - [x] Remove `sharedUserId`, `BootJobService`, `TermuxService`, normal
   `~/.termux/boot` dispatch, and signing-key coupling with Termux.
 - [x] Move CE-isolation proof to the standalone app's own CE sentinel and retain
   app-owned DE settings, keys, runtime files, and logs.
 - [x] Generate a random Ed25519 client identity in app CE, provision only its
   public half into DE/Debian, and add explicit file/Termux-command export paths.
-- [x] Add a migration guard that refuses start/reconfiguration while the legacy
-  `com.termux.boot` BFU setting is enabled or its supervisor is running.
+- [x] Remove legacy compatibility and use DawnShell names for Android state,
+  rootfs markers, systemd units, runtime controls, hostname, and SSH artifacts.
 - [x] Preserve Debian 13 systemd/OpenSSH, local password controls, private-rootfs
   setuid, persistent-after-unlock behavior, and the existing `/data/local/debian`.
 - [x] Build and lint successfully with JDK 17; verify target SDK 28,
   `LOCKED_BOOT_COMPLETED`, Direct-Boot-aware receiver/service, no manifest shared
   UID, and APK signature schemes v1/v2.
-- [ ] Perform the separate-app migration and five-cycle physical validation.
+- [ ] Perform the manual migration and five-cycle physical validation.
 
-Staged APK: `dist/termux-bfu_0.1.0_debug.apk`
+Staged APK: `dist/dawnshell_0.1.0_debug.apk`
 
-SHA-256: `BD6833BCF97C54FB35DB35FF12AE841947E1D94083F23211E51D6F1895DE7417`
+SHA-256: `485D9E675EC30AEB9858E96610BAAE3D1F1A7687A39A999E6D218EE1F51DF913`
 
 The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 

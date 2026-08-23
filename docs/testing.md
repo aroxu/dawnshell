@@ -6,18 +6,18 @@
 adb shell getprop ro.crypto.state
 adb shell getprop ro.crypto.type
 adb shell getprop ro.product.cpu.abi
-adb shell dumpsys package me.aroxu.termux.bfu | grep -E 'targetSdk|appId|dataDir'
+adb shell dumpsys package me.aroxu.dawnshell | grep -E 'targetSdk|appId|dataDir'
 adb shell dumpsys user | grep -i unlocked
 ```
 
 Expected: crypto state `encrypted`, crypto type `file` when the ROM publishes
 that legacy property, `arm64-v8a`, target SDK 28, and package
-`me.aroxu.termux.bfu` with its own app ID. Some Android 16 custom ROMs leave
+`me.aroxu.dawnshell` with its own app ID. Some Android 16 custom ROMs leave
 `ro.crypto.type` unset. An
 unset type is not accepted as proof by itself: every final-test cycle must still
 produce a fresh locked-state `CE_ISOLATION_PROBE` record proving this app's CE
 sentinel was unreadable before first unlock. A nonempty value other than `file`
-fails preflight. Launch Termux: BFU once, enable the Direct Boot Debian bootstrap,
+fails preflight. Launch DawnShell once, enable the Direct Boot Debian bootstrap,
 save, and exempt it from vendor battery restrictions where the ROM exposes that
 control.
 
@@ -39,9 +39,9 @@ adb logcat -c
 adb reboot
 adb wait-for-device
 adb shell dumpsys user | grep -i unlocked
-adb logcat -d -s TermuxBFU:I '*:S'
-adb shell run-as me.aroxu.termux.bfu \
-  cat /data/user_de/0/me.aroxu.termux.bfu/files/bfu-boot.log
+adb logcat -d -s DawnShell:I '*:S'
+adb shell run-as me.aroxu.dawnshell \
+  cat /data/user_de/0/me.aroxu.dawnshell/files/bfu-boot.log
 ```
 
 Pass requires user 0 to remain locked and a new line in the DE marker:
@@ -59,16 +59,16 @@ logcat is supporting evidence.
 The same log must include:
 
 ```text
-DE context initialized: /data/user_de/0/me.aroxu.termux.bfu/files
+DE context initialized: /data/user_de/0/me.aroxu.dawnshell/files
 BFU runtime verified: .../files/bfu
-DE executable probe succeeded: TermuxBFU DE executable OK; ...
+DE executable probe succeeded: DawnShell DE executable OK; ...
 ```
 
 Inspect package-owned files through `run-as` only on a debuggable build:
 
 ```sh
-adb shell run-as me.aroxu.termux.bfu ls -la files/bfu/scripts files/bfu/etc
-adb shell run-as me.aroxu.termux.bfu files/bfu/scripts/test.sh
+adb shell run-as me.aroxu.dawnshell ls -la files/bfu/scripts files/bfu/etc
+adb shell run-as me.aroxu.dawnshell files/bfu/scripts/test.sh
 ```
 
 Do not use root to make this test pass. A denial must be recorded with its AVC and
@@ -76,7 +76,7 @@ the nativeLibraryDir strategy tested next.
 
 ## Debian gate 1: BFU root
 
-Open Termux: BFU while unlocked and press **Request / verify Magisk root
+Open DawnShell while unlocked and press **Request / verify Magisk root
 permission**. Verify the confirmation dialog lists only expected packages for
 the standalone app UID, then choose Magisk's permanent/forever allow duration. The app's
 AFU result must show `exit=0` and `root=true`; this is setup confirmation, not BFU
@@ -90,7 +90,7 @@ The script records line counts before reboot, waits 30 seconds without ADB or an
 unlock, then asks the operator to unlock so it can reconnect and read:
 
 ```text
-/data/user_de/0/me.aroxu.termux.bfu/files/bfu-root.log
+/data/user_de/0/me.aroxu.dawnshell/files/bfu-root.log
 ```
 
 Pass requires the newest line to contain `exit=0`, `root=true`,
@@ -99,7 +99,7 @@ Those state fields prove the probe completed during BFU even though this ROM doe
 not expose ADB until first unlock. A timeout or denial is a real failed gate; do
 not attempt to make an approval UI appear during BFU.
 
-As a second read path, open Termux: BFU after unlock and press **Refresh BFU probe
+As a second read path, open DawnShell after unlock and press **Refresh BFU probe
 results**. It reads the same Device Protected logs; it does not rerun `su` and
 therefore cannot accidentally turn an AFU authorization into BFU evidence.
 
@@ -139,14 +139,14 @@ pkg install debootstrap util-linux mount-utils
 Watch **Debian installation log (live)** until the status is `SUCCEEDED`. Confirm
 the log contains both SHA-256 checks, a valid Debian Release signature, rootfs
 validation for Debian 13/Trixie arm64, and `INSTALL_SUCCEEDED`. Also verify
-`/data/local/debian/.termux-bfu-rootfs` contains `suite=trixie`. Then reboot and run:
+`/data/local/debian/.dawnshell-rootfs` contains `suite=trixie`. Then reboot and run:
 
 ```sh
 ./scripts/test-rootfs-bfu.sh
 ```
 
 If an older build failed after `Unpacking the base system` with a missing
-`https:__..._Packages` path, install the updated Termux: BFU APK and press the
+`https:__..._Packages` path, install the updated DawnShell APK and press the
 installer once more. The installer preserves the old partial tree as
 `/data/local/debian.failed.<epoch>` and creates a fresh staging tree; do not
 manually delete either tree before collecting diagnostics. Any new failure must
@@ -211,7 +211,7 @@ Ed25519 public key, then press **Configure Debian 13 systemd + SSH**. The
 configuration status must become `SUCCEEDED`; its live selectable log must end in
 both `CONFIGURE_SUCCEEDED` lines. This operation stops a prior test instance,
 installs packages, validates `sshd`, enables `ssh.service` and
-`termux-bfu-boot-proof.service`, publishes the ready marker, and starts systemd
+`dawnshell-boot-proof.service`, publishes the ready marker, and starts systemd
 once for AFU validation.
 
 Press **Refresh Debian systemd status**. A successful launcher status contains
@@ -228,19 +228,19 @@ ssh -p 22 -i /path/to/bfu_key debian@PHONE_IP
 systemctl is-system-running
 systemctl is-active dbus.service
 systemctl is-active ssh.service
-systemctl is-active termux-bfu-boot-proof.service
+systemctl is-active dawnshell-boot-proof.service
 systemctl is-active multi-user.target
-test -f /run/termux-bfu-enabled-service.ready
+test -f /run/dawnshell-enabled-service.ready
 busctl --system --no-pager list
 cat /proc/1/comm
 ss -ltn
 ```
 
-For a same-phone AFU client, scroll to the bottom of Termux: BFU. Tap **Copy
+For a same-phone AFU client, scroll to the bottom of DawnShell. Tap **Copy
 Termux private-key import command**, approve the sensitive clipboard warning,
 and paste/run it once in normal Termux. It must create an owner-only OpenSSH key
-at `~/.ssh/termux-bfu-ed25519`. Tap **Copy SSH connect command** and run it.
-Expected results are an interactive `debian@termux-bfu` shell through
+at `~/.ssh/dawnshell-ed25519`. Tap **Copy SSH connect command** and run it.
+Expected results are an interactive `debian@dawnshell` shell through
 `127.0.0.1:22` and no password prompt. Verify that the command's clipboard entry
 clears after 120 seconds if unchanged, and that neither DE `authorized_keys` nor
 the Debian copy contains `PRIVATE KEY` text.
@@ -312,7 +312,7 @@ for unlock, verifies unchanged Debian PID 1 across `USER_UNLOCKED`, and records
 Android boot ID, app PID/RSS, supervisor,
 and init host PID under ignored `test-results/`. Repeated boot IDs and a strictly
 monotonic PSS increase over 32 MiB fail the harness. Before cycle one, the harness
-pulls the installed Termux: BFU APK and requires it to match its local staged
+pulls the installed DawnShell APK and requires it to match its local staged
 artifact byte for byte. It records the build-specific hash in
 `artifacts.tsv`. Because D8 synthetic-lambda metadata can change a full debug APK
 hash across clean builds, the source does not treat one historical whole-APK hash

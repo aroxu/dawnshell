@@ -24,7 +24,7 @@ pkg update
 pkg install debootstrap util-linux mount-utils
 ```
 
-Then open Termux: BFU and press **Request / verify Magisk root permission**.
+Then open DawnShell and press **Request / verify Magisk root permission**.
 Confirm that the package list contains only the standalone trusted app and choose
 Magisk's permanent/forever allow duration. Keep **Enable Direct Boot Debian
 bootstrap** selected and press **Install Debian 13 Trixie arm64 rootfs**. The
@@ -60,7 +60,7 @@ Installation runs as pre-authorized Magisk root inside a private mount namespace
 verified downloads in <DE filesDir>/bfu/downloads/
   -> /data/local/debian.installing
   -> validate Debian 13/Trixie, arm64, dpkg database, /bin/sh, root ownership
-  -> write .termux-bfu-rootfs metadata marker
+  -> write .dawnshell-rootfs metadata marker
   -> atomic rename to /data/local/debian
 ```
 
@@ -70,7 +70,7 @@ existing Trixie BFU rootfs is reported as `ALREADY_INSTALLED`; a rootfs marked
 for another suite and any unrecognized target are left untouched and cause a
 hard failure. The installer never performs an in-place Debian release upgrade.
 
-`/data/local/.termux-bfu-debian-install.lock` prevents concurrent root
+`/data/local/.dawnshell-debian-install.lock` prevents concurrent root
 installers. A lock whose recorded host PID still belongs to this installer is
 treated as active. A stale lock is renamed with a timestamp rather than deleted.
 Likewise, a staging tree left by a killed process is preserved as
@@ -100,10 +100,10 @@ the numeric exit code. The same files survive reboot and can be read after
 unlock with a debuggable build:
 
 ```sh
-adb shell run-as me.aroxu.termux.bfu cat \
-  /data/user_de/0/me.aroxu.termux.bfu/files/debian-install.status
-adb shell run-as me.aroxu.termux.bfu cat \
-  /data/user_de/0/me.aroxu.termux.bfu/files/debian-install.log
+adb shell run-as me.aroxu.dawnshell cat \
+  /data/user_de/0/me.aroxu.dawnshell/files/debian-install.status
+adb shell run-as me.aroxu.dawnshell cat \
+  /data/user_de/0/me.aroxu.dawnshell/files/debian-install.log
 ```
 
 The literal paths above are diagnostic examples for user 0. Runtime code always

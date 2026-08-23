@@ -1,4 +1,4 @@
-package me.aroxu.termux.bfu;
+package me.aroxu.dawnshell;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -13,7 +13,7 @@ import java.io.IOException;
 
 public class BootReceiver extends BroadcastReceiver {
 
-    private static final String TAG = "TermuxBFU";
+    private static final String TAG = "DawnShell";
 
     @Override
     public void onReceive(Context context, Intent intent) {
