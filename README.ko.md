@@ -2,6 +2,11 @@
 
 [English](README.md)
 
+[![빌드 및 릴리스](https://github.com/aroxu/dawnshell/actions/workflows/build.yml/badge.svg)](https://github.com/aroxu/dawnshell/actions/workflows/build.yml)
+
+처음 사용하는 경우 [설치 가이드](docs/installation.ko.md)를 먼저 읽고, 설치
+후 운영 방법은 [사용자 매뉴얼](docs/user-guide.ko.md)을 참고한다.
+
 DawnShell은 root 소유 Debian 13 Trixie 환경을 Android 최초 잠금 해제 전부터
 실행하는 독립 Direct Boot 컨트롤러다. Android 패키지는
 `me.aroxu.dawnshell`, 런처 이름은 **DawnShell**이다.
