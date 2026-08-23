@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
@@ -31,7 +32,8 @@ static const char *const kLockName = "debian-supervisor.lock";
 static const char *const kStateName = "debian-supervisor.state";
 static const char *const kLifecycleLogName = "debian-lifecycle.log";
 static const char *const kHostRebootFifoName = "host-reboot.fifo";
-static const char *const kCgroupMountName = "systemd-cgroup";
+static const char *const kSystemdCgroupMountName = "systemd-cgroup";
+static const char *const kDevicesCgroupMountName = "devices-cgroup";
 static const char *const kCgroupChildName = "dawnshell";
 static const int kStartTimeoutMs = 20000;
 static const int kStartGraceMs = 3000;
@@ -750,10 +752,10 @@ static int ensure_directory_path(const char *path, mode_t mode, const char *stag
     return 0;
 }
 
-static int systemd_cgroup_paths(const char *control_dir, char *mount_path,
-                                size_t mount_size, char *child_path,
-                                size_t child_size) {
-    if (joined_path(mount_path, mount_size, control_dir, kCgroupMountName) != 0) {
+static int delegated_cgroup_paths(const char *control_dir, const char *mount_name,
+                                  char *mount_path, size_t mount_size,
+                                  char *child_path, size_t child_size) {
+    if (joined_path(mount_path, mount_size, control_dir, mount_name) != 0) {
         return -1;
     }
     if (joined_path(child_path, child_size, mount_path, kCgroupChildName) != 0) {
@@ -765,8 +767,9 @@ static int systemd_cgroup_paths(const char *control_dir, char *mount_path,
 static int prepare_systemd_cgroup_mount(const char *control_dir) {
     char mount_path[PATH_MAX];
     char child_path[PATH_MAX];
-    if (systemd_cgroup_paths(control_dir, mount_path, sizeof(mount_path),
-                             child_path, sizeof(child_path)) != 0) {
+    if (delegated_cgroup_paths(control_dir, kSystemdCgroupMountName,
+                               mount_path, sizeof(mount_path),
+                               child_path, sizeof(child_path)) != 0) {
         return fail_errno("cgroup_path", 45);
     }
     int result = ensure_directory_path(mount_path, 0700, "cgroup_mount_dir");
@@ -784,18 +787,52 @@ static int prepare_systemd_cgroup_mount(const char *control_dir) {
     return 0;
 }
 
-static int move_self_to_systemd_cgroup(const char *control_dir) {
+static int prepare_devices_cgroup_mount(const char *control_dir) {
     char mount_path[PATH_MAX];
     char child_path[PATH_MAX];
+    char interface_path[PATH_MAX];
+    if (delegated_cgroup_paths(control_dir, kDevicesCgroupMountName,
+                               mount_path, sizeof(mount_path),
+                               child_path, sizeof(child_path)) != 0) {
+        return fail_errno("devices_cgroup_path", 90);
+    }
+    int result = ensure_directory_path(mount_path, 0700,
+                                       "devices_cgroup_mount_dir");
+    if (result != 0) return result;
+    /* Controller attachment is global in cgroup v1, but mount visibility is
+       confined to this already-private mount namespace. Android tasks remain
+       at the hierarchy root with the kernel's default allow-all policy. */
+    if (mount("dawnshell-devices", mount_path, "cgroup",
+              MS_NOSUID | MS_NODEV | MS_NOEXEC, "devices") != 0) {
+        return fail_errno("cgroup_v1_devices_mount", 91);
+    }
+    result = ensure_directory_path(child_path, 0755,
+                                   "devices_cgroup_child_dir");
+    if (result != 0) return result;
+    if (joined_path(interface_path, sizeof(interface_path), child_path,
+                    "devices.list") != 0) {
+        return fail_errno("devices_cgroup_interface_path", 92);
+    }
+    int interface_fd = open(interface_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (interface_fd < 0) return fail_errno("devices_cgroup_interface", 93);
+    close(interface_fd);
+    log_file_snapshot("delegated_devices_list", interface_path);
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE cgroup_v1_devices_mounted "
+            "mount=%s child=%s android_root_policy_unchanged=true\n",
+            (long long) realtime_seconds(), mount_path, child_path);
+    return 0;
+}
+
+static int move_self_to_cgroup(const char *child_path, const char *open_stage,
+                               const char *move_stage, int failure_code) {
     char procs_path[PATH_MAX];
-    if (systemd_cgroup_paths(control_dir, mount_path, sizeof(mount_path),
-                             child_path, sizeof(child_path)) != 0
-            || joined_path(procs_path, sizeof(procs_path), child_path,
-                           "cgroup.procs") != 0) {
-        return fail_errno("cgroup_procs_path", 47);
+    if (joined_path(procs_path, sizeof(procs_path), child_path,
+                    "cgroup.procs") != 0) {
+        return fail_errno(open_stage, failure_code);
     }
     int fd = open(procs_path, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0) return fail_errno("cgroup_procs_open", 48);
+    if (fd < 0) return fail_errno(open_stage, failure_code);
     char pid_text[32];
     int count = snprintf(pid_text, sizeof(pid_text), "%d\n", getpid());
     int result = count > 0 && (size_t) count < sizeof(pid_text)
@@ -804,11 +841,48 @@ static int move_self_to_systemd_cgroup(const char *control_dir) {
     close(fd);
     if (result != 0) {
         errno = saved_errno;
-        return fail_errno("cgroup_move_pid1", 49);
+        return fail_errno(move_stage, failure_code);
     }
+    return 0;
+}
+
+static int move_self_to_delegated_subtrees(const char *control_dir,
+                                           char *systemd_child,
+                                           size_t systemd_child_size,
+                                           char *devices_child,
+                                           size_t devices_child_size) {
+    char systemd_mount[PATH_MAX];
+    char devices_mount[PATH_MAX];
+    if (delegated_cgroup_paths(control_dir, kSystemdCgroupMountName,
+                               systemd_mount, sizeof(systemd_mount),
+                               systemd_child, systemd_child_size) != 0
+            || delegated_cgroup_paths(control_dir, kDevicesCgroupMountName,
+                                      devices_mount, sizeof(devices_mount),
+                                      devices_child, devices_child_size) != 0) {
+        return fail_errno("cgroup_procs_path", 47);
+    }
+    int result = move_self_to_cgroup(systemd_child, "cgroup_procs_open",
+                                     "cgroup_move_pid1", 49);
+    if (result != 0) return result;
+    result = move_self_to_cgroup(devices_child, "devices_cgroup_procs_open",
+                                 "devices_cgroup_move_pid1", 94);
+    if (result != 0) return result;
+    return 0;
+}
+
+static int move_self_to_delegated_cgroups(const char *control_dir) {
+    char systemd_child[PATH_MAX];
+    char devices_child[PATH_MAX];
+    int result = move_self_to_delegated_subtrees(
+            control_dir, systemd_child, sizeof(systemd_child),
+            devices_child, sizeof(devices_child));
+    if (result != 0) return result;
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_STAGE init_moved_to_systemd_cgroup path=%s\n",
-            (long long) realtime_seconds(), child_path);
+            (long long) realtime_seconds(), systemd_child);
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE init_moved_to_devices_cgroup path=%s\n",
+            (long long) realtime_seconds(), devices_child);
     if (unshare(CLONE_NEWCGROUP) != 0) {
         return fail_errno("unshare_cgroup", 50);
     }
@@ -818,28 +892,174 @@ static int move_self_to_systemd_cgroup(const char *control_dir) {
     return 0;
 }
 
-static int mount_systemd_cgroup_view(const char *root, const char *control_dir) {
+static int bind_delegated_cgroup_view(const char *control_dir,
+                                      const char *mount_name,
+                                      const char *cgroup_root,
+                                      const char *view_name,
+                                      const char *directory_stage,
+                                      const char *bind_stage,
+                                      int failure_code) {
+    char mount_path[PATH_MAX];
     char source[PATH_MAX];
-    char child_path[PATH_MAX];
-    char cgroup_root[PATH_MAX];
     char target[PATH_MAX];
-    if (systemd_cgroup_paths(control_dir, source, sizeof(source),
-                             child_path, sizeof(child_path)) != 0
-            || joined_path(cgroup_root, sizeof(cgroup_root), root,
-                           "sys/fs/cgroup") != 0
-            || joined_path(target, sizeof(target), cgroup_root, "systemd") != 0) {
+    if (delegated_cgroup_paths(control_dir, mount_name,
+                               mount_path, sizeof(mount_path),
+                               source, sizeof(source)) != 0
+            || joined_path(target, sizeof(target), cgroup_root, view_name) != 0) {
+        return fail_errno("cgroup_view_path", failure_code);
+    }
+    int result = ensure_directory_path(target, 0755, directory_stage);
+    if (result != 0) return result;
+    /* Bind the delegated child itself, never the hierarchy root containing
+       Android tasks. Docker may create descendants but cannot walk upward. */
+    if (mount(source, target, NULL, MS_BIND | MS_REC, NULL) != 0) {
+        return fail_errno(bind_stage, failure_code);
+    }
+    return 0;
+}
+
+static int mount_delegated_cgroup_views(const char *root,
+                                        const char *control_dir) {
+    char cgroup_root[PATH_MAX];
+    if (joined_path(cgroup_root, sizeof(cgroup_root), root,
+                    "sys/fs/cgroup") != 0) {
         return fail_errno("cgroup_view_path", 51);
     }
     if (mount("tmpfs", cgroup_root, "tmpfs",
               MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=0755,size=1m") != 0) {
         return fail_errno("cgroup_view_tmpfs", 52);
     }
-    int result = ensure_directory_path(target, 0755, "cgroup_view_systemd_dir");
+    int result = bind_delegated_cgroup_view(
+            control_dir, kSystemdCgroupMountName, cgroup_root, "systemd",
+            "cgroup_view_systemd_dir", "cgroup_view_systemd_bind", 53);
     if (result != 0) return result;
-    if (mount(source, target, NULL, MS_BIND | MS_REC, NULL) != 0) {
-        return fail_errno("cgroup_view_bind", 53);
-    }
+    result = bind_delegated_cgroup_view(
+            control_dir, kDevicesCgroupMountName, cgroup_root, "devices",
+            "cgroup_view_devices_dir", "cgroup_view_devices_bind", 95);
+    if (result != 0) return result;
     return 0;
+}
+
+static int remove_cgroup_descendants(const char *path, int depth) {
+    if (depth > 64) {
+        errno = ELOOP;
+        return -1;
+    }
+    DIR *directory = opendir(path);
+    if (directory == NULL) return errno == ENOENT ? 0 : -1;
+    int result = 0;
+    struct dirent *entry;
+    while ((entry = readdir(directory)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0
+                || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char child[PATH_MAX];
+        if (joined_path(child, sizeof(child), path, entry->d_name) != 0) {
+            result = -1;
+            errno = ENAMETOOLONG;
+            break;
+        }
+        struct stat value;
+        if (lstat(child, &value) != 0) {
+            if (errno == ENOENT) continue;
+            result = -1;
+            break;
+        }
+        if (!S_ISDIR(value.st_mode)) continue;
+        if (remove_cgroup_descendants(child, depth + 1) != 0
+                || (rmdir(child) != 0 && errno != ENOENT)) {
+            result = -1;
+            break;
+        }
+    }
+    int saved_errno = errno;
+    closedir(directory);
+    errno = saved_errno;
+    return result;
+}
+
+static void detach_mount_for_cleanup(const char *path, const char *label) {
+    if (umount2(path, MNT_DETACH) == 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_CLEANUP mount_detached label=%s path=%s\n",
+                (long long) realtime_seconds(), label, path);
+        return;
+    }
+    if (errno != EINVAL && errno != ENOENT) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_WARNING cleanup_mount_failed "
+                "label=%s path=%s errno=%d\n",
+                (long long) realtime_seconds(), label, path, errno);
+    }
+}
+
+static void cleanup_cgroup_hierarchy(const char *control_dir,
+                                     const char *mount_name,
+                                     const char *label) {
+    char mount_path[PATH_MAX];
+    char child_path[PATH_MAX];
+    if (delegated_cgroup_paths(control_dir, mount_name,
+                               mount_path, sizeof(mount_path),
+                               child_path, sizeof(child_path)) != 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_WARNING cleanup_cgroup_path_failed label=%s\n",
+                (long long) realtime_seconds(), label);
+        return;
+    }
+
+    bool child_removed = false;
+    int cleanup_errno = 0;
+    for (int attempt = 0; attempt < 20; attempt++) {
+        int descendants = remove_cgroup_descendants(child_path, 0);
+        if (descendants == 0) {
+            if (rmdir(child_path) == 0 || errno == ENOENT) {
+                child_removed = true;
+                break;
+            }
+        }
+        cleanup_errno = errno;
+        if (errno != EBUSY && errno != ENOTEMPTY) break;
+        usleep(100000);
+    }
+    if (child_removed) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_CLEANUP cgroup_subtree_removed "
+                "label=%s child=%s\n",
+                (long long) realtime_seconds(), label, child_path);
+    } else {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_WARNING cleanup_cgroup_subtree_failed "
+                "label=%s child=%s errno=%d\n",
+                (long long) realtime_seconds(), label, child_path,
+                cleanup_errno);
+    }
+    detach_mount_for_cleanup(mount_path, label);
+    if (rmdir(mount_path) != 0 && errno != ENOENT) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_WARNING cleanup_cgroup_mount_dir_failed "
+                "label=%s path=%s errno=%d\n",
+                (long long) realtime_seconds(), label, mount_path, errno);
+    }
+}
+
+static void cleanup_delegated_cgroups(const char *root,
+                                      const char *control_dir) {
+    char cgroup_root[PATH_MAX];
+    char systemd_view[PATH_MAX];
+    char devices_view[PATH_MAX];
+    if (joined_path(cgroup_root, sizeof(cgroup_root), root,
+                    "sys/fs/cgroup") == 0
+            && joined_path(systemd_view, sizeof(systemd_view), cgroup_root,
+                           "systemd") == 0
+            && joined_path(devices_view, sizeof(devices_view), cgroup_root,
+                           "devices") == 0) {
+        detach_mount_for_cleanup(devices_view, "debian_devices_view");
+        detach_mount_for_cleanup(systemd_view, "debian_systemd_view");
+        detach_mount_for_cleanup(cgroup_root, "debian_cgroup_root");
+    }
+    cleanup_cgroup_hierarchy(control_dir, kDevicesCgroupMountName, "devices");
+    cleanup_cgroup_hierarchy(control_dir, kSystemdCgroupMountName, "systemd");
 }
 
 static int prepare_child_mounts(const char *root, const char *control_dir,
@@ -887,10 +1107,11 @@ static int prepare_child_mounts(const char *root, const char *control_dir,
             (long long) realtime_seconds());
 
     if (systemd_mode) {
-        result = mount_systemd_cgroup_view(root, control_dir);
+        result = mount_delegated_cgroup_views(root, control_dir);
         if (result != 0) return result;
         dprintf(STDERR_FILENO,
-                "[%lld] BFU_DEBIAN_STAGE private_systemd_cgroup_view_mounted\n",
+                "[%lld] BFU_DEBIAN_STAGE private_cgroup_views_mounted "
+                "views=systemd,devices delegated_subtree=true\n",
                 (long long) realtime_seconds());
     }
 
@@ -1171,6 +1392,8 @@ static int set_systemd_parent_namespaces(const char *control_dir,
     if (wait_for_network_manager(network_ready_fd) != 0) {
         return fail_errno("wait_network_manager", 56);
     }
+    result = prepare_devices_cgroup_mount(control_dir);
+    if (result != 0) return result;
     result = prepare_systemd_cgroup_mount(control_dir);
     if (result != 0) return result;
     if (unshare(CLONE_NEWPID) != 0) return fail_errno("unshare_pid", 58);
@@ -1292,7 +1515,7 @@ static void reset_init_signals(void) {
 }
 
 static int enter_debian_systemd(const char *root, const char *control_dir) {
-    int result = move_self_to_systemd_cgroup(control_dir);
+    int result = move_self_to_delegated_cgroups(control_dir);
     if (result != 0) return result;
     result = prepare_child_mounts(root, control_dir, true);
     if (result != 0) return result;
@@ -1421,6 +1644,8 @@ static int supervisor_loop(const char *root, const char *control_dir,
             "[%lld] BFU_DEBIAN_STAGE supervisor_started pid=%d root=%s\n",
             (long long) realtime_seconds(), getpid(), root);
     log_file_snapshot("host_proc_cgroups", "/proc/cgroups");
+    log_file_snapshot("host_cgroup_v2_controllers",
+                      "/sys/fs/cgroup/unified/cgroup.controllers");
     log_file_snapshot("host_self_cgroup", "/proc/self/cgroup");
     log_matching_snapshot("host_cgroup_mounts", "/proc/self/mountinfo", "cgroup");
 
@@ -1474,6 +1699,7 @@ static int supervisor_loop(const char *root, const char *control_dir,
 
     int result = set_systemd_parent_namespaces(control_dir, network_ready_fd);
     if (result != 0) {
+        cleanup_delegated_cgroups(root, control_dir);
         dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=namespace_setup exit=%d\n",
                 result);
         return result;
@@ -1481,6 +1707,9 @@ static int supervisor_loop(const char *root, const char *control_dir,
 
     int exec_pipe[2];
     if (pipe(exec_pipe) != 0) {
+        int saved_errno = errno;
+        cleanup_delegated_cgroups(root, control_dir);
+        errno = saved_errno;
         dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=exec_pipe errno=%d\n", errno);
         return 78;
     }
@@ -1492,6 +1721,7 @@ static int supervisor_loop(const char *root, const char *control_dir,
         dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=fork_systemd errno=%d\n", errno);
         close(exec_pipe[0]);
         close(exec_pipe[1]);
+        cleanup_delegated_cgroups(root, control_dir);
         return 79;
     }
     if (init_pid == 0) {
@@ -1527,14 +1757,18 @@ static int supervisor_loop(const char *root, const char *control_dir,
         snprintf(state.state, sizeof(state.state), "failed");
         state.wait_status = 80;
         (void) write_state(control_dir, &state);
+        cleanup_delegated_cgroups(root, control_dir);
         dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=exec_systemd\n");
         return 80;
     }
 
     if (wait_for_start_grace(init_pid) != 0) {
+        (void) kill(init_pid, SIGKILL);
+        while (waitpid(init_pid, NULL, 0) < 0 && errno == EINTR) {}
         snprintf(state.state, sizeof(state.state), "failed");
         state.wait_status = 81;
         (void) write_state(control_dir, &state);
+        cleanup_delegated_cgroups(root, control_dir);
         dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=systemd_early_exit\n");
         return 81;
     }
@@ -1546,10 +1780,12 @@ static int supervisor_loop(const char *root, const char *control_dir,
         dprintf(STDERR_FILENO,
                 "[%lld] BFU_DEBIAN_START_FAILED stage=init_identity_or_pid_namespace errno=%d\n",
                 (long long) realtime_seconds(), errno);
-        kill(init_pid, SIGRTMIN + 3);
+        (void) kill(init_pid, SIGKILL);
+        while (waitpid(init_pid, NULL, 0) < 0 && errno == EINTR) {}
         snprintf(state.state, sizeof(state.state), "failed");
         state.wait_status = 82;
         (void) write_state(control_dir, &state);
+        cleanup_delegated_cgroups(root, control_dir);
         dprintf(ready_fd,
                 "BFU_DEBIAN_START_FAILED stage=init_identity_or_pid_namespace\n");
         return 82;
@@ -1622,6 +1858,7 @@ static int supervisor_loop(const char *root, const char *control_dir,
         (void) kill(network_manager_pid, SIGTERM);
         while (waitpid(network_manager_pid, NULL, 0) < 0 && errno == EINTR) {}
     }
+    cleanup_delegated_cgroups(root, control_dir);
     snprintf(state.state, sizeof(state.state), "stopped");
     state.wait_status = wait_status;
     (void) write_state(control_dir, &state);
@@ -1743,14 +1980,26 @@ static int enter_debian_health(const char *root) {
             "listen_22=$(/usr/bin/ss -H -ltn 2>/dev/null | /usr/bin/mawk "
             "'$4 ~ /:22$/ { found=1 } END { if (found) print \"true\"; "
             "else print \"false\" }'); "
+            "devices_hierarchy=$(/usr/bin/mawk '$1 == \"devices\" { print $2 }' "
+            "/proc/cgroups 2>/dev/null || true); "
+            "devices_path=$(/usr/bin/mawk -F: '$2 == \"devices\" { print $3 }' "
+            "/proc/self/cgroup 2>/dev/null || true); "
+            "if [ -r /sys/fs/cgroup/devices/devices.list ] "
+            "&& [ -w /sys/fs/cgroup/devices/cgroup.procs ] "
+            "&& [ \"${devices_hierarchy:-0}\" -gt 0 ] "
+            "&& [ \"$devices_path\" = / ]; then devices_cgroup=delegated; "
+            "else devices_cgroup=missing; fi; "
             "printf 'BFU_DEBIAN_HEALTH pid1=%s pid1_start_ticks=%s "
             "system_state=%s dbus_service=%s dbus_bus=%s ssh_service=%s "
             "boot_proof_service=%s boot_proof_marker=%s "
-            "default_target=%s target_state=%s listen_22=%s\\n' "
+            "default_target=%s target_state=%s listen_22=%s "
+            "devices_cgroup=%s devices_hierarchy=%s devices_path=%s\\n' "
             "\"$pid1\" \"$pid1_start_ticks\" "
             "\"$system_state\" \"$dbus_service\" \"$dbus_bus\" "
             "\"$ssh_service\" \"$boot_proof_service\" \"$boot_proof_marker\" "
-            "\"$default_target\" \"$target_state\" \"$listen_22\"; "
+            "\"$default_target\" \"$target_state\" \"$listen_22\" "
+            "\"$devices_cgroup\" \"${devices_hierarchy:-0}\" "
+            "\"${devices_path:-missing}\"; "
             "if [ \"$pid1\" = systemd ] && [ \"$system_state\" = running ] "
             "&& [ \"$dbus_service\" = active ] "
             "&& [ \"$dbus_bus\" = ok ] && [ \"$ssh_service\" = active ] "
@@ -1758,7 +2007,8 @@ static int enter_debian_health(const char *root) {
             "&& [ \"$boot_proof_marker\" = present ] "
             "&& [ \"$default_target\" = multi-user.target ] "
             "&& [ \"$target_state\" = active ] "
-            "&& [ \"$listen_22\" = true ]; then exit 0; fi; "
+            "&& [ \"$listen_22\" = true ] "
+            "&& [ \"$devices_cgroup\" = delegated ]; then exit 0; fi; "
             "printf '%s\\n' BFU_DEBIAN_DIAGNOSTICS_BEGIN; "
             "/usr/bin/timeout -k 1 3 /usr/bin/systemctl --no-pager --failed "
             "2>&1 || true; "
@@ -1872,13 +2122,34 @@ static int run_in_debian_namespaces(const char *root, const char *control_dir,
         close(lock_fd);
         return fail_errno("namespace_command_open_pid", 102);
     }
+    count = snprintf(namespace_path, sizeof(namespace_path), "/proc/%d/ns/cgroup",
+                     state.init_host_pid);
+    if (count < 0 || (size_t) count >= sizeof(namespace_path)) {
+        close(pid_namespace_fd);
+        close(mount_namespace_fd);
+        close(lock_fd);
+        errno = ENAMETOOLONG;
+        return fail_errno("namespace_command_cgroup_path", 102);
+    }
+    int cgroup_namespace_fd = open(namespace_path, O_RDONLY | O_CLOEXEC);
+    if (cgroup_namespace_fd < 0) {
+        close(pid_namespace_fd);
+        close(mount_namespace_fd);
+        close(lock_fd);
+        return fail_errno("namespace_command_open_cgroup", 102);
+    }
     struct stat mount_namespace_stat;
     struct stat pid_namespace_stat;
+    struct stat cgroup_namespace_stat;
     if (fstat(mount_namespace_fd, &mount_namespace_stat) != 0
             || fstat(pid_namespace_fd, &pid_namespace_stat) != 0
+            || fstat(cgroup_namespace_fd, &cgroup_namespace_stat) != 0
             || (uint64_t) mount_namespace_stat.st_ino != state.init_mnt_ns_ino
             || (uint64_t) pid_namespace_stat.st_ino != state.init_pid_ns_ino
+            || (uint64_t) cgroup_namespace_stat.st_ino
+                    != state.init_cgroup_ns_ino
             || !validate_init_identity(&state)) {
+        close(cgroup_namespace_fd);
         close(pid_namespace_fd);
         close(mount_namespace_fd);
         close(lock_fd);
@@ -1887,16 +2158,33 @@ static int run_in_debian_namespaces(const char *root, const char *control_dir,
     }
     close(lock_fd);
     if (setns(pid_namespace_fd, CLONE_NEWPID) != 0) {
+        close(cgroup_namespace_fd);
         close(pid_namespace_fd);
         close(mount_namespace_fd);
         return fail_errno("namespace_command_setns_pid", 102);
     }
     close(pid_namespace_fd);
     if (setns(mount_namespace_fd, CLONE_NEWNS) != 0) {
+        close(cgroup_namespace_fd);
         close(mount_namespace_fd);
         return fail_errno("namespace_command_setns_mount", 102);
     }
     close(mount_namespace_fd);
+
+    char systemd_child[PATH_MAX];
+    char devices_child[PATH_MAX];
+    result = move_self_to_delegated_subtrees(
+            control_dir, systemd_child, sizeof(systemd_child),
+            devices_child, sizeof(devices_child));
+    if (result != 0) {
+        close(cgroup_namespace_fd);
+        return result;
+    }
+    if (setns(cgroup_namespace_fd, CLONE_NEWCGROUP) != 0) {
+        close(cgroup_namespace_fd);
+        return fail_errno("namespace_command_setns_cgroup", 102);
+    }
+    close(cgroup_namespace_fd);
 
     pid_t child_pid = fork();
     if (child_pid < 0) return fail_errno("namespace_command_fork", 107);

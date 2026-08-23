@@ -150,7 +150,8 @@ final class DebianLauncher {
                     && result.output.contains("boot_proof_service=active")
                     && result.output.contains("boot_proof_marker=present")
                     && result.output.contains("target_state=active")
-                    && result.output.contains("listen_22=true");
+                    && result.output.contains("listen_22=true")
+                    && result.output.contains("devices_cgroup=delegated");
             appendLog(layout.lifecycleLog,
                     "ANDROID_HEALTH attempt=" + attempts
                             + " exit=" + result.exitCode

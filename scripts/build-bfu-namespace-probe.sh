@@ -32,6 +32,20 @@ if grep -Eq 'unshare[[:space:]]*\([[:space:]]*CLONE_NEWIPC' "$source_file"; then
     exit 6
 fi
 
+required_devices_markers=(
+    'prepare_devices_cgroup_mount(control_dir)'
+    'init_moved_to_devices_cgroup'
+    'cgroup_view_devices_bind'
+    'cleanup_cgroup_subtree_failed'
+    'devices_cgroup=delegated'
+)
+for marker in "${required_devices_markers[@]}"; do
+    grep -Fq "$marker" "$source_file" || {
+        echo "Missing delegated devices-cgroup invariant: $marker" >&2
+        exit 7
+    }
+done
+
 "$compiler" \
     -std=c17 -Os -fPIE -fstack-protector-strong \
     -Wall -Wextra -Werror -Wformat=2 \
