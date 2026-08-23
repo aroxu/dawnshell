@@ -30,7 +30,7 @@
 
 Staged APK: `dist/dawnshell_0.1.0_debug.apk`
 
-SHA-256: `7AF78C24468F506D28F4EE3D77EDF9E4A81008A54D791F1F94F88452ECE758DC`
+SHA-256: `D919C19D5D75CB94B6313405A1D78F90B42C13DC1695662CB8BFDD6E0E659FE1`
 
 The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 
@@ -203,7 +203,7 @@ The host defaults to JDK 26, so the reproducible build uses the repository's JDK
 17 toolchain. Clean Java compilation, DEX packaging, native-helper verification,
 lint, unit tests, and APK assembly pass. The current standalone artifact is
 `dist/dawnshell_0.1.0_debug.apk` with SHA-256
-`7AF78C24468F506D28F4EE3D77EDF9E4A81008A54D791F1F94F88452ECE758DC`.
+`D919C19D5D75CB94B6313405A1D78F90B42C13DC1695662CB8BFDD6E0E659FE1`.
 Whole debug APK hashes are build-specific because clean D8 runs can vary
 synthetic-lambda metadata; the final harness therefore records the local hash and
 requires the installed APK to match it. The BFU helper is rebuilt from the
