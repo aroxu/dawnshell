@@ -68,6 +68,17 @@ ABI(Application Binary Interface)의 의미는
 - [x] 약어를 풀어 쓴 쉬운 용어집과 Google/AOSP 공식 링크를 제공합니다.
 - [x] 과거 제품 명칭과 오래된 마이그레이션 안내를 제거했습니다.
 
+### 하드웨어 영상 가속
+
+- [x] 기본 비활성 MediaCodec 옵션과 별도 `:codec` 프로세스를 추가했습니다.
+- [x] BFU 부팅 재시도와 `USER_UNLOCKED` 이후 유지 수명 주기를 연결했습니다.
+- [x] API 29 이상 플랫폼 판정과 API 24~28 보수적 하위 호환 판정을 구현했습니다.
+- [x] secure/DRM 및 software fallback을 제외하고 AVC/HEVC 인스턴스 생성을
+  DE JSON/로그로 기록합니다.
+- [ ] BFU 실기기에서 Exynos AVC hardware instance 생성을 확인합니다.
+- [ ] Debian용 로컬 IPC client와 frame/packet protocol을 구현합니다.
+- [ ] H.264 1-frame decode/encode self-test와 FFmpeg pipeline을 구현합니다.
+
 ### 라이선스와 자동 빌드
 
 - [x] DawnShell 코드를 MIT 라이선스로 제공합니다.

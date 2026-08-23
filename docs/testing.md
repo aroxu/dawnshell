@@ -91,6 +91,18 @@ produce exactly one new systemd PID 1.
 the full device, and `systemctl reboot` must remain inside the Debian isolation
 boundary.
 
+## Hardware video codecs
+
+Enable the option and tap **Save and probe hardware codecs**. The dedicated log
+must show `classification=platform_api29` (or an explicit legacy `heuristic_*`),
+an AVC decoder or encoder `created(...)` result, and no `OMX.google.*`,
+`c2.android.*`, or `.secure` backend. Debian PID 1 and SSH must remain available
+on probe failure. Reboot without unlocking and verify the same result, then
+unlock and verify both the `:codec` process and Debian remain alive. A ROM may
+report `UNAVAILABLE` during BFU, but it must never report a software codec as a
+hardware success. This stage proves instance creation only; frame acceleration
+is not yet a pass criterion.
+
 ## Pass criteria
 
 - SSH works before PIN entry.

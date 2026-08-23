@@ -191,7 +191,23 @@ bridge 정책은 별도 복구 경로를 준비한 뒤에만 시험합니다. �
 Wi-Fi, 모바일 데이터, USB Ethernet, VPN, Tailscale과 SSH가 유지되는지
 확인합니다.
 
-## 10. 삭제
+## 10. 하드웨어 영상 코덱
+
+옵션을 켜고 **저장하고 하드웨어 코덱 검사**를 누른 뒤 전용 로그에서 다음을
+확인합니다.
+
+- `classification=platform_api29` 또는 구형 Android의 명시적 `heuristic_*`
+- `avc_decoder=created(...)` 또는 `avc_encoder=created(...)`
+- 선택된 이름이 `OMX.google.*`, `c2.android.*` 또는 `.secure`가 아님
+- 실패해도 Debian PID 1과 SSH가 유지됨
+
+그다음 재부팅하고 잠금을 해제하지 않은 채 동일한 결과가 기록되는지 확인합니다.
+최초 잠금 해제 뒤 `:codec` 프로세스와 Debian이 모두 유지되어야 합니다. BFU에서
+미디어 서비스가 없는 ROM은 `UNAVAILABLE`일 수 있지만 소프트웨어 코덱 성공으로
+표시되어서는 안 됩니다. 이 단계는 instance 생성 probe이며 실제 frame 가속 시험은
+아직 통과 조건에 포함하지 않습니다.
+
+## 11. 삭제
 
 테스트 데이터가 필요하지 않을 때만 rootfs 삭제를 시험합니다.
 

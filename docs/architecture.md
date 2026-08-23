@@ -77,6 +77,23 @@ handled without restarting Debian. Cgroup policy remains limited to DawnShell's
 delegated subtree; exclusive driver unbinding is necessarily host-wide and is
 therefore a separately warned, explicit option.
 
+## Hardware video codec bridge
+
+Hardware video acceleration does not pass GPU device nodes into Debian. A
+separate Direct-Boot-aware Android `:codec` process uses the public `MediaCodec`
+API and will broker Debian requests over local IPC. It is isolated from Debian
+systemd and SSH, so a vendor codec failure cannot terminate the server
+lifecycle. `USER_UNLOCKED` does not stop it.
+
+The implemented stage is the BFU/AFU capability probe. It inventories H.264/AVC
+and HEVC codecs, excludes secure codecs, then creates and immediately releases
+explicitly classified hardware encoder/decoder instances. Android 10 (API 29)
+and newer use platform hardware, software-only, and vendor flags. Android 7–9
+use a conservative known-name classification and never promote an unknown name
+to hardware. Status, logs, and a JSON report live under the app's DE
+`hardware-codec/` directory. Video frame transport and the Debian client remain
+under development.
+
 ## SSH keys
 
 The app generates an Ed25519 key pair after unlock. The private half stays in app

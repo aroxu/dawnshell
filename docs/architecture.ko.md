@@ -137,6 +137,22 @@ Debian은 Android의 network namespace와 NIC(Network Interface Controller)를
 따라서 기본 Docker 정책은 host-network-only이며, bridge 방식은 사용자가 경고를
 확인하고 직접 적용해야 합니다.
 
+## 하드웨어 영상 코덱 브리지
+
+하드웨어 영상 가속은 Debian에 GPU 장치 노드를 직접 전달하지 않습니다. 별도의
+Direct-Boot-aware Android `:codec` 프로세스가 공개 `MediaCodec` API로 코덱을
+조회하고, 향후 로컬 IPC를 통해 Debian 요청을 대행합니다. 이 프로세스는 Debian
+systemd와 SSH에서 분리되므로 vendor 코덱 오류가 서버 수명 주기를 종료시키지
+않습니다. `USER_UNLOCKED`에서도 중지하지 않습니다.
+
+현재 구현 단계는 BFU/AFU capability 조사입니다. H.264/AVC 및 HEVC 코덱을
+나열하고 secure 코덱을 제외한 뒤, 하드웨어로 판정한 encoder/decoder를 이름으로
+생성하고 즉시 해제합니다. Android 10(API 29) 이상은 플랫폼의 hardware,
+software-only, vendor 판정을 사용합니다. Android 7~9는 알려진 vendor와 software
+코덱 이름을 보수적으로 분류하며 알 수 없는 이름은 하드웨어로 승격하지 않습니다.
+결과와 판정 근거는 앱 DE의 `hardware-codec/` 아래 상태, 로그 및 JSON으로
+저장합니다. 전체 영상 frame 전달과 Debian client는 아직 구현 중입니다.
+
 ## SSH 키 흐름
 
 1. 사용자가 잠금을 해제한 뒤 앱이 임의 Ed25519 키 쌍을 생성합니다.

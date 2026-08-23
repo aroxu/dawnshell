@@ -33,6 +33,7 @@ Debian 인스턴스가 계속 실행됩니다. 잠금 해제 이벤트가 서버
 - BFU에서 `systemd`와 공개 키 전용 OpenSSH 서버를 시작합니다.
 - Wi-Fi, 모바일 데이터, USB Ethernet 등 Android 네트워크 인터페이스를 공유합니다.
 - 직접 모드와 VID:PID 제한 독점 모드로 USB 패스스루를 선택할 수 있습니다.
+- BFU에서 격리된 Android 하드웨어 영상 코덱 capability를 선택적으로 검사합니다.
 - Material 3 화면에서 설치, 설정, 시작, 중지, 상태 확인, 계정과 SSH 키를 관리합니다.
 - 각 작업의 실시간 로그를 별도 화면에서 선택하고 복사할 수 있습니다.
 - ARM 32비트, ARM 64비트, x86 64비트 Android 기기를 지원합니다.
@@ -116,6 +117,13 @@ major 189를 허용하며, 부팅 후 연결한 장치도 재시작 없이 처�
 Android 입력, 저장장치, 네트워크 또는 ADB를 끊을 수 있으며 비정상 종료 뒤에는
 장치를 뽑거나 재부팅해야 할 수 있습니다. 같은 이동식 파일시스템을 Android와
 Debian에서 동시에 마운트하면 안 됩니다.
+
+**하드웨어 영상 가속**은 실험 기능이며 기본적으로 꺼져 있습니다. 현재 단계는
+Android MediaCodec 접근을 별도 프로세스로 격리하고 AVC/HEVC capability를 수집한
+뒤, 소프트웨어 코덱으로 몰래 전환하지 않고 명시적인 하드웨어 코덱 instance 생성
+여부를 확인합니다. OpenGL/Vulkan 또는 범용 GPU 패스스루 기능은 아닙니다.
+Debian frame 전달과 FFmpeg 연동은 아직 구현 중이며 자세한 범위는
+[구현 계획](docs/media-codec-bridge-plan.ko.md)을 참고해 주세요.
 
 ## 빌드
 

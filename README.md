@@ -27,6 +27,7 @@ Main features include:
 - BFU startup of systemd and a public-key-only OpenSSH server;
 - shared Android Wi-Fi, mobile, and USB Ethernet interfaces;
 - optional direct and VID:PID-scoped exclusive USB passthrough;
+- opt-in, isolated Android hardware video codec capability probing during BFU;
 - Material 3 controls for setup, lifecycle, accounts, SSH keys, and logs;
 - source-built bootstrap binaries for `armeabi-v7a`, `arm64-v8a`, and `x86_64`.
 
@@ -103,6 +104,13 @@ Debian restart. SELinux can still deny access; Docker needs an explicit
 `--device`. Exclusive mode can disconnect Android input, storage, networking, or
 ADB, and an abnormal exit can require unplugging the device or rebooting. Never
 mount one removable filesystem from Android and Debian simultaneously.
+
+**Hardware video acceleration** is experimental and disabled by default. The
+current stage isolates Android MediaCodec access in a dedicated process,
+enumerates AVC/HEVC capabilities, and proves explicit hardware codec instance
+creation without silent software fallback. It is not OpenGL/Vulkan or general
+GPU passthrough. Debian frame transport and FFmpeg integration are still under
+development; see [the implementation plan](docs/media-codec-bridge-plan.ko.md).
 
 ## Build
 

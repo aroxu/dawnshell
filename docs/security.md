@@ -88,6 +88,15 @@ not expose untrusted devices, do not use broad Docker `--privileged` access, and
 never mount one removable filesystem from Android and Debian simultaneously.
 Do not put the phone's internal USB/gadget controller in the exclusive allowlist.
 
+## Hardware video codecs
+
+The codec bridge is disabled by default and opens no external TCP port.
+Secure/DRM codecs are excluded from inventory and creation, and software fallback
+is never automatic. Codec work runs in a separate Android process. DE stores
+only codec names, capabilities, and errors—never frames, bitstreams, media paths,
+or credentials. Automatic processing of untrusted media must remain disabled by
+default when the frame protocol is implemented.
+
 ## Signing and releases
 
 Verify Release checksums and use a private production signing key. Android update

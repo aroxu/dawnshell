@@ -57,6 +57,17 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [x] GitHub Actions builds, checks, signed tag releases, corresponding source,
   license bundles, metadata, and checksums.
 
+### Hardware video acceleration
+
+- [x] Added a default-off MediaCodec option and isolated `:codec` process.
+- [x] Connected bounded BFU retries and persistence across `USER_UNLOCKED`.
+- [x] Added API 29+ platform classification and conservative API 24–28 fallback.
+- [x] Excluded secure/DRM and silent software fallback while recording AVC/HEVC
+  instance creation in DE JSON and logs.
+- [ ] Verify Exynos AVC hardware instance creation on a locked real device.
+- [ ] Implement the local Debian IPC client and frame/packet protocol.
+- [ ] Implement H.264 one-frame decode/encode self-tests and an FFmpeg pipeline.
+
 ## Physical-device validation completed
 
 - [x] Android 16 / ARM64 locked-boot broadcast and DE execution.
