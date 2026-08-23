@@ -38,7 +38,7 @@ final class DebianRootfsRemover {
         String command = "root=" + BfuSu.shellQuote(root) + "; "
                 + "if [ ! -e \"$root\" ]; then echo DEBIAN_ROOTFS_ALREADY_ABSENT; exit 0; fi; "
                 + "[ ! -L \"$root\" ] || { echo REFUSING_SYMLINK_ROOTFS; exit 41; }; "
-                + "resolved=$(readlink -f \"$root\") || exit 42; "
+                + "resolved=$(cd -P \"$root\" 2>/dev/null && pwd -P) || exit 42; "
                 + "[ \"$resolved\" = " + BfuSu.shellQuote(root)
                 + " ] || { echo REFUSING_RESOLVED_PATH path=\"$resolved\"; exit 43; }; "
                 + "for file in /proc/[0-9]*/comm; do "

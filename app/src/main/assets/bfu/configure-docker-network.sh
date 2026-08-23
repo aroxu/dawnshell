@@ -68,7 +68,9 @@ done
 [ "$(id -u)" = 0 ] || fail 11 "Docker policy did not obtain uid 0"
 [ -d "$ROOT" ] || fail 13 "rootfs is missing: $ROOT"
 [ ! -L "$ROOT" ] || fail 13 "rootfs symlinks are forbidden"
-[ "$(readlink -f "$ROOT")" = "$ROOT" ] || fail 13 "rootfs resolves elsewhere"
+RESOLVED_ROOT="$(cd -P "$ROOT" 2>/dev/null && pwd -P)" || \
+    fail 13 "rootfs path could not be resolved"
+[ "$RESOLVED_ROOT" = "$ROOT" ] || fail 13 "rootfs resolves elsewhere"
 [ "$(stat -c '%u:%g' "$ROOT")" = "0:0" ] || fail 13 "rootfs is not root-owned"
 [ -f "$ROOT/.dawnshell-rootfs" ] || fail 14 "DawnShell rootfs marker is missing"
 grep -Fqx 'suite=trixie' "$ROOT/.dawnshell-rootfs" || \
