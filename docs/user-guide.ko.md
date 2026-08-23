@@ -1,5 +1,7 @@
 # DawnShell 사용자 매뉴얼
 
+[English](user-guide.md)
+
 [프로젝트 홈](../README.ko.md) · [설치 가이드](installation.ko.md) ·
 [문제 해결](#문제-해결)
 

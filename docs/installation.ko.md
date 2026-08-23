@@ -1,5 +1,7 @@
 # DawnShell 설치 가이드
 
+[English](installation.md)
+
 [프로젝트 홈](../README.ko.md) · [사용자 매뉴얼](user-guide.ko.md) ·
 [최신 릴리스](https://github.com/aroxu/dawnshell/releases/latest)
 
@@ -47,10 +49,16 @@ dawnshell-<version>-<commit>-build-info.txt
 RELEASE_NOTES.md
 ```
 
-Linux, macOS 또는 Termux에서는 전체 asset을 받은 폴더에서 검증한다.
+Linux 또는 Termux에서는 전체 asset을 받은 폴더에서 검증한다.
 
 ```sh
 sha256sum -c SHA256SUMS
+```
+
+macOS 기본 도구를 사용하는 경우:
+
+```sh
+shasum -a 256 -c SHA256SUMS
 ```
 
 Windows PowerShell에서는 APK hash를 계산한 뒤 `SHA256SUMS`의 같은 파일 항목과

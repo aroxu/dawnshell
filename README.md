@@ -2,6 +2,11 @@
 
 [한국어 문서](README.ko.md)
 
+[![Build and release](https://github.com/aroxu/dawnshell/actions/workflows/build.yml/badge.svg)](https://github.com/aroxu/dawnshell/actions/workflows/build.yml)
+
+New users should start with the [installation guide](docs/installation.md). See
+the [user guide](docs/user-guide.md) for daily operation after setup.
+
 Standalone Android Direct Boot controller for a root-owned Debian 13 Trixie
 environment. Its Android package is `me.aroxu.dawnshell` and its launcher
 name is **DawnShell**.
