@@ -22,6 +22,8 @@
 - [x] Build and lint successfully with JDK 17; verify target SDK 28,
   `LOCKED_BOOT_COMPLETED`, Direct-Boot-aware receiver/service, no manifest shared
   UID, and APK signature schemes v1/v2.
+- [x] Add complete Korean resources for all 214 translatable UI strings while
+  keeping the launcher/app name fixed as `DawnShell`.
 - [x] Validate devices-v1 delegation far enough for Docker/containerd to pass
   cgroup initialization on the physical target; the next observed failure was
   Docker's incompatible nftables firewall frontend.
@@ -30,7 +32,7 @@
 
 Staged APK: `dist/dawnshell_0.1.0_debug.apk`
 
-SHA-256: `17CD4CB29DD3092B76589C00E60390289D1A6CB87AB7809AA346666AAE7D7469`
+SHA-256: `4CCF1ACC36EB74106AC6D487AD33EB05A509EF21B64DD8225947FA35FC1488D4`
 
 The entries below record the earlier BFU-enabled Termux:Boot PoC history.
 
@@ -207,7 +209,7 @@ The host defaults to JDK 26, so the reproducible build uses the repository's JDK
 17 toolchain. Clean Java compilation, DEX packaging, native-helper verification,
 lint, unit tests, and APK assembly pass. The current standalone artifact is
 `dist/dawnshell_0.1.0_debug.apk` with SHA-256
-`17CD4CB29DD3092B76589C00E60390289D1A6CB87AB7809AA346666AAE7D7469`.
+`4CCF1ACC36EB74106AC6D487AD33EB05A509EF21B64DD8225947FA35FC1488D4`.
 Whole debug APK hashes are build-specific because clean D8 runs can vary
 synthetic-lambda metadata; the final harness therefore records the local hash and
 requires the installed APK to match it. The BFU helper is rebuilt from the

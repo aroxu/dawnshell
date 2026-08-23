@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">DawnShell</string>
+    <string name="app_name" translatable="false">DawnShell</string>
     <string name="dawnshell_home_title">Debian, available from boot.</string>
     <string name="bfu_settings_explanation">Set up and control a Debian 13 server that starts before Android’s first unlock and stays running afterward. Complete the sections from top to bottom once; routine controls and SSH access remain easy to reach.</string>
     <string name="dawnshell_section_direct_boot">1 · Direct Boot</string>
