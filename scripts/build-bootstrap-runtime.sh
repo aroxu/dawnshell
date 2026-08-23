@@ -119,6 +119,7 @@ for marker in \
     'devices_cgroup=delegated' \
     'prepare_unified_cgroup_mount(control_dir, host_usb_policy)' \
     'cgroup_v2_device_bpf_verified' \
+    'command_moved_to_cgroup_v2_leaf' \
     'cgroup_requested=auto' \
     'fallback=v1' \
     'cgroup_delegation=delegated' \

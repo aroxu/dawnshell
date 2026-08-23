@@ -51,6 +51,7 @@ static const char *const kDevicesCgroupMountName = "devices-cgroup";
 static const char *const kUnifiedCgroupMountName = "unified-cgroup";
 static const char *const kCgroupChildName = "dawnshell";
 static const char *const kCgroupPayloadName = "payload";
+static const char *const kCgroupCommandName = "dawnshell-command";
 static const char *const kCgroupProbeName = ".device-probe";
 static const int kStartTimeoutMs = 20000;
 static const int kStartGraceMs = 3000;
@@ -1374,6 +1375,42 @@ static int move_self_to_delegated_mode(const char *control_dir,
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_STAGE init_moved_to_devices_cgroup path=%s\n",
             (long long) realtime_seconds(), devices_child);
+    return 0;
+}
+
+/* Once systemd has enabled controllers below payload, cgroup v2's
+   no-internal-process rule rejects later management processes with EBUSY.
+   Health and shutdown commands therefore enter a dedicated leaf below the
+   delegated payload. It inherits the payload's device BPF policy and remains
+   outside systemd-owned unit cgroups. */
+static int move_self_to_delegated_command(const char *control_dir,
+                                          CgroupMode mode) {
+    if (mode != CGROUP_MODE_V2) {
+        return move_self_to_delegated_mode(control_dir, mode);
+    }
+    char mount_path[PATH_MAX];
+    char child_path[PATH_MAX];
+    char payload_path[PATH_MAX];
+    char command_path[PATH_MAX];
+    if (unified_cgroup_paths(control_dir,
+                             mount_path, sizeof(mount_path),
+                             child_path, sizeof(child_path),
+                             payload_path, sizeof(payload_path)) != 0
+            || joined_path(command_path, sizeof(command_path), payload_path,
+                           kCgroupCommandName) != 0) {
+        return fail_errno("cgroup_v2_command_path", 115);
+    }
+    int result = ensure_directory_path(command_path, 0755,
+                                       "cgroup_v2_command_dir");
+    if (result != 0) return result;
+    result = move_self_to_cgroup(command_path,
+                                 "cgroup_v2_command_procs_open",
+                                 "cgroup_v2_move_command", 115);
+    if (result != 0) return result;
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE command_moved_to_cgroup_v2_leaf "
+            "path=%s\n",
+            (long long) realtime_seconds(), command_path);
     return 0;
 }
 
@@ -3047,7 +3084,8 @@ static int enter_debian_health(const char *root) {
             "{ print $3 }' /proc/self/cgroup 2>/dev/null || true); "
             "if [ -r /sys/fs/cgroup/cgroup.controllers ] "
             "&& [ -w /sys/fs/cgroup/cgroup.procs ] "
-            "&& [ \"$unified_path\" = / ]; then "
+            "&& { [ \"$unified_path\" = / ] "
+            "|| [ \"$unified_path\" = /dawnshell-command ]; }; then "
             "cgroup_mode=v2; cgroup_delegation=delegated; devices_cgroup=bpf; "
             "elif [ -r /sys/fs/cgroup/devices/devices.list ] "
             "&& [ -w /sys/fs/cgroup/devices/cgroup.procs ] "
@@ -3246,7 +3284,7 @@ static int run_in_debian_namespaces(const char *root, const char *control_dir,
         return fail_message("namespace_command_cgroup_mode",
                             "missing_or_unknown_cgroup_mode_restart_required", 102);
     }
-    result = move_self_to_delegated_mode(control_dir, cgroup_mode);
+    result = move_self_to_delegated_command(control_dir, cgroup_mode);
     if (result != 0) {
         close(cgroup_namespace_fd);
         return result;
