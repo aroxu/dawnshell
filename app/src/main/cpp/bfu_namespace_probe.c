@@ -5,6 +5,9 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/bpf.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 #include <poll.h>
 #include <sched.h>
 #include <signal.h>
@@ -22,6 +25,16 @@
 #endif
 #ifndef CAP_SYS_BOOT
 #define CAP_SYS_BOOT 22
+#endif
+#ifndef CLONE_NEWIPC
+#define CLONE_NEWIPC 0x08000000
+#endif
+#if defined(__aarch64__)
+#define DAWNSHELL_AUDIT_ARCH AUDIT_ARCH_AARCH64
+#elif defined(__arm__)
+#define DAWNSHELL_AUDIT_ARCH AUDIT_ARCH_ARM
+#elif defined(__x86_64__)
+#define DAWNSHELL_AUDIT_ARCH AUDIT_ARCH_X86_64
 #endif
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -2345,6 +2358,75 @@ static int wait_for_network_manager(int manager_ready_fd) {
     return 0;
 }
 
+/* Some legacy kernels panic in copy_ipcs()->mq_init_ns()->mqueue_mount() when
+   a new IPC namespace is created. Docker cannot be configured to avoid this:
+   `default-ipc-mode` rejects "host", and both "private" and "shareable"
+   still unshare IPC. A seccomp filter therefore fails those calls with EPERM
+   before they reach the kernel, so a container reports a clear error instead
+   of taking the device down. The filter is inherited by every descendant,
+   which covers dockerd, containerd, runc, and Compose alike. */
+static int block_ipc_namespace_creation(void) {
+#ifdef DAWNSHELL_AUDIT_ARCH
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+        return fail_errno("seccomp_no_new_privs", 53);
+    }
+    /* clone(2) and unshare(2) take the flags in different argument slots, and
+       clone3(2) passes a struct this filter cannot inspect, so it is denied
+       outright; callers fall back to clone(2). */
+    struct sock_filter filter[] = {
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                 offsetof(struct seccomp_data, arch)),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, DAWNSHELL_AUDIT_ARCH, 1, 0),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                 offsetof(struct seccomp_data, nr)),
+#ifdef __NR_unshare
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_unshare, 0, 3),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                 offsetof(struct seccomp_data, args[0])),
+        BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, CLONE_NEWIPC, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                 offsetof(struct seccomp_data, nr)),
+#ifdef __NR_clone
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 3),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                 offsetof(struct seccomp_data, args[0])),
+        BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, CLONE_NEWIPC, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+                 offsetof(struct seccomp_data, nr)),
+#ifdef __NR_clone3
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone3, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
+#endif
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    };
+    struct sock_fprog program = {
+        .len = (unsigned short) (sizeof(filter) / sizeof(filter[0])),
+        .filter = filter,
+    };
+    if (syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, 0, &program) != 0) {
+        if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program, 0, 0) != 0) {
+            return fail_errno("seccomp_block_newipc", 53);
+        }
+    }
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE ipc_namespace_creation_blocked "
+            "reason=legacy_kernel_mqueue_panic\n",
+            (long long) realtime_seconds());
+    return 0;
+#else
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_WARNING ipc_namespace_filter_unavailable "
+            "architecture=unsupported\n",
+            (long long) realtime_seconds());
+    return 0;
+#endif
+}
+
 static int set_base_private_namespaces(void) {
     /* Some kernels do not confine a container reboot request to the private
        PID namespace; reboot(2) reaches the Android kernel path and restarts
@@ -2379,7 +2461,7 @@ static int set_base_private_namespaces(void) {
             "[%lld] BFU_DEBIAN_STAGE ipc_namespace_android_shared "
             "legacy_kernel_compat=true\n",
             (long long) realtime_seconds());
-    return 0;
+    return block_ipc_namespace_creation();
 }
 
 static int set_private_namespaces(void) {

@@ -149,16 +149,27 @@ DawnShell은 위임된 비공개 cgroup 계층 안에서 Docker의 cgroup driver
 컨테이너 transient scope 생성을 요청하지 않습니다. `docker info --format
 '{{.CgroupDriver}}'` 결과가 `cgroupfs`인지 확인할 수 있습니다.
 
-**컨테이너에 호스트 IPC 사용**은 기본값으로 켜져 있습니다. 일부 커널은
-컨테이너가 자체 IPC 네임스페이스를 만들 때 mqueue 처리에서 커널 패닉을
-일으켜 Android 전체가 재시작됩니다. 이 옵션은 Docker 데몬 기본값으로
-적용되므로 `docker run`과 `docker create`뿐 아니라 `docker compose`와 API를
-사용하는 다른 클라이언트도 함께 보호됩니다.
+일부 커널은 컨테이너가 자체 IPC 네임스페이스를 만들 때 mqueue 처리에서 커널
+패닉을 일으켜 Android 전체가 재시작됩니다. DawnShell은 Debian을 시작할 때
+IPC 네임스페이스 생성 자체를 차단합니다. 따라서 `docker compose`나 API를
+사용하는 클라이언트도 기기를 멈추게 할 수 없고, 대신 컨테이너가 권한 오류로
+실패합니다.
 
-끄면 컨테이너 격리는 강해지지만 해당 커널 결함에 그대로 노출됩니다. 켜 두면
-컨테이너가 Android 및 Debian의 IPC 객체를 공유하므로 격리가 약해집니다.
-사용자가 명시한 `--ipc=...`는 언제나 우선합니다. 변경 후에는 **Docker
-네트워크 정책 적용**을 눌러야 반영됩니다.
+**컨테이너에 호스트 IPC 사용**은 기본값으로 켜져 있습니다. 이 옵션은
+`/usr/local/bin/docker` 래퍼가 `run`과 `create`에 `--ipc=host`를 자동으로
+추가해, 컨테이너가 차단된 호출을 시도하지 않고 처음부터 정상 실행되게 합니다.
+
+Compose를 사용할 때는 서비스에 `ipc: host`를 직접 지정하세요.
+
+```yaml
+services:
+  app:
+    ipc: host
+```
+
+호스트 IPC는 컨테이너가 Android 및 Debian의 IPC 객체를 공유하므로 격리가
+약해집니다. 사용자가 명시한 `--ipc=...`는 언제나 우선합니다. 변경 후에는
+**Docker 네트워크 정책 적용**을 눌러야 반영됩니다.
 
 bridge 모드는 Android 전체의 방화벽, NAT(Network Address Translation), 경로와
 전달 설정을 변경할 수 있습니다. Wi-Fi, 모바일 데이터, USB Ethernet, VPN,
