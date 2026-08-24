@@ -90,6 +90,10 @@ ABI(Application Binary Interface)의 의미는
   비정상 peer 자원 정리 성능 검사 경로를 구현했습니다.
 - [x] Android 16 AFU에서 Exynos AVC/HEVC encoder·decoder instance 생성을
   확인했습니다.
+- [x] B-frame MP4와 HEVC container 고정 vector, streaming FFmpeg wrapper,
+  software CPU 기준선과 hardware encode PSNR/SSIM 검사를 구현했습니다.
+- [x] malformed H.264/HEVC, EOS, idle peer, 동시 session, 자체 broker 강제 종료/복구
+  및 5개 workload 장시간 CPU/RSS/FD/thermal 계측 경로를 구현했습니다.
 - [ ] BFU 실기기에서 Exynos AVC hardware instance 생성을 확인합니다.
 - [ ] 최초 잠금 해제 전후에 고정 vector decode, encode, shared-memory 전송과
   Surface transcode를 검증합니다.

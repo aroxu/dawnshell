@@ -157,9 +157,10 @@ runtime이 2,000 ms 이하인지 검사합니다. `surface_frames=60`,
 
 통과: 5회 모두 BFU self-test 성공 및 Debian/SSH 영향 없음.
 
-성능 검사는 정상 종료 session 세 개 뒤 decoder peer 강제 종료 5회와 Surface
-transcoder peer 강제 종료 2회를 수행합니다. 전후 broker uptime이 줄지 않고 생성·종료
-session delta가 모두 10이며 active session/transcoder가 0인지 확인합니다.
+단기 성능 검사는 shared/socket decode, B-frame MP4 decode, 1080p CPU 기준선,
+hardware encode 품질, AVC/HEVC Surface transcode와 decoder peer 강제 종료 5회,
+Surface transcoder peer 강제 종료 2회를 수행합니다. 전후 broker PID/uptime이 유지되고
+생성·종료 session delta가 모두 14이며 active session/transcoder가 0인지 확인합니다.
 
 ## 현재 상태
 
@@ -174,10 +175,23 @@ transcode는 keyframe을 요청하고 첫 frame flag를 확인합니다. broker 
 통계로 frame/EOS/error/shared-memory와 Surface 경로의 `cpu_yuv_frames=0`을 검사하며
 잘못된 요청 뒤에도 broker가 응답하는지 확인합니다.
 
-720p shared-memory/socket 비교, 1080p30 실시간 Surface transcode와 peer 강제 종료
-자원 정리는 별도 성능 검사 및 앱 버튼으로 구현되어 있습니다. 두 성능 vector는
+720p shared-memory/socket 비교, B-frame MP4 및 HEVC container, 1080p30 CPU 기준선,
+hardware encode PSNR/SSIM, 실시간 Surface transcode와 peer 강제 종료 자원 정리는
+별도 성능 검사 및 앱 버튼으로 구현되어 있습니다. 큰 raw frame은 `/run`에 복제하지
+않고 FFmpeg↔adapter↔client 파이프로 전달합니다. 네 성능 vector는
 `scripts/generate-codec-performance-vectors.sh`로 재생성할 수 있으며 프로젝트가
 CC0-1.0으로 제공합니다.
+
+오류 회귀는 H.264/HEVC 설정 누락과 절단, framing 길이 불일치, EOS 중복, EOS 이후
+입력, 범위 초과와 비정상 peer 종료를 session 단위로 격리합니다. 동시성 회귀는
+decoder+encoder, decoder 2개, transcoder+decoder 조합을 시도하며 vendor resource
+한계는 명시적 skip으로 기록하되 최소 한 조합은 성공해야 합니다.
+
+앱에서 시작하는 장시간 검사는 720p decode, 1080p decode/encode, AVC/HEVC transcode를
+각 10분씩 실행합니다. client user/system CPU 및 최대 RSS, broker CPU/RSS/FD/heap,
+queue timeout/high-water, battery temperature와 Android thermal 상태를 증거 디렉터리에
+기록합니다. software 대비 CPU 감소율은 첫 실기기 결과를 수집하되 아직 임의의 수치
+threshold로 통과/실패시키지 않습니다.
 
 제공된 Android 16 AFU 로그에서는 Exynos AVC/HEVC encoder와 decoder 인스턴스 생성이
 모두 성공했습니다. 로그가 `user_unlocked=true`이므로 BFU M0 판정은 아직 아니며,

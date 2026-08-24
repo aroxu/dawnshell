@@ -61,6 +61,10 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 
 - [x] Added a default-off MediaCodec option and isolated `:codec` process.
 - [x] Connected bounded BFU retries and persistence across `USER_UNLOCKED`.
+- [x] Added deterministic B-frame MP4 and HEVC vectors, streaming FFmpeg wrappers,
+  a software CPU baseline, and hardware-encode PSNR/SSIM checks.
+- [x] Added malformed AVC/HEVC, EOS, idle-peer, concurrent-session, scoped broker
+  crash/recovery, and five-workload long-run CPU/RSS/FD/thermal regression paths.
 - [x] Added API 29+ platform classification and conservative API 24–28 fallback.
 - [x] Excluded secure/DRM and silent software fallback while recording AVC/HEVC
   instance creation in DE JSON and logs.

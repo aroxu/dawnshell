@@ -45,7 +45,8 @@ fail-closed합니다. control payload는 1 MiB, media payload는 8 MiB, 전체 s
 - `CREATE_TRANSCODER(11)`: decoder output Surface를 encoder input Surface에 직접
   연결한 hardware transcode session을 만듭니다.
 - `REQUEST_KEYFRAME(12)`: encoder에 다음 sync frame을 요청합니다.
-- `HEALTH(13)`: broker uptime, peer/session 수, 오류 및 shared-memory byte 통계를
+- `HEALTH(13)`: broker PID/uptime, peer/session 수, 누적 I/O, dequeue timeout,
+  payload/queue high-water, CPU/RSS/FD/heap, thermal 및 battery temperature를
   JSON으로 반환합니다.
 - `SESSION_STATS(14)`: session별 frame, EOS, 오류, transport와 CPU YUV copy 통계를
   JSON으로 반환합니다.
@@ -63,10 +64,15 @@ dawnshell-codec negative-test
 dawnshell-codec transcode-test input.h264 1920 1080 30 60 8000000
 dawnshell-codec orphan-test decode
 dawnshell-codec orphan-test transcode
+dawnshell-codec hold-test decode 240000
+dawnshell-codec idle-test 32000
 dawnshell-codec probe decode avc 128 128
 dawnshell-codec pipe decode avc 1280 720 30 4000000 < packets.bin > frames.bin
 dawnshell-codec-self-test
 dawnshell-codec-performance-test
+dawnshell-codec-error-test
+dawnshell-codec-concurrency-test
+dawnshell-codec-long-run all 600
 dawnshell-hwdecode input.mp4 output.mkv
 dawnshell-hwdecode input.mp4 output.i420
 dawnshell-hwencode input.mkv output.mp4 4000000
@@ -96,7 +102,9 @@ Debian 프로세스 사이의 완전한 zero-copy를 의미하지는 않습니�
 `dawnshell-hwdecode`는 FFprobe로 첫 번째 영상 스트림의 packet PTS와 형식을 읽고,
 FFmpeg의 `h264_mp4toannexb` bitstream filter로 MP4/MKV의 H.264 packet을 Annex-B로
 정규화합니다. 원본 packet PTS를 protocol record에 보존한 뒤 Android 하드웨어
-decoder에 전달하며, 반환된 `YUV_420_888` 결과는 packed I420으로 저장합니다.
+decoder에 전달하며, 반환된 `YUV_420_888` 결과는 packed I420으로 저장합니다. raw
+output과 일반 컨테이너 출력 모두 codec client→adapter→FFmpeg 파이프를 사용하므로
+1080p raw frame 전체를 작은 `/run` tmpfs에 중복 저장하지 않습니다.
 
 출력 확장자가 `.i420` 또는 `.yuv`이면 하드웨어 decode 결과를 그대로 보존합니다.
 그 밖의 출력은 Debian FFmpeg와 `libx264`로 다시 encode/mux합니다. 따라서 현재
@@ -133,11 +141,31 @@ frame 수, EOS, `cpu_yuv_frames=0`, 오류 0을 확인한 뒤에만 결과 파�
 거부시키고, 생성한 session에 허용되지 않은 buffer flag를 보낸 뒤 같은 session의
 flush와 broker health가 유지되는지 확인합니다. `orphan-test`는 CLOSE를 보내지 않고
 client를 종료해 peer EOF 정리가 codec 및 Surface를 회수하는지 시험합니다.
+`dawnshell-codec-error-test`는 H.264와 HEVC의 설정 누락/절단, record framing 오류,
+EOS 상태 전이, parameter 상한과 출력을 읽지 않는 client의 bounded backpressure를
+검사합니다. 30초 idle socket 종료도 기본으로 확인하며, 긴 검사를 생략해야 할 때만
+`DAWNSHELL_CODEC_TEST_IDLE_TIMEOUT=0`을 지정합니다. `dawnshell-codec-concurrency-test`는
+세 가지 2-session 조합을 시도하고 최소 한 조합의 실제 overlap을 요구합니다.
 
 통계의 `process_cpu_time_ms`는 session 수명 동안 증가한 격리 `:codec` 프로세스 전체
 CPU 시간입니다. 동시 session이 있으면 해당 작업만의 CPU 시간으로 해석할 수 없으므로
 성능 검사는 단일 session 상태에서 비교합니다. `media_transport`는 실제 byte counter에
 따라 `socket`, `shared_memory`, `mixed`, `none` 중 하나로 기록됩니다.
+
+단기 성능 검사는 720p/1080p checksum, B-frame MP4 timestamp reorder, AVC/HEVC
+Surface transcode, software 대비 CPU 계측과 hardware encode PSNR/SSIM을 함께
+검사합니다. 현재 품질 하한은 PSNR 30 dB, SSIM 0.90이며 CPU 감소율은 기록만 하고
+첫 실기기 기준선이 확정되기 전에는 임의의 감소율을 강제하지 않습니다.
+
+앱에서 단기 성능 검사가 모두 끝나면 자체 `:codec` PID만 `SIGKILL`한 뒤 최대 30초
+동안 새 PID의 authenticated health 응답을 기다립니다. 이 검사는 Android
+`media.codec`/vendor service를 종료하지 않으며, 새 broker가 stale session 없이
+복구되지 않으면 전체 회귀 검사를 실패시킵니다.
+
+앱의 장시간 검사 서비스는 720p AVC decode, 1080p AVC decode/encode, AVC와 HEVC
+Surface transcode를 각각 600초 실행합니다. `/var/log/dawnshell/codec-tests/` 아래에
+작업 로그, health JSONL, client GNU time, CPU/RSS/FD/heap/thermal 요약을 남깁니다.
+중지 요청은 queue를 기다리지 않고 해당 systemd service에 즉시 전달됩니다.
 
 최종 BFU 5회 회귀 시험에서 코덱까지 강제하려면 호스트에서 다음처럼 실행합니다.
 

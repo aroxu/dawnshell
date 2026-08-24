@@ -109,10 +109,14 @@ mount one removable filesystem from Android and Debian simultaneously.
 isolated Android `MediaCodec` broker exposes an authenticated local protocol to
 Debian, including AVC/HEVC decode, AVC encode, zero-copy Surface transcode,
 FFmpeg-compatible wrappers, shared-memory frame transport, and socket fallback.
-The regression suite checks a deterministic 720p decode checksum, transport
-selection, a real-time 1080p30 transcode, keyframe/PTS/EOS behavior, and cleanup
-after interrupted clients. It is not OpenGL/Vulkan or general GPU passthrough;
-see [the implementation plan](docs/media-codec-bridge-plan.ko.md).
+The regression suite checks deterministic 720p/1080p checksums, B-frame MP4 and
+HEVC containers, transport selection, a software CPU baseline, encode PSNR/SSIM,
+real-time Surface transcode, malformed-input/concurrency isolation, and cleanup
+after interrupted clients, followed by scoped `:codec` broker crash recovery.
+A five-workload long-run records CPU, RSS, file
+descriptors, queue pressure, battery temperature, and thermal state. It is not
+OpenGL/Vulkan or general GPU passthrough; see
+[the implementation plan](docs/media-codec-bridge-plan.ko.md).
 
 ## Build
 

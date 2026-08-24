@@ -110,12 +110,20 @@ sessions, and `dawnshell-codec negative-test` to prove malformed requests do not
 kill the broker. The final five-cycle test enables these checks with
 `BFU_REQUIRE_HARDWARE_CODEC=1`.
 
-The **720p/1080p performance and cleanup test** button additionally compares
-shared-memory and forced socket decode counters/CPU time, validates a 60-frame
-1080p30 Surface transcode in at most two seconds with no CPU YUV frames, and
-abandons decoder and transcoder clients to prove peer-EOF cleanup. Include it in
-the final five-cycle run with both `BFU_REQUIRE_HARDWARE_CODEC=1` and
-`BFU_REQUIRE_CODEC_PERFORMANCE=1`.
+The short performance, quality, and error-regression button additionally checks
+shared-memory versus forced-socket decode, B-frame MP4 timestamps, a matching
+1080p software/hardware checksum and CPU baseline, hardware-encode PSNR/SSIM,
+AVC/HEVC Surface transcode, malformed AVC/HEVC and EOS isolation, concurrent
+sessions, idle/slow-client backpressure, peer-EOF cleanup, and scoped `:codec`
+broker crash recovery. Include it
+in the final five-cycle run with both
+`BFU_REQUIRE_HARDWARE_CODEC=1` and `BFU_REQUIRE_CODEC_PERFORMANCE=1`.
+
+The long-run button executes 720p decode, 1080p decode/encode, and AVC/HEVC
+transcode for ten minutes each. Evidence under `/var/log/dawnshell/codec-tests/`
+records client CPU/RSS and broker CPU/RSS/FD/heap, queue pressure, battery
+temperature, and Android thermal status. The first device runs record the CPU
+reduction without enforcing an arbitrary percentage threshold.
 
 ## Pass criteria
 
