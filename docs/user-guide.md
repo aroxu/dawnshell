@@ -108,11 +108,16 @@ private cgroup hierarchy. This avoids asking Android's old-kernel systemd
 compatibility environment to create transient container scopes. Confirm it
 with `docker info --format '{{.CgroupDriver}}'`; the result must be `cgroupfs`.
 
-If the kernel rejects a private container IPC/mqueue mount, enable **Automatically
-use host IPC for Docker run/create**, then apply the Docker network policy. The
-managed `/usr/local/bin/docker` wrapper adds `--ipc=host` to `run` and `create`.
-An explicit `--ipc=...` takes priority, and `/usr/bin/docker` bypasses the
-wrapper. Host IPC reduces isolation and exposes shared IPC objects to containers.
+**Use host IPC for containers** is enabled by default. On this device a
+container that creates its own IPC namespace panics the kernel during mqueue
+setup and restarts Android. The setting is applied as a Docker daemon default,
+so it also covers `docker compose` and any other API client, not just
+`docker run` and `docker create`.
+
+Turning it off restores stronger container isolation but exposes the kernel
+defect above. Leaving it on lets containers share Android and Debian IPC
+objects, which reduces isolation. An explicit `--ipc=...` always takes
+priority. Apply the Docker network policy after changing it.
 
 Bridge networking can change Android-wide firewall, NAT, forwarding, and routes.
 It can disconnect Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, and SSH.

@@ -48,6 +48,13 @@ grep -Fq 'cgroup_driver=cgroupfs' "$policy_script"
 # shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.
 grep -Fq 'host_ipc_compatibility=$host_ipc_compatibility' "$policy_script"
 grep -Fq 'rewritten+=(--ipc=host)' "$policy_script"
+# A private IPC namespace panics this kernel, so the protection must also
+# reach clients the CLI wrapper never sees, such as `docker compose`.
+grep -Fq 'default-ipc-mode' "$policy_script"
+grep -Fq 'ipc_mode_entry' "$policy_script"
+# Host IPC must be the default rather than an opt-in switch.
+grep -Fq 'KEY_DOCKER_HOST_IPC_COMPATIBILITY, true' \
+    "$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuPreferences.java"
 # shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.
 grep -Fq 'exec "$real_docker" "${rewritten[@]}"' "$policy_script"
 # shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.

@@ -72,7 +72,9 @@ final class BfuPreferences {
     }
 
     static boolean dockerHostIpcCompatibility(Context context) {
-        return get(context).getBoolean(KEY_DOCKER_HOST_IPC_COMPATIBILITY, false);
+        // Creating a private IPC namespace panics the target kernel, so host
+        // IPC is the safe default rather than an opt-in compatibility switch.
+        return get(context).getBoolean(KEY_DOCKER_HOST_IPC_COMPATIBILITY, true);
     }
 
     static String usbPassthroughMode(Context context) {

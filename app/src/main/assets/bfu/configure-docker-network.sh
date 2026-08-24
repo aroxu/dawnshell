@@ -381,10 +381,21 @@ esac
     echo "WARNING: bridge mode can mutate Android-global firewall, NAT, routes, and forwarding"
 
 temporary="$docker_dir/.daemon.json.dawnshell.$$"
+# This kernel panics in copy_ipcs()->mq_init_ns()->mqueue_mount() when a new
+# IPC namespace is created, so every container must share the host IPC
+# namespace. The CLI wrapper only covers `docker run` and `docker create`;
+# setting the daemon default also protects `docker compose`, the API, and any
+# other client. A container can still opt out with an explicit --ipc value.
+if [ "$host_ipc_compatibility" = true ]; then
+    ipc_mode_entry='  "default-ipc-mode": "host",'
+else
+    ipc_mode_entry=''
+fi
 if [ "$backend" = none ]; then
-    cat > "$temporary" <<'EOF_HOST'
+    cat > "$temporary" <<EOF_HOST
 {
-  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+${ipc_mode_entry:+$ipc_mode_entry
+}  "exec-opts": ["native.cgroupdriver=cgroupfs"],
   "bridge": "none",
   "iptables": false,
   "ip6tables": false,
@@ -394,9 +405,10 @@ if [ "$backend" = none ]; then
 }
 EOF_HOST
 elif [ "$backend" = native-nft ]; then
-    cat > "$temporary" <<'EOF_NATIVE_NFT'
+    cat > "$temporary" <<EOF_NATIVE_NFT
 {
-  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+${ipc_mode_entry:+$ipc_mode_entry
+}  "exec-opts": ["native.cgroupdriver=cgroupfs"],
   "firewall-backend": "nftables",
   "iptables": true,
   "ip6tables": false,
@@ -406,9 +418,10 @@ elif [ "$backend" = native-nft ]; then
 }
 EOF_NATIVE_NFT
 else
-    cat > "$temporary" <<'EOF_BRIDGE'
+    cat > "$temporary" <<EOF_BRIDGE
 {
-  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+${ipc_mode_entry:+$ipc_mode_entry
+}  "exec-opts": ["native.cgroupdriver=cgroupfs"],
   "iptables": true,
   "ip6tables": false,
   "ip-forward": true,

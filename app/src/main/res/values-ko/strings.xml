@@ -222,8 +222,8 @@
     <string name="dawnshell_docker_policy_nft">native nftables 강제 사용(Docker 29 이상, 실험적)</string>
     <string name="dawnshell_docker_policy_iptables_nft">iptables-nft 브리지 강제 사용</string>
     <string name="dawnshell_docker_policy_legacy">레거시 iptables 브리지 강제 사용(구형 커널)</string>
-    <string name="dawnshell_docker_host_ipc_compatibility">Docker run/create에 호스트 IPC 자동 적용</string>
-    <string name="dawnshell_docker_host_ipc_warning">private IPC/mqueue가 실패하는 커널용 호환 옵션입니다. 컨테이너가 Android 및 Debian의 IPC 객체를 공유하므로 격리가 약해집니다. 변경 후 Docker 네트워크 정책을 적용하세요. 명시한 --ipc 옵션이 우선하며 /usr/bin/docker로 래퍼를 우회할 수 있습니다.</string>
+    <string name="dawnshell_docker_host_ipc_compatibility">컨테이너에 호스트 IPC 사용(권장)</string>
+    <string name="dawnshell_docker_host_ipc_warning">이 커널에서는 컨테이너가 자체 IPC 네임스페이스를 만들면 Android가 커널 패닉으로 재시작됩니다. 켜 두면 Docker 데몬 기본값으로 적용되어 run/create뿐 아니라 docker compose도 보호됩니다. 컨테이너가 Android 및 Debian의 IPC 객체를 공유하므로 격리는 약해집니다. 변경 후 Docker 네트워크 정책을 적용하세요. 명시한 --ipc 옵션이 우선합니다.</string>
     <string name="dawnshell_docker_policy_warning">위험: DawnShell은 네이티브 NIC 성능을 위해 Android의 네트워크 네임스페이스를 의도적으로 공유합니다. 모든 브리지 옵션은 Docker가 Android 전역 방화벽, NAT, 포워딩 및 라우트를 변경하도록 허용합니다. Wi-Fi, 모바일 데이터, USB 이더넷, VPN/Tailscale 또는 원격 접속이 끊길 수 있습니다. 호스트 전용 모드는 Docker 브리지/방화벽 관리를 비활성화하며 Docker 호스트 네트워크를 사용해야 합니다. 모든 관리형 모드는 DawnShell의 비공개 위임 계층에서 Docker cgroupfs driver를 사용합니다. systemd driver는 일부 Android 커널과 호환되지 않습니다.</string>
     <string name="dawnshell_apply_docker_policy">Docker 네트워크 정책 적용</string>
     <string name="dawnshell_view_compatibility_log">호환성 로그 보기</string>
