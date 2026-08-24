@@ -15,6 +15,7 @@ final class DawnShellLogRepository {
     static final String CONFIGURATION = "configuration";
     static final String COMPATIBILITY = "compatibility";
     static final String HARDWARE_CODEC = "hardware_codec";
+    static final String CODEC_LONG_RUN = "codec_long_run";
     static final String LIFECYCLE = "lifecycle";
     static final String DIAGNOSTICS = "diagnostics";
 
@@ -28,6 +29,7 @@ final class DawnShellLogRepository {
                 || CONFIGURATION.equals(type)
                 || COMPATIBILITY.equals(type)
                 || HARDWARE_CODEC.equals(type)
+                || CODEC_LONG_RUN.equals(type)
                 || LIFECYCLE.equals(type)
                 || DIAGNOSTICS.equals(type);
     }
@@ -44,6 +46,8 @@ final class DawnShellLogRepository {
                 return R.string.dawnshell_log_compatibility_title;
             case HARDWARE_CODEC:
                 return R.string.dawnshell_log_hardware_codec_title;
+            case CODEC_LONG_RUN:
+                return R.string.dawnshell_log_codec_long_run_title;
             case LIFECYCLE:
                 return R.string.dawnshell_log_lifecycle_title;
             case DIAGNOSTICS:
@@ -65,6 +69,8 @@ final class DawnShellLogRepository {
                 return R.string.dawnshell_log_compatibility_description;
             case HARDWARE_CODEC:
                 return R.string.dawnshell_log_hardware_codec_description;
+            case CODEC_LONG_RUN:
+                return R.string.dawnshell_log_codec_long_run_description;
             case LIFECYCLE:
                 return R.string.dawnshell_log_lifecycle_description;
             case DIAGNOSTICS:
@@ -90,6 +96,10 @@ final class DawnShellLogRepository {
                         DockerNetworkProvisioner.readLogTail(context));
             case HARDWARE_CODEC:
                 return hardwareCodecReport(context);
+            case CODEC_LONG_RUN:
+                return statusAndOutput(context,
+                        HardwareCodecLongRun.readStatus(context),
+                        HardwareCodecLongRun.readLiveReport(context));
             case LIFECYCLE:
                 return statusAndOutput(context, DebianLauncher.readStatus(context),
                         DebianLauncher.readLogTail(context));
@@ -117,6 +127,9 @@ final class DawnShellLogRepository {
                 break;
             case HARDWARE_CODEC:
                 value = HardwareCodecProbe.readStatus(context);
+                break;
+            case CODEC_LONG_RUN:
+                value = HardwareCodecLongRun.readStatus(context);
                 break;
             case LIFECYCLE:
                 value = DebianLauncher.readStatus(context);

@@ -35,7 +35,7 @@ ce_isolation_log_path="/data/user_de/0/me.aroxu.dawnshell/files/bfu-ce-isolation
   exit 2
 }
 
-for tool in adb ssh sed; do
+for tool in adb grep head mktemp sed ssh tr; do
   command -v "$tool" >/dev/null || {
     echo "Missing host tool: $tool" >&2
     exit 2
@@ -76,7 +76,13 @@ require_one_fresh_record() {
 }
 
 known_hosts="$(mktemp)"
+codec_hold_started=0
 cleanup() {
+  if [[ "$codec_hold_started" == "1" ]]; then
+    ssh "${ssh_args[@]}" "$ssh_user@$BFU_PHONE_HOST" \
+      'systemctl stop dawnshell-codec-unlock-hold.service >/dev/null 2>&1 || true' \
+      >/dev/null 2>&1 || true
+  fi
   rm -f -- "$known_hosts"
 }
 trap cleanup EXIT HUP INT TERM
@@ -193,7 +199,7 @@ dawnshell-codec health --format json
 dawnshell-codec capabilities
 timeout 120 /usr/local/bin/dawnshell-codec-self-test'
 if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1" ]]; then
-  codec_command+=$'\n[ -x /usr/local/bin/dawnshell-codec-performance-test ]\ntimeout 180 /usr/local/bin/dawnshell-codec-performance-test'
+  codec_command+=$'\n[ -x /usr/local/bin/dawnshell-codec-performance-test ]\ntimeout 600 /usr/local/bin/dawnshell-codec-performance-test'
 fi
 if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
   echo "Running BFU hardware decode, encode, and Surface transcode self-test..."
@@ -203,6 +209,7 @@ if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
     "$ssh_user@$BFU_PHONE_HOST" "$codec_command")"
   printf 'BFU codec result:\n%s\n' "$locked_codec_result"
   grep -Fq '"broker_state":"listening"' <<<"$locked_codec_result"
+  grep -Fq '"user_unlocked":false' <<<"$locked_codec_result"
   grep -Fq 'hardware AVC decode passed' <<<"$locked_codec_result"
   grep -Fq 'hardware AVC encode passed' <<<"$locked_codec_result"
   grep -Fq 'Surface zero-copy AVC transcode passed' <<<"$locked_codec_result"
@@ -210,7 +217,37 @@ if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
     grep -Fq 'hardware codec performance test passed' <<<"$locked_codec_result"
     grep -Fq 'decode_transport_comparison=verified' <<<"$locked_codec_result"
     grep -Fq 'codec_resource_cleanup=verified' <<<"$locked_codec_result"
+    grep -Fq 'codec_error_isolation=verified' <<<"$locked_codec_result"
+    grep -Fq 'codec concurrency test passed' <<<"$locked_codec_result"
+    grep -Fq 'codec_cpu_baseline=recorded' <<<"$locked_codec_result"
+    grep -Fq 'codec_quality=verified' <<<"$locked_codec_result"
   fi
+  locked_codec_pid="$(sed -n \
+    's/.*"broker_state":"listening","pid":\([0-9][0-9]*\).*/\1/p' \
+    <<<"$locked_codec_result" | head -n 1)"
+  [[ -n "$locked_codec_pid" ]]
+
+  echo "Keeping one hardware decoder session open across USER_UNLOCKED..."
+  # Fixed command is intentionally executed by the remote Debian shell.
+  # shellcheck disable=SC2029
+  locked_hold_health="$(ssh "${ssh_args[@]}" "$ssh_user@$BFU_PHONE_HOST" \
+    'set -eu
+systemctl stop dawnshell-codec-unlock-hold.service >/dev/null 2>&1 || true
+systemctl reset-failed dawnshell-codec-unlock-hold.service >/dev/null 2>&1 || true
+systemd-run --quiet --collect --unit=dawnshell-codec-unlock-hold.service \
+  /usr/local/bin/dawnshell-codec hold-test decode 240000
+for attempt in $(seq 1 20); do
+  health="$(dawnshell-codec health --format json)"
+  case "$health" in
+    *"\"active_sessions\":1"*) printf "%s\n" "$health"; exit 0 ;;
+  esac
+  sleep 1
+done
+journalctl --no-pager -n 40 -u dawnshell-codec-unlock-hold.service >&2
+exit 1')"
+  grep -Fq '"active_sessions":1' <<<"$locked_hold_health"
+  grep -Fq '"user_unlocked":false' <<<"$locked_hold_health"
+  codec_hold_started=1
 fi
 
 if [[ "${BFU_SKIP_UNLOCK_CONTINUITY:-}" == "1" ]]; then
@@ -244,16 +281,52 @@ unlocked_identity="$(printf '%s\n' "$unlocked_health" \
   | sed -n 's/.*start_ticks=\([^ ]*\).*machine_id=\([^ ]*\).*/\1:\2/p')"
 
 if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
+  # Prove that the same broker and an already-open hardware session survived
+  # USER_UNLOCKED before running any new AFU sessions.
+  # shellcheck disable=SC2029
+  unlocked_hold_health="$(ssh "${ssh_args[@]}" "$ssh_user@$BFU_PHONE_HOST" \
+    'set -eu
+[ "$(systemctl is-active dawnshell-codec-unlock-hold.service)" = active ]
+dawnshell-codec health --format json')"
+  printf 'AFU in-flight codec health:\n%s\n' "$unlocked_hold_health"
+  grep -Fq '"active_sessions":1' <<<"$unlocked_hold_health"
+  grep -Fq '"user_unlocked":true' <<<"$unlocked_hold_health"
+  unlocked_codec_pid="$(sed -n \
+    's/.*"broker_state":"listening","pid":\([0-9][0-9]*\).*/\1/p' \
+    <<<"$unlocked_hold_health" | head -n 1)"
+  [[ "$unlocked_codec_pid" = "$locked_codec_pid" ]] || {
+    echo "FAIL: hardware codec broker PID changed across USER_UNLOCKED" >&2
+    exit 4
+  }
+  # shellcheck disable=SC2029
+  ssh "${ssh_args[@]}" "$ssh_user@$BFU_PHONE_HOST" \
+    'set -eu
+systemctl stop dawnshell-codec-unlock-hold.service
+for attempt in $(seq 1 20); do
+  health="$(dawnshell-codec health --format json)"
+  case "$health" in
+    *"\"active_sessions\":0"*"\"active_transcoders\":0"*) \
+      printf "%s\n" "$health"; exit 0 ;;
+  esac
+  sleep 1
+done
+exit 1'
+  codec_hold_started=0
   echo "Re-running hardware codec self-test after USER_UNLOCKED..."
   # shellcheck disable=SC2029
   unlocked_codec_result="$(ssh "${ssh_args[@]}" \
     "$ssh_user@$BFU_PHONE_HOST" "$codec_command")"
   printf 'AFU codec result:\n%s\n' "$unlocked_codec_result"
   grep -Fq '"broker_state":"listening"' <<<"$unlocked_codec_result"
+  grep -Fq '"user_unlocked":true' <<<"$unlocked_codec_result"
   grep -Fq 'Surface zero-copy AVC transcode passed' <<<"$unlocked_codec_result"
   if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1" ]]; then
     grep -Fq 'hardware codec performance test passed' <<<"$unlocked_codec_result"
     grep -Fq 'realtime=true' <<<"$unlocked_codec_result"
+    grep -Fq 'codec_error_isolation=verified' <<<"$unlocked_codec_result"
+    grep -Fq 'codec concurrency test passed' <<<"$unlocked_codec_result"
+    grep -Fq 'codec_cpu_baseline=recorded' <<<"$unlocked_codec_result"
+    grep -Fq 'codec_quality=verified' <<<"$unlocked_codec_result"
   fi
 fi
 

@@ -3171,6 +3171,53 @@ static int enter_debian_systemctl_shutdown(const char *root, const char *mode) {
     return fail_errno("shutdown_test_exec_systemctl", 108);
 }
 
+static int enter_debian_codec_long_run(const char *root, const char *operation) {
+    if (strcmp(operation, "start") != 0 && strcmp(operation, "stop") != 0
+            && strcmp(operation, "status") != 0
+            && strcmp(operation, "report") != 0) {
+        return fail_message("codec_long_run_operation",
+                            "expected_start_stop_status_or_report", 122);
+    }
+    if (chdir(root) != 0) return fail_errno("codec_long_run_chdir_rootfs", 122);
+    if (chroot(".") != 0) return fail_errno("codec_long_run_chroot", 122);
+    if (chdir("/") != 0) return fail_errno("codec_long_run_chdir_chroot", 122);
+    clearenv();
+    setenv("HOME", "/root", 1);
+    setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
+    setenv("LANG", "C.UTF-8", 1);
+    setenv("container", "dawnshell", 1);
+
+    static const char unit[] = "dawnshell-codec-long-run.service";
+    if (strcmp(operation, "start") == 0 || strcmp(operation, "stop") == 0) {
+        char *const arguments[] = {
+                "systemctl", "--no-block", (char *) operation, (char *) unit, NULL
+        };
+        execv("/usr/bin/systemctl", arguments);
+        return fail_errno("codec_long_run_exec_systemctl", 123);
+    }
+    if (strcmp(operation, "status") == 0) {
+        char *const arguments[] = {
+                "systemctl", "show", "--no-pager",
+                "--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,StateChangeTimestamp",
+                (char *) unit, NULL
+        };
+        execv("/usr/bin/systemctl", arguments);
+        return fail_errno("codec_long_run_exec_status", 123);
+    }
+
+    static const char report_command[] =
+            "printf '%s\\n' '===== service status ====='; "
+            "/usr/bin/systemctl show --no-pager "
+            "--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,StateChangeTimestamp "
+            "dawnshell-codec-long-run.service 2>&1; "
+            "printf '\\n%s\\n' '===== journal (newest 240 lines) ====='; "
+            "/usr/bin/journalctl --no-pager --lines=240 "
+            "--output=short-iso-precise --unit=dawnshell-codec-long-run.service 2>&1";
+    char *const arguments[] = {"sh", "-c", (char *) report_command, NULL};
+    execv("/bin/sh", arguments);
+    return fail_errno("codec_long_run_exec_report", 123);
+}
+
 static int run_in_debian_namespaces(const char *root, const char *control_dir,
                                     NamespaceChildEntry entry,
                                     const char *argument, unsigned int timeout_seconds) {
@@ -3369,6 +3416,13 @@ static int run_shutdown_test(const char *root, const char *control_dir,
     return 0;
 }
 
+static int run_codec_long_run(const char *root, const char *control_dir,
+                              const char *operation) {
+    return run_in_debian_namespaces(root, control_dir,
+                                    enter_debian_codec_long_run,
+                                    operation, 20);
+}
+
 static int run_start(const char *root, const char *control_dir,
                      const char *log_path, CgroupPolicy cgroup_policy,
                      HostUsbPolicy host_usb_policy,
@@ -3548,8 +3602,10 @@ static void usage(const char *program) {
             "  %s stop /data/local/debian CONTROL_DIR\n"
             "  %s restart /data/local/debian CONTROL_DIR LIFECYCLE_LOG "
             "[auto|v2|v1] [off|direct|exclusive] [VID:PID,...|-]\n"
+            "  %s codec-long-run /data/local/debian CONTROL_DIR "
+            "start|stop|status|report\n"
             "  %s shutdown-test /data/local/debian CONTROL_DIR poweroff|reboot|shutdown\n",
-            program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program);
 }
 
 int main(int argc, char **argv) {
@@ -3617,6 +3673,9 @@ int main(int argc, char **argv) {
     }
     if (argc == 5 && strcmp(argv[1], "shutdown-test") == 0) {
         return run_shutdown_test(argv[2], argv[3], argv[4]);
+    }
+    if (argc == 5 && strcmp(argv[1], "codec-long-run") == 0) {
+        return run_codec_long_run(argv[2], argv[3], argv[4]);
     }
     usage(argv[0]);
     return 2;

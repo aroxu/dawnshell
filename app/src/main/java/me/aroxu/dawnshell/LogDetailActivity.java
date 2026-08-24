@@ -19,6 +19,8 @@ import androidx.core.widget.NestedScrollView;
 import com.google.android.material.appbar.MaterialToolbar;
 
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Full-screen, selectable, live-following view of one DawnShell log stream. */
 public final class LogDetailActivity extends AppCompatActivity {
@@ -26,6 +28,7 @@ public final class LogDetailActivity extends AppCompatActivity {
     private static final String EXTRA_TYPE = "me.aroxu.dawnshell.extra.LOG_TYPE";
 
     private final Handler refreshHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService readExecutor = Executors.newSingleThreadExecutor();
     private TextView logText;
     private NestedScrollView logScroll;
     private String type;
@@ -34,11 +37,12 @@ public final class LogDetailActivity extends AppCompatActivity {
     private boolean followingTail = true;
     private boolean programmaticScroll;
     private boolean userScrollGesture;
+    private boolean refreshInProgress;
 
     private final Runnable refreshTask = new Runnable() {
         @Override
         public void run() {
-            refreshNow();
+            requestRefresh();
             if (resumed) refreshHandler.postDelayed(this, 1_000L);
         }
     };
@@ -72,7 +76,7 @@ public final class LogDetailActivity extends AppCompatActivity {
                 return true;
             }
             if (item.getItemId() == R.id.action_refresh_log) {
-                refreshNow();
+                requestRefresh();
                 return true;
             }
             return false;
@@ -121,15 +125,33 @@ public final class LogDetailActivity extends AppCompatActivity {
         super.onPause();
     }
 
-    private void refreshNow() {
-        if (hasSelection()) return;
-        String value;
-        try {
-            value = DawnShellLogRepository.read(this, type);
-        } catch (IOException e) {
-            value = getString(R.string.dawnshell_log_read_failed,
-                    BfuSu.sanitize(e.getMessage()));
-        }
+    @Override
+    protected void onDestroy() {
+        readExecutor.shutdownNow();
+        super.onDestroy();
+    }
+
+    private void requestRefresh() {
+        if (hasSelection() || refreshInProgress || readExecutor.isShutdown()) return;
+        refreshInProgress = true;
+        readExecutor.execute(() -> {
+            String value;
+            try {
+                value = DawnShellLogRepository.read(this, type);
+            } catch (IOException | RuntimeException e) {
+                value = getString(R.string.dawnshell_log_read_failed,
+                        BfuSu.sanitize(e.getMessage()));
+            }
+            final String result = value;
+            runOnUiThread(() -> {
+                refreshInProgress = false;
+                if (isFinishing() || isDestroyed() || hasSelection()) return;
+                applyRefresh(result);
+            });
+        });
+    }
+
+    private void applyRefresh(String value) {
         if (TextUtils.equals(displayed, value)) return;
 
         boolean follow = displayed.isEmpty() || followingTail;

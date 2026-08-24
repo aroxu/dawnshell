@@ -91,6 +91,18 @@ esac
     fail 16 "hardware codec FFmpeg adapter is missing"
 [ ! -L "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
     fail 16 "hardware codec FFmpeg adapter symlinks are forbidden"
+[ -f "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" ] || \
+    fail 16 "hardware codec long-run test is missing"
+[ ! -L "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" ] || \
+    fail 16 "hardware codec long-run test symlinks are forbidden"
+[ -f "$BFU_ROOT/scripts/dawnshell-codec-concurrency-test.sh" ] || \
+    fail 16 "hardware codec concurrency test is missing"
+[ ! -L "$BFU_ROOT/scripts/dawnshell-codec-concurrency-test.sh" ] || \
+    fail 16 "hardware codec concurrency test symlinks are forbidden"
+[ -f "$BFU_ROOT/scripts/dawnshell-codec-error-test.sh" ] || \
+    fail 16 "hardware codec error test is missing"
+[ ! -L "$BFU_ROOT/scripts/dawnshell-codec-error-test.sh" ] || \
+    fail 16 "hardware codec error test symlinks are forbidden"
 [ -f "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.h264" ] || \
     fail 16 "hardware codec test vector is missing"
 [ -f "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.properties" ] || \
@@ -99,7 +111,11 @@ for performance_asset in \
     avc-baseline-1280x720-30fps-30f.h264 \
     avc-baseline-1280x720-30fps-30f.properties \
     avc-high-1920x1080-30fps-60f.h264 \
-    avc-high-1920x1080-30fps-60f.properties; do
+    avc-high-1920x1080-30fps-60f.properties \
+    avc-high-1280x720-30fps-30f-b2.mp4 \
+    avc-high-1280x720-30fps-30f-b2.properties \
+    hevc-main-1920x1080-30fps-60f.mp4 \
+    hevc-main-1920x1080-30fps-60f.properties; do
     [ -f "$BFU_ROOT/downloads/$performance_asset" ] || \
         fail 16 "hardware codec performance asset is missing: $performance_asset"
     [ ! -L "$BFU_ROOT/downloads/$performance_asset" ] || \
@@ -205,6 +221,24 @@ chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
 chmod 0755 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
 mv "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new" \
     "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py"
+cp "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" \
+    "$ROOT/usr/local/bin/dawnshell-codec-long-run.new"
+chown 0:0 "$ROOT/usr/local/bin/dawnshell-codec-long-run.new"
+chmod 0755 "$ROOT/usr/local/bin/dawnshell-codec-long-run.new"
+mv "$ROOT/usr/local/bin/dawnshell-codec-long-run.new" \
+    "$ROOT/usr/local/bin/dawnshell-codec-long-run"
+cp "$BFU_ROOT/scripts/dawnshell-codec-concurrency-test.sh" \
+    "$ROOT/usr/local/bin/dawnshell-codec-concurrency-test.new"
+chown 0:0 "$ROOT/usr/local/bin/dawnshell-codec-concurrency-test.new"
+chmod 0755 "$ROOT/usr/local/bin/dawnshell-codec-concurrency-test.new"
+mv "$ROOT/usr/local/bin/dawnshell-codec-concurrency-test.new" \
+    "$ROOT/usr/local/bin/dawnshell-codec-concurrency-test"
+cp "$BFU_ROOT/scripts/dawnshell-codec-error-test.sh" \
+    "$ROOT/usr/local/bin/dawnshell-codec-error-test.new"
+chown 0:0 "$ROOT/usr/local/bin/dawnshell-codec-error-test.new"
+chmod 0755 "$ROOT/usr/local/bin/dawnshell-codec-error-test.new"
+mv "$ROOT/usr/local/bin/dawnshell-codec-error-test.new" \
+    "$ROOT/usr/local/bin/dawnshell-codec-error-test"
 mkdir -p "$ROOT/usr/local/share/dawnshell"
 for destination in "$ROOT/usr/local/share" "$ROOT/usr/local/share/dawnshell"; do
     if [ ! -d "$destination" ] || [ -L "$destination" ]; then
@@ -223,7 +257,11 @@ for performance_asset in \
     avc-baseline-1280x720-30fps-30f.h264 \
     avc-baseline-1280x720-30fps-30f.properties \
     avc-high-1920x1080-30fps-60f.h264 \
-    avc-high-1920x1080-30fps-60f.properties; do
+    avc-high-1920x1080-30fps-60f.properties \
+    avc-high-1280x720-30fps-30f-b2.mp4 \
+    avc-high-1280x720-30fps-30f-b2.properties \
+    hevc-main-1920x1080-30fps-60f.mp4 \
+    hevc-main-1920x1080-30fps-60f.properties; do
     cp "$BFU_ROOT/downloads/$performance_asset" \
         "$ROOT/usr/local/share/dawnshell/$performance_asset"
     chown 0:0 "$ROOT/usr/local/share/dawnshell/$performance_asset"
@@ -307,7 +345,7 @@ apt-get -o Acquire::Retries=3 update
 echo "STAGE: Installing Debian systemd, D-Bus, OpenSSH, and diagnostics"
 apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     systemd systemd-sysv dbus openssh-server iproute2 procps ca-certificates \
-    bash passwd mawk usbutils ffmpeg python3-minimal
+    bash passwd mawk time util-linux usbutils ffmpeg python3-minimal
 
 cat > /etc/apt/sources.list <<'EOF_APT_HTTPS'
 deb https://deb.debian.org/debian trixie main
@@ -318,7 +356,7 @@ apt-get -o Acquire::Retries=3 update
 
 for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
     /usr/bin/timeout /usr/bin/ss /usr/bin/mawk /usr/bin/touch \
-    /usr/bin/mktemp /usr/bin/sha256sum /usr/bin/sleep \
+    /usr/bin/mktemp /usr/bin/sha256sum /usr/bin/sleep /usr/bin/time /usr/bin/flock \
     /usr/bin/lsusb /usr/bin/ffmpeg /usr/bin/ffprobe /usr/bin/python3 \
     /usr/sbin/shutdown; do
     [ -x "$tool" ] || {
@@ -333,6 +371,16 @@ done
 cat > /usr/local/bin/dawnshell-codec-self-test <<'EOF_CODEC_SELF_TEST'
 #!/bin/sh
 set -eu
+export LC_ALL=C
+if [ "${DAWNSHELL_CODEC_TEST_LOCK_HELD:-0}" != 1 ]; then
+    install -d -m 0700 -o root -g root /var/lib/dawnshell
+    exec 9> /var/lib/dawnshell/codec-test.lock
+    /usr/bin/flock -n 9 || {
+        echo "Another DawnShell hardware codec test is already running" >&2
+        exit 75
+    }
+    export DAWNSHELL_CODEC_TEST_LOCK_HELD=1
+fi
 vector=/usr/local/share/dawnshell/avc-baseline-128x96-10fps.h264
 expected=777feb39bd92b899fc9cf7c184396e3ecec4fdbcd7a582fc560fc37011f18053
 temporary="$(mktemp /run/dawnshell-codec-i420.XXXXXX)"
@@ -377,11 +425,25 @@ chmod 0755 /usr/local/bin/dawnshell-codec-self-test
 cat > /usr/local/bin/dawnshell-codec-performance-test <<'EOF_CODEC_PERFORMANCE_TEST'
 #!/bin/sh
 set -eu
+export LC_ALL=C
+if [ "${DAWNSHELL_CODEC_TEST_LOCK_HELD:-0}" != 1 ]; then
+    install -d -m 0700 -o root -g root /var/lib/dawnshell
+    exec 9> /var/lib/dawnshell/codec-test.lock
+    /usr/bin/flock -n 9 || {
+        echo "Another DawnShell hardware codec test is already running" >&2
+        exit 75
+    }
+    export DAWNSHELL_CODEC_TEST_LOCK_HELD=1
+fi
 
 adapter=/usr/local/libexec/dawnshell-codec-ffmpeg.py
 vector_720=/usr/local/share/dawnshell/avc-baseline-1280x720-30fps-30f.h264
 vector_1080=/usr/local/share/dawnshell/avc-high-1920x1080-30fps-60f.h264
+vector_bframes=/usr/local/share/dawnshell/avc-high-1280x720-30fps-30f-b2.mp4
+vector_hevc=/usr/local/share/dawnshell/hevc-main-1920x1080-30fps-60f.mp4
 expected_720=7ff494db80cf8a311468f9638384d3d7a7bd320b5b831110076b7c80979af26f
+expected_1080=48630f45fa17f58a0435ff0cdb18e42ae466a449cd5d7f7ba966f277b2c8082e
+expected_bframes=484b59dce2d3a1ce58d0712583309f0a1ad8b0e0506ab226fb95191ef67cf437
 temporary="$(mktemp -d /run/dawnshell-codec-performance.XXXXXX)"
 cleanup() {
     rm -rf -- "$temporary"
@@ -395,6 +457,25 @@ shared_log="$temporary/decode-shared.log"
 socket_log="$temporary/decode-socket.log"
 transcode_log="$temporary/transcode.log"
 encoded="$temporary/transcoded.h264"
+bframe_decoded="$temporary/bframe-decoded.i420"
+bframe_log="$temporary/bframe-decode.log"
+hevc_encoded="$temporary/hevc-transcoded.h264"
+hevc_log="$temporary/hevc-transcode.log"
+software_time="$temporary/software-decode.time"
+hardware_time="$temporary/hardware-decode.time"
+software_hash="$temporary/software-decode.sha256"
+hardware_hash="$temporary/hardware-decode.sha256"
+baseline_before="$temporary/baseline-before.json"
+baseline_after="$temporary/baseline-after.json"
+baseline_decode_log="$temporary/baseline-decode.log"
+baseline_ffmpeg_log="$temporary/baseline-ffmpeg.log"
+baseline_json="$temporary/cpu-baseline.json"
+quality_encoded="$temporary/quality-encoded.h264"
+quality_wrapper_log="$temporary/quality-wrapper.log"
+quality_encode_log="$temporary/quality-encode.log"
+quality_psnr_log="$temporary/quality-psnr.log"
+quality_ssim_log="$temporary/quality-ssim.log"
+quality_json="$temporary/quality.json"
 
 dawnshell-codec health --format json > "$before_health"
 
@@ -434,6 +515,89 @@ actual="$(sha256sum "$decoded" | awk '{print $1}')"
 rm -f "$decoded"
 "$adapter" compare-decode-transports "$shared_log" "$socket_log" 30
 
+echo "STAGE: MP4 B-frame demux, timestamp reorder, and hardware decode"
+if dawnshell-hwdecode "$vector_bframes" "$bframe_decoded" \
+    > "$temporary/bframe-wrapper.log" 2> "$bframe_log"; then
+    :
+else
+    status=$?
+    cat "$temporary/bframe-wrapper.log" "$bframe_log" >&2
+    exit "$status"
+fi
+actual="$(sha256sum "$bframe_decoded" | awk '{print $1}')"
+[ "$actual" = "$expected_bframes" ] || {
+    cat "$bframe_log" >&2
+    echo "B-frame MP4 hardware decode checksum mismatch: $actual" >&2
+    exit 1
+}
+"$adapter" validate-decoder-stats "$bframe_log" 30
+rm -f "$bframe_decoded"
+
+echo "STAGE: software-versus-hardware 1080p decode CPU baseline"
+# shellcheck disable=SC2016 # Positional arguments expand in the child shell.
+if /usr/bin/time -f 'wall_seconds=%e\nuser_seconds=%U\nsystem_seconds=%S\nmax_rss_kb=%M' \
+    -o "$software_time" /bin/sh -c '
+        ffmpeg -hide_banner -loglevel error -f h264 -i "$1" -map 0:v:0 \
+            -an -pix_fmt yuv420p -f rawvideo pipe:1 2> "$2" \
+            | sha256sum > "$3"
+    ' dawnshell-codec-software-baseline "$vector_1080" \
+        "$baseline_ffmpeg_log" "$software_hash"; then
+    :
+else
+    status=$?
+    cat "$baseline_ffmpeg_log" >&2
+    exit "$status"
+fi
+[ "$(awk '{print $1}' "$software_hash")" = "$expected_1080" ] || {
+    cat "$baseline_ffmpeg_log" >&2
+    echo "software 1080p decode checksum mismatch" >&2
+    exit 1
+}
+dawnshell-codec health --format json > "$baseline_before"
+# shellcheck disable=SC2016 # Positional arguments expand in the child shell.
+if /usr/bin/time -f 'wall_seconds=%e\nuser_seconds=%U\nsystem_seconds=%S\nmax_rss_kb=%M' \
+    -o "$hardware_time" /bin/sh -c '
+        dawnshell-codec decode-test "$1" 1920 1080 30 60 2> "$2" \
+            | sha256sum > "$3"
+    ' dawnshell-codec-hardware-baseline "$vector_1080" \
+        "$baseline_decode_log" "$hardware_hash"; then
+    :
+else
+    status=$?
+    cat "$baseline_decode_log" >&2
+    exit "$status"
+fi
+[ "$(awk '{print $1}' "$hardware_hash")" = "$expected_1080" ] || {
+    cat "$baseline_decode_log" >&2
+    echo "hardware 1080p decode checksum mismatch" >&2
+    exit 1
+}
+dawnshell-codec health --format json > "$baseline_after"
+"$adapter" compare-cpu-baseline "$baseline_before" "$baseline_after" \
+    "$hardware_time" "$software_time" "$baseline_json"
+cat "$baseline_json"
+
+echo "STAGE: 1080p hardware encode frame count and objective quality"
+if dawnshell-hwencode "$vector_1080" "$quality_encoded" 8000000 \
+    > "$quality_wrapper_log" 2> "$quality_encode_log"; then
+    :
+else
+    status=$?
+    cat "$quality_wrapper_log" "$quality_encode_log" >&2
+    exit "$status"
+fi
+ffmpeg -hide_banner -nostdin -f h264 -i "$quality_encoded" \
+    -f h264 -i "$vector_1080" \
+    -lavfi '[0:v]setpts=PTS-STARTPTS[distorted];[1:v]setpts=PTS-STARTPTS[reference];[distorted][reference]psnr' \
+    -frames:v 60 -f null - 2> "$quality_psnr_log"
+ffmpeg -hide_banner -nostdin -f h264 -i "$quality_encoded" \
+    -f h264 -i "$vector_1080" \
+    -lavfi '[0:v]setpts=PTS-STARTPTS[distorted];[1:v]setpts=PTS-STARTPTS[reference];[distorted][reference]ssim' \
+    -frames:v 60 -f null - 2> "$quality_ssim_log"
+"$adapter" validate-quality "$quality_psnr_log" "$quality_ssim_log" \
+    30.0 0.90 --output "$quality_json"
+cat "$quality_json"
+
 echo "STAGE: 1080p30 Surface zero-copy realtime transcode"
 if dawnshell-codec transcode-test "$vector_1080" 1920 1080 30 60 8000000 \
     > "$encoded" 2> "$transcode_log"; then
@@ -453,8 +617,26 @@ encoded_frames="$(ffprobe -v error -f h264 -count_frames -select_streams v:0 \
     exit 1
 }
 
+echo "STAGE: HEVC MP4 to AVC Surface zero-copy pipeline"
+if dawnshell-hwtranscode "$vector_hevc" "$hevc_encoded" 8000000 \
+    > "$temporary/hevc-wrapper.log" 2> "$hevc_log"; then
+    :
+else
+    status=$?
+    cat "$temporary/hevc-wrapper.log" "$hevc_log" >&2
+    exit "$status"
+fi
+ffmpeg -hide_banner -loglevel error -f h264 -i "$hevc_encoded" -f null -
+hevc_frames="$(ffprobe -v error -f h264 -count_frames -select_streams v:0 \
+    -show_entries stream=nb_read_frames \
+    -of default=nokey=1:noprint_wrappers=1 "$hevc_encoded")"
+[ "$hevc_frames" = 60 ] || {
+    echo "HEVC Surface transcode frame count mismatch: $hevc_frames" >&2
+    exit 1
+}
+
 echo "STAGE: abrupt peer cleanup and Surface resource reuse"
-for iteration in 1 2 3 4 5; do
+for _ in 1 2 3 4 5; do
     if ! dawnshell-codec orphan-test decode \
         >> "$temporary/orphan.log" 2>&1; then
         cat "$temporary/orphan.log" >&2
@@ -462,7 +644,7 @@ for iteration in 1 2 3 4 5; do
     fi
     sleep 1
 done
-for iteration in 1 2; do
+for _ in 1 2; do
     if ! dawnshell-codec orphan-test transcode \
         >> "$temporary/orphan.log" 2>&1; then
         cat "$temporary/orphan.log" >&2
@@ -471,9 +653,14 @@ for iteration in 1 2; do
     sleep 1
 done
 dawnshell-codec health --format json > "$after_health"
-"$adapter" validate-cleanup "$before_health" "$after_health" 10
+"$adapter" validate-cleanup "$before_health" "$after_health" 14
 
-echo "DawnShell hardware codec performance test passed: 720p checksum/PTS, shared-memory/socket comparison, 1080p30 Surface transcode realtime=true, cleanup"
+echo "STAGE: malformed-input, EOS state-machine, and broker recovery regression"
+/usr/local/bin/dawnshell-codec-error-test
+echo "STAGE: bounded concurrent session regression"
+/usr/local/bin/dawnshell-codec-concurrency-test
+
+echo "DawnShell hardware codec performance test passed: 720p/1080p checksum and CPU baseline, B-frame MP4 decode, objective encode quality, shared-memory/socket comparison, AVC/HEVC Surface transcode, malformed-input isolation, concurrent sessions, cleanup"
 EOF_CODEC_PERFORMANCE_TEST
 chmod 0755 /usr/local/bin/dawnshell-codec-performance-test
 chown 0:0 /usr/local/bin/dawnshell-codec-performance-test
@@ -483,8 +670,9 @@ chown 0:0 /usr/local/bin/dawnshell-codec-performance-test
     exit 35
 }
 cat > /usr/local/bin/dawnshell-hwdecode <<'EOF_CODEC_FFMPEG'
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -euo pipefail
+export LC_ALL=C
 
 usage() {
     echo "usage: dawnshell-hwdecode INPUT OUTPUT" >&2
@@ -512,8 +700,9 @@ input_packets="$temporary/input-packets.json"
 annex_b="$temporary/input.h264"
 raw_packets="$temporary/raw-packets.json"
 framed_input="$temporary/framed-input.bin"
-framed_output="$temporary/framed-output.bin"
-decoded="$temporary/decoded.i420"
+client_log="$temporary/client.log"
+unpack_log="$temporary/unpack.log"
+frame_count="$temporary/frame-count.txt"
 
 ffprobe -v error -select_streams v:0 \
     -show_entries stream=codec_name,width,height,avg_frame_rate,bit_rate \
@@ -567,30 +756,53 @@ ffprobe -v error -f h264 -show_packets -show_entries packet=pos,size \
     -of json "$annex_b" > "$raw_packets"
 /usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
     "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
-/usr/local/bin/dawnshell-codec pipe decode avc "$width" "$height" \
-    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output"
-frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack \
-    "$framed_output" "$decoded" "$width" "$height")"
 
 case "$output" in
     *.i420|*.I420|*.yuv|*.YUV)
-        cp -- "$decoded" "$output"
+        if /usr/local/bin/dawnshell-codec pipe decode avc "$width" "$height" \
+            "$integer_rate" "$bit_rate" < "$framed_input" 2> "$client_log" \
+            | /usr/local/libexec/dawnshell-codec-ffmpeg.py unpack \
+                - "$output" "$width" "$height" > "$frame_count"; then
+            :
+        else
+            status=$?
+            cat "$client_log" >&2
+            exit "$status"
+        fi
+        frames="$(cat "$frame_count")"
         ;;
     *)
-        ffmpeg -hide_banner -loglevel error -y \
-            -f rawvideo -pixel_format yuv420p -video_size "${width}x${height}" \
-            -framerate "$frame_rate" -i "$decoded" -an -c:v libx264 \
-            -pix_fmt yuv420p "$output"
+        if /usr/local/bin/dawnshell-codec pipe decode avc "$width" "$height" \
+            "$integer_rate" "$bit_rate" < "$framed_input" 2> "$client_log" \
+            | /usr/local/libexec/dawnshell-codec-ffmpeg.py unpack \
+                - - "$width" "$height" 2> "$unpack_log" \
+            | ffmpeg -hide_banner -loglevel error -y -f rawvideo \
+                -pixel_format yuv420p -video_size "${width}x${height}" \
+                -framerate "$frame_rate" -i pipe:0 -an -c:v libx264 \
+                -pix_fmt yuv420p "$output"; then
+            :
+        else
+            status=$?
+            cat "$client_log" "$unpack_log" >&2
+            exit "$status"
+        fi
+        frames="$(sed -n 's/^unpacked_i420_frames=//p' "$unpack_log" | tail -n 1)"
         ;;
 esac
+cat "$client_log" >&2
+[ -n "$frames" ] || {
+    echo "dawnshell-hwdecode: frame count was not reported" >&2
+    exit 4
+}
 echo "DawnShell hardware decode complete: frames=$frames output=$output"
 EOF_CODEC_FFMPEG
 chmod 0755 /usr/local/bin/dawnshell-hwdecode
 chown 0:0 /usr/local/bin/dawnshell-hwdecode
 
 cat > /usr/local/bin/dawnshell-hwencode <<'EOF_CODEC_FFMPEG_ENCODE'
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -euo pipefail
+export LC_ALL=C
 
 usage() {
     echo "usage: dawnshell-hwencode INPUT OUTPUT [BITRATE]" >&2
@@ -620,11 +832,11 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 stream_info="$temporary/stream.txt"
-raw="$temporary/input.i420"
-framed_input="$temporary/framed-input.bin"
 framed_output="$temporary/framed-output.bin"
 annex_b="$temporary/output.h264"
 client_log="$temporary/client.log"
+pack_log="$temporary/pack.log"
+ffmpeg_log="$temporary/ffmpeg.log"
 
 ffprobe -v error -select_streams v:0 \
     -show_entries stream=width,height,avg_frame_rate \
@@ -657,20 +869,24 @@ case "$integer_rate" in
 esac
 
 echo "DawnShell hardware encode: codec=avc size=${width}x${height} rate=$frame_rate"
-ffmpeg -hide_banner -loglevel error -y -i "$input" -map 0:v:0 -an \
-    -pix_fmt yuv420p -f rawvideo "$raw"
-input_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 \
-    "$raw" "$width" "$height" "$frame_rate" "$framed_input")"
-if /usr/local/bin/dawnshell-codec pipe encode avc "$width" "$height" \
-    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output" \
-    2> "$client_log"; then
+if ffmpeg -hide_banner -loglevel error -i "$input" -map 0:v:0 -an \
+    -pix_fmt yuv420p -f rawvideo pipe:1 2> "$ffmpeg_log" \
+    | /usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 \
+        - "$width" "$height" "$frame_rate" - 2> "$pack_log" \
+    | /usr/local/bin/dawnshell-codec pipe encode avc "$width" "$height" \
+        "$integer_rate" "$bit_rate" > "$framed_output" 2> "$client_log"; then
     :
 else
     status=$?
-    cat "$client_log" >&2
+    cat "$ffmpeg_log" "$pack_log" "$client_log" >&2
     exit "$status"
 fi
 cat "$client_log" >&2
+input_frames="$(sed -n 's/^packed_i420_frames=//p' "$pack_log" | tail -n 1)"
+[ -n "$input_frames" ] || {
+    echo "dawnshell-hwencode: input frame count was not reported" >&2
+    exit 4
+}
 output_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
     "$framed_output" "$annex_b" --require-keyframe)"
 [ "$input_frames" = "$output_frames" ] || {
@@ -694,6 +910,7 @@ chown 0:0 /usr/local/bin/dawnshell-hwencode
 cat > /usr/local/bin/dawnshell-hwtranscode <<'EOF_CODEC_SURFACE_TRANSCODE'
 #!/bin/sh
 set -eu
+export LC_ALL=C
 
 usage() {
     echo "usage: dawnshell-hwtranscode INPUT OUTPUT [BITRATE]" >&2
@@ -942,6 +1159,22 @@ RuntimeMaxUse=16M
 ForwardToConsole=no
 EOF_JOURNALD
 
+cat > /etc/systemd/system/dawnshell-codec-long-run.service <<'EOF_CODEC_LONG_RUN_SERVICE'
+[Unit]
+Description=DawnShell hardware codec five-workload long-run regression
+After=local-fs.target
+ConditionPathExists=/usr/local/bin/dawnshell-codec-long-run
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dawnshell-codec-long-run all 600
+TimeoutStartSec=90min
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal
+EOF_CODEC_LONG_RUN_SERVICE
+chmod 0644 /etc/systemd/system/dawnshell-codec-long-run.service
+
 cat > /etc/systemd/system/dawnshell-boot-proof.service <<'EOF_BOOT_PROOF'
 [Unit]
 Description=DawnShell enabled-unit boot proof
@@ -991,6 +1224,9 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ -x /usr/local/bin/dawnshell-hwencode ]
 [ -x /usr/local/bin/dawnshell-hwtranscode ]
 [ -x /usr/local/bin/dawnshell-codec-performance-test ]
+[ -x /usr/local/bin/dawnshell-codec-long-run ]
+[ -x /usr/local/bin/dawnshell-codec-concurrency-test ]
+[ -x /usr/local/bin/dawnshell-codec-error-test ]
 
 cat > "${READY_MARKER}.new" <<EOF_READY
 format=1
@@ -1005,6 +1241,9 @@ host_reboot_bridge=/usr/local/sbin/reboot
 hardware_codec_client=/usr/local/bin/dawnshell-codec
 hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test
 hardware_codec_performance_test=/usr/local/bin/dawnshell-codec-performance-test
+hardware_codec_long_run_test=/usr/local/bin/dawnshell-codec-long-run
+hardware_codec_concurrency_test=/usr/local/bin/dawnshell-codec-concurrency-test
+hardware_codec_error_test=/usr/local/bin/dawnshell-codec-error-test
 hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode
 hardware_codec_encode=/usr/local/bin/dawnshell-hwencode
 hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode

@@ -5,10 +5,17 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 java_protocol="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecProtocol.java"
 broker="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecBroker.java"
 service="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecService.java"
+long_run_control="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecLongRun.java"
+recovery_test="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecRecoveryTest.java"
+su_runner="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuSu.java"
 client="$repo_dir/app/src/main/cpp/dawnshell_codec_client.c"
+namespace_launcher="$repo_dir/app/src/main/cpp/bfu_namespace_probe.c"
 runtime="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuRuntime.java"
 configurator="$repo_dir/app/src/main/assets/bfu/configure-debian-systemd.sh"
 ffmpeg_adapter="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-ffmpeg.py"
+long_run="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-long-run.sh"
+concurrency_test="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-concurrency-test.sh"
+error_test="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-error-test.sh"
 
 grep -Fq 'MAGIC = 0x44534342' "$java_protocol"
 grep -Fq 'VERSION = 1' "$java_protocol"
@@ -56,10 +63,34 @@ grep -Fq '#define DSCB_HEALTH 13u' "$client"
 grep -Fq '#define DSCB_SESSION_STATS 14u' "$client"
 grep -Fq 'first-frame=key' "$client"
 grep -Fq 'session-stats=' "$client"
-grep -Fq 'negative-test passed rejected=4' "$client"
+grep -Fq 'negative-test passed rejected=8' "$client"
+grep -Fq 'zero-width-create' "$client"
+grep -Fq 'oversized-frame-create' "$client"
 grep -Fq 'session=responsive broker=responsive' "$client"
+grep -Fq 'input-after-eos' "$client"
+grep -Fq 'duplicate-eos' "$client"
+grep -Fq 'hold-test decode|encode|transcode DURATION_MS' "$client"
+grep -Fq 'idle-test DURATION_MS' "$client"
+grep -Fq 'idle-test passed broker closed idle peer' "$client"
+grep -Fq 'slow-output-test' "$client"
+grep -Fq 'slow-output-test passed' "$client"
+grep -Fq 'slow output consumer receives bounded backpressure' "$error_test"
+# shellcheck disable=SC2016 # Assert literal runtime shell source.
+grep -Fq 'validate-balanced-health "$before" "$after" 13' "$error_test"
+grep -Fq 'pipe frame count mismatch' "$client"
 grep -Fq 'input contains unsupported buffer flags' "$broker"
 grep -Fq 'Process.getElapsedCpuTime()' "$broker"
+grep -Fq 'Debug.getPss()' "$broker"
+grep -Fq 'open_fd_count' "$broker"
+grep -Fq 'thermal_status' "$broker"
+grep -Fq 'peak_active_sessions' "$broker"
+grep -Fq 'input_dequeue_timeouts' "$broker"
+grep -Fq 'output_dequeue_timeouts' "$broker"
+grep -Fq 'queue_depth_high_water' "$broker"
+grep -Fq 'peak_input_payload_bytes' "$broker"
+grep -Fq 'peak_output_payload_bytes' "$broker"
+grep -Fq 'codec input is closed after EOS' "$broker"
+grep -Fq 'codec EOS was already queued' "$broker"
 grep -Fq '\"media_transport\"' "$broker"
 grep -Fq 'transcode-test passed size=' "$client"
 grep -Fq 'orphan-test abandoning' "$client"
@@ -71,6 +102,11 @@ grep -Fq 'codecClientBinary = new File(bin, "dawnshell-codec")' "$runtime"
 grep -Fq 'codecFfmpegAdapterScript = new File(scripts' "$runtime"
 grep -Fq 'codec720pTestVector = new File(downloads' "$runtime"
 grep -Fq 'codec1080pTestVector = new File(downloads' "$runtime"
+grep -Fq 'codecBFrameContainerVector = new File(downloads' "$runtime"
+grep -Fq 'codecHevcContainerVector = new File(downloads' "$runtime"
+grep -Fq 'codecLongRunScript = new File(scripts' "$runtime"
+grep -Fq 'codecConcurrencyTestScript = new File(scripts' "$runtime"
+grep -Fq 'codecErrorTestScript = new File(scripts' "$runtime"
 grep -Fq 'hardware_codec_client=/usr/local/bin/dawnshell-codec' "$configurator"
 grep -Fq 'hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test' \
     "$configurator"
@@ -79,6 +115,12 @@ grep -Fq 'hardware_codec_encode=/usr/local/bin/dawnshell-hwencode' "$configurato
 grep -Fq 'hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode' \
     "$configurator"
 grep -Fq 'hardware_codec_performance_test=/usr/local/bin/dawnshell-codec-performance-test' \
+    "$configurator"
+grep -Fq 'hardware_codec_long_run_test=/usr/local/bin/dawnshell-codec-long-run' \
+    "$configurator"
+grep -Fq 'hardware_codec_concurrency_test=/usr/local/bin/dawnshell-codec-concurrency-test' \
+    "$configurator"
+grep -Fq 'hardware_codec_error_test=/usr/local/bin/dawnshell-codec-error-test' \
     "$configurator"
 grep -Fq 'ffmpeg -hide_banner -loglevel error -f h264' "$configurator"
 grep -Fq 'python3-minimal' "$configurator"
@@ -93,6 +135,52 @@ grep -Fq 'dawnshell-codec health --format json' "$configurator"
 grep -Fq 'cat > /usr/local/bin/dawnshell-codec-performance-test' "$configurator"
 grep -Fq 'compare-decode-transports' "$configurator"
 grep -Fq 'validate-cleanup' "$configurator"
+grep -Fq 'compare-cpu-baseline' "$configurator"
+grep -Fq 'validate-quality' "$configurator"
+# shellcheck disable=SC2016 # Assert literal generated shell source.
+grep -Fq 'validate-cleanup "$before_health" "$after_health" 14' "$configurator"
+grep -Fq 'pipe:0' "$configurator"
+grep -Fq 'pack-i420' "$configurator"
+grep -Fq 'MP4 B-frame demux, timestamp reorder, and hardware decode' "$configurator"
+grep -Fq 'HEVC MP4 to AVC Surface zero-copy pipeline' "$configurator"
+grep -Fq '/usr/local/bin/dawnshell-codec-error-test' "$configurator"
+grep -Fq '/usr/local/bin/dawnshell-codec-concurrency-test' "$configurator"
+grep -Fq 'dawnshell-codec-long-run.service' "$configurator"
+grep -Fq 'TimeoutStartSec=90min' "$configurator"
+grep -Fq '/usr/bin/flock' "$configurator"
+for script in "$long_run" "$concurrency_test" "$error_test"; do
+    test -f "$script"
+    grep -Fq 'DAWNSHELL_CODEC_TEST_LOCK_HELD' "$script"
+done
+grep -Fq 'summarize-health' "$long_run"
+grep -Fq 'summarize-time-series' "$long_run"
+grep -Fq 'load_average_start=' "$long_run"
+grep -Fq 'validate-concurrency-health' "$concurrency_test"
+grep -Fq 'validate-balanced-health' "$error_test"
+grep -Fq 'missing-hevc-config.records' "$error_test"
+grep -Fq 'DAWNSHELL_CODEC_TEST_IDLE_TIMEOUT' "$error_test"
+grep -Fq 'codec-long-run /data/local/debian CONTROL_DIR' "$namespace_launcher"
+grep -Fq 'dawnshell-codec-long-run.service' "$namespace_launcher"
+grep -Fq 'start|stop|status|report' "$namespace_launcher"
+grep -Fq "trap 'terminate 143' TERM" "$long_run"
+grep -Fq 'static Result runRaw' "$su_runner"
+grep -Fq 'DawnShell-su-output' "$su_runner"
+grep -Fq 'enum Operation { START, STOP, STATUS }' "$long_run_control"
+grep -Fq 'codec-long-run' "$long_run_control"
+grep -Fq 'kill -9 ' "$recovery_test"
+grep -Fq 'codec_broker_recovery=verified' "$recovery_test"
+grep -Fq 'HardwareCodecService.ensureStarted(context, false)' "$recovery_test"
+grep -Fq 'context.getPackageName() + ":codec"' "$recovery_test"
+# shellcheck disable=SC2016 # Assert literal generated root-shell source.
+grep -Fq '/proc/$pid/cmdline' "$recovery_test"
+# shellcheck disable=SC2016 # Assert literal generated root-shell source.
+grep -Fq '/proc/$pid/status' "$recovery_test"
+grep -Fq 'HardwareCodecRecoveryTest.run(this, codecLayout)' \
+    "$repo_dir/app/src/main/java/me/aroxu/dawnshell/BootActivity.java"
+grep -Fq 'dawnshell-codec-unlock-hold.service' \
+    "$repo_dir/scripts/test-systemd-ssh-bfu.sh"
+grep -Fq '"user_unlocked":false' "$repo_dir/scripts/test-systemd-ssh-bfu.sh"
+grep -Fq '"user_unlocked":true' "$repo_dir/scripts/test-systemd-ssh-bfu.sh"
 test -f "$ffmpeg_adapter"
 python3 - "$ffmpeg_adapter" <<'PYTHON_SYNTAX_CHECK'
 import pathlib
@@ -109,6 +197,10 @@ vector_720="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-1280x720-3
 metadata_720="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-1280x720-30fps-30f.properties"
 vector_1080="$repo_dir/app/src/main/assets/bfu/codec-test/avc-high-1920x1080-30fps-60f.h264"
 metadata_1080="$repo_dir/app/src/main/assets/bfu/codec-test/avc-high-1920x1080-30fps-60f.properties"
+vector_bframes="$repo_dir/app/src/main/assets/bfu/codec-test/avc-high-1280x720-30fps-30f-b2.mp4"
+metadata_bframes="$repo_dir/app/src/main/assets/bfu/codec-test/avc-high-1280x720-30fps-30f-b2.properties"
+vector_hevc="$repo_dir/app/src/main/assets/bfu/codec-test/hevc-main-1920x1080-30fps-60f.mp4"
+metadata_hevc="$repo_dir/app/src/main/assets/bfu/codec-test/hevc-main-1920x1080-30fps-60f.properties"
 printf '%s  %s\n' \
     7a9ccdf88db5e89f404a7a15e98e4c57f11c396c880d00fe8ae8d5775f50588e \
     "$vector" | sha256sum -c -
@@ -118,6 +210,12 @@ printf '%s  %s\n' \
 printf '%s  %s\n' \
     67ee26637911bb0ffc7b84749810b14cc7b3e35677f138be2c43448e33e1421b \
     "$vector_1080" | sha256sum -c -
+printf '%s  %s\n' \
+    1c88cf9b08d0527d83768171389d5bcc2a43075ace06b183fdfdcef3a633e57a \
+    "$vector_bframes" | sha256sum -c -
+printf '%s  %s\n' \
+    2c6dae5d20ad02ddf08485440c888c361f4080df535c1803e3c74fd51259c8b2 \
+    "$vector_hevc" | sha256sum -c -
 grep -Fqx \
     'decoded_i420_sha256=777feb39bd92b899fc9cf7c184396e3ecec4fdbcd7a582fc560fc37011f18053' \
     "$metadata"
@@ -125,6 +223,17 @@ grep -Fqx \
     'decoded_i420_sha256=7ff494db80cf8a311468f9638384d3d7a7bd320b5b831110076b7c80979af26f' \
     "$metadata_720"
 grep -Fqx 'frames=60' "$metadata_1080"
+grep -Fqx \
+    'decoded_i420_sha256=48630f45fa17f58a0435ff0cdb18e42ae466a449cd5d7f7ba966f277b2c8082e' \
+    "$metadata_1080"
+grep -Fqx 'has_b_frames=2' "$metadata_bframes"
+grep -Fqx \
+    'decoded_i420_sha256=484b59dce2d3a1ce58d0712583309f0a1ad8b0e0506ab226fb95191ef67cf437' \
+    "$metadata_bframes"
+grep -Fqx 'codec=HEVC/H.265' "$metadata_hevc"
+grep -Fqx \
+    'decoded_i420_sha256=a452cd360b635349b47f5c918364cef7e601735dbddbd94d50c435da74bf01d0' \
+    "$metadata_hevc"
 if [[ "$(uname -s)" == Linux* ]]; then
     temporary_client="$(mktemp)"
     trap 'rm -f -- "$temporary_client"' EXIT
@@ -171,8 +280,21 @@ PYTHON_DECODE_RECORD
 python3 "$ffmpeg_adapter" unpack "$adapter_test_dir/decoded.bin" \
     "$adapter_test_dir/decoded.i420" 4 4 | grep -Fqx 2
 test "$(wc -c < "$adapter_test_dir/decoded.i420")" -eq 48
+python3 "$ffmpeg_adapter" unpack - - 4 4 \
+    < "$adapter_test_dir/decoded.bin" \
+    > "$adapter_test_dir/streamed.i420" \
+    2> "$adapter_test_dir/unpack-stream.log"
+cmp "$adapter_test_dir/decoded.i420" "$adapter_test_dir/streamed.i420"
+grep -Fqx 'unpacked_i420_frames=2' "$adapter_test_dir/unpack-stream.log"
 python3 "$ffmpeg_adapter" pack-i420 "$adapter_test_dir/decoded.i420" \
     4 4 25/1 "$adapter_test_dir/framed-i420.bin" | grep -Fqx 2
+python3 "$ffmpeg_adapter" pack-i420 - 4 4 25/1 - \
+    < "$adapter_test_dir/decoded.i420" \
+    > "$adapter_test_dir/streamed-framed-i420.bin" \
+    2> "$adapter_test_dir/pack-stream.log"
+cmp "$adapter_test_dir/framed-i420.bin" \
+    "$adapter_test_dir/streamed-framed-i420.bin"
+grep -Fqx 'packed_i420_frames=2' "$adapter_test_dir/pack-stream.log"
 python3 - "$adapter_test_dir/encoded.bin" <<'PYTHON_ENCODE_RECORD'
 import pathlib
 import struct
@@ -202,12 +324,111 @@ EOF_SOCKET_STATS
 python3 "$ffmpeg_adapter" compare-decode-transports \
     "$adapter_test_dir/decode-shared.log" "$adapter_test_dir/decode-socket.log" 2 \
     | grep -Fq 'decode_transport_comparison=verified frames=2'
-printf '%s\n' '{"broker_state":"listening","uptime_ms":100,"active_sessions":0,"active_transcoders":0,"sessions_created":3,"sessions_closed":3}' \
+python3 "$ffmpeg_adapter" validate-decoder-stats \
+    "$adapter_test_dir/decode-shared.log" 2 \
+    | grep -Fq 'hardware_decode_statistics=verified frames=2'
+printf '%s\n' '{"broker_state":"listening","pid":77,"uptime_ms":100,"active_sessions":0,"active_transcoders":0,"sessions_created":3,"sessions_closed":3}' \
     > "$adapter_test_dir/health-before.json"
-printf '%s\n' '{"broker_state":"listening","uptime_ms":200,"active_sessions":0,"active_transcoders":0,"sessions_created":13,"sessions_closed":13}' \
+printf '%s\n' '{"broker_state":"listening","pid":77,"uptime_ms":200,"active_sessions":0,"active_transcoders":0,"sessions_created":13,"sessions_closed":13}' \
     > "$adapter_test_dir/health-after.json"
 python3 "$ffmpeg_adapter" validate-cleanup "$adapter_test_dir/health-before.json" \
     "$adapter_test_dir/health-after.json" 10 \
     | grep -Fqx 'codec_resource_cleanup=verified sessions=10 active_sessions=0 active_transcoders=0'
+python3 "$ffmpeg_adapter" validate-balanced-health \
+    "$adapter_test_dir/health-before.json" "$adapter_test_dir/health-after.json" 9 \
+    | grep -Fq 'codec_error_isolation=verified sessions=10'
+printf '%s\n' '{"broker_state":"listening","pid":77,"uptime_ms":150,"active_sessions":2,"active_transcoders":1,"sessions_created":5,"sessions_closed":3}' \
+    > "$adapter_test_dir/health-overlap.json"
+python3 "$ffmpeg_adapter" validate-concurrency-health \
+    "$adapter_test_dir/health-overlap.json" 2 1 \
+    | grep -Fqx 'codec_concurrency=verified active_sessions=2 active_transcoders=1'
+cat > "$adapter_test_dir/health.jsonl" <<'EOF_HEALTH_SAMPLES'
+{"broker_state":"listening","pid":77,"uptime_ms":100,"active_sessions":0,"active_transcoders":0,"sessions_created":3,"sessions_closed":3,"process_rss_kb":10000,"open_fd_count":20,"java_heap_used_bytes":1000000,"process_cpu_time_ms":500,"thermal_status":1,"battery_temperature_deci_c":320,"user_unlocked":false,"input_records":10,"output_records":10,"input_bytes":1000,"output_bytes":2000,"input_dequeue_timeouts":1,"output_dequeue_timeouts":2,"queue_depth_high_water":1,"peak_input_payload_bytes":100,"peak_output_payload_bytes":200}
+{"broker_state":"listening","pid":77,"uptime_ms":200,"active_sessions":0,"active_transcoders":0,"sessions_created":13,"sessions_closed":13,"process_rss_kb":11000,"open_fd_count":21,"java_heap_used_bytes":1200000,"process_cpu_time_ms":900,"thermal_status":2,"battery_temperature_deci_c":350,"user_unlocked":true,"input_records":30,"output_records":30,"input_bytes":5000,"output_bytes":9000,"input_dequeue_timeouts":3,"output_dequeue_timeouts":7,"queue_depth_high_water":1,"peak_input_payload_bytes":150,"peak_output_payload_bytes":300}
+EOF_HEALTH_SAMPLES
+python3 "$ffmpeg_adapter" summarize-health "$adapter_test_dir/health.jsonl" \
+    "$adapter_test_dir/health-summary.json" \
+    | grep -Fq 'codec_health_stability=verified samples=2 pid=77'
+grep -Fq '"rss_growth_kb": 1000' "$adapter_test_dir/health-summary.json"
+grep -Fq '"fd_growth": 1' "$adapter_test_dir/health-summary.json"
+grep -Fq '"input_dequeue_timeouts_delta": 2' \
+    "$adapter_test_dir/health-summary.json"
+grep -Fq '"queue_depth_high_water": 1' \
+    "$adapter_test_dir/health-summary.json"
+
+cat > "$adapter_test_dir/psnr.log" <<'EOF_PSNR'
+[Parsed_psnr_0 @ 0x1] PSNR y:44.000 u:43.000 v:42.000 average:43.250 min:40.000 max:45.000
+EOF_PSNR
+cat > "$adapter_test_dir/ssim.log" <<'EOF_SSIM'
+[Parsed_ssim_0 @ 0x1] SSIM Y:0.995000 U:0.994000 V:0.993000 All:0.994500 (22.596373)
+EOF_SSIM
+python3 "$ffmpeg_adapter" validate-quality "$adapter_test_dir/psnr.log" \
+    "$adapter_test_dir/ssim.log" 30 0.90 \
+    --output "$adapter_test_dir/quality.json" \
+    | grep -Fqx 'codec_quality=verified average_psnr_db=43.2500 ssim_all=0.994500'
+grep -Fq '"average_psnr_db": 43.25' "$adapter_test_dir/quality.json"
+
+printf '%s\n' \
+    '{"broker_state":"listening","pid":77,"process_cpu_time_ms":1000}' \
+    > "$adapter_test_dir/baseline-before.json"
+printf '%s\n' \
+    '{"broker_state":"listening","pid":77,"process_cpu_time_ms":1100}' \
+    > "$adapter_test_dir/baseline-after.json"
+cat > "$adapter_test_dir/hardware.time" <<'EOF_HARDWARE_TIME'
+wall_seconds=0.5
+user_seconds=0.1
+system_seconds=0.1
+max_rss_kb=2048
+EOF_HARDWARE_TIME
+cat > "$adapter_test_dir/software.time" <<'EOF_SOFTWARE_TIME'
+wall_seconds=1.0
+user_seconds=0.7
+system_seconds=0.2
+max_rss_kb=4096
+EOF_SOFTWARE_TIME
+python3 "$ffmpeg_adapter" compare-cpu-baseline \
+    "$adapter_test_dir/baseline-before.json" \
+    "$adapter_test_dir/baseline-after.json" \
+    "$adapter_test_dir/hardware.time" "$adapter_test_dir/software.time" \
+    "$adapter_test_dir/cpu-baseline.json" \
+    | grep -Fq 'codec_cpu_baseline=recorded'
+grep -Fq '"cpu_reduction_percent": 66.666' \
+    "$adapter_test_dir/cpu-baseline.json"
+
+cat > "$adapter_test_dir/client-time.tsv" <<'EOF_CLIENT_TIME'
+iteration=1 wall_seconds=1.0 user_seconds=0.2 system_seconds=0.1 max_rss_kb=3000
+iteration=2 wall_seconds=1.1 user_seconds=0.3 system_seconds=0.1 max_rss_kb=3200
+EOF_CLIENT_TIME
+python3 "$ffmpeg_adapter" summarize-time-series \
+    "$adapter_test_dir/client-time.tsv" \
+    "$adapter_test_dir/client-time-summary.json" 4 \
+    | grep -Fq 'codec_client_time=recorded samples=2'
+grep -Fq '"client_cpu_seconds_total": 0.7' \
+    "$adapter_test_dir/client-time-summary.json"
+
+python3 - "$adapter_test_dir/synthetic-hevc.records" <<'PYTHON_SYNTHETIC_HEVC'
+import pathlib
+import struct
+import sys
+
+record = struct.Struct(">QII")
+start = b"\x00\x00\x00\x01"
+payload = b"".join(
+    start + bytes((nal_type << 1, 1)) + bytes((0x55,)) * 32
+    for nal_type in (32, 33, 34, 19)
+)
+second = start + bytes((1 << 1, 1)) + bytes((0x66,)) * 32
+pathlib.Path(sys.argv[1]).write_bytes(
+    record.pack(0, 0, len(payload)) + payload
+    + record.pack(33_333, 0, len(second)) + second
+)
+PYTHON_SYNTHETIC_HEVC
+awk '/^python3 - .*PY_ERROR_VECTORS/{capture=1; next}
+     /^PY_ERROR_VECTORS$/{if (capture) exit}
+     capture' "$error_test" > "$adapter_test_dir/error-vectors.py"
+python3 "$adapter_test_dir/error-vectors.py" "$vector_720" \
+    "$adapter_test_dir" "$adapter_test_dir/synthetic-hevc.records"
+test -s "$adapter_test_dir/missing-hevc-config.records"
+test -s "$adapter_test_dir/truncated-hevc.records"
 
 echo "Hardware codec broker protocol, client, and three-ABI assets are pinned"

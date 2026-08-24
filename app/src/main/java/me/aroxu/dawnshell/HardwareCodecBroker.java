@@ -1,6 +1,11 @@
 package me.aroxu.dawnshell;
 
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.BatteryManager;
+import android.os.Build;
+import android.os.Debug;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.Image;
@@ -9,7 +14,9 @@ import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.Process;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.os.SystemClock;
+import android.os.UserManager;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.view.Surface;
@@ -28,6 +35,7 @@ import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.FileDescriptor;
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +60,8 @@ final class HardwareCodecBroker implements Closeable {
     private final AtomicInteger activeSessions = new AtomicInteger(0);
     private final AtomicInteger activeTranscoders = new AtomicInteger(0);
     private final AtomicInteger activePeers = new AtomicInteger(0);
+    private final AtomicInteger peakActiveSessions = new AtomicInteger(0);
+    private final AtomicInteger peakActivePeers = new AtomicInteger(0);
     private final AtomicLong acceptedPeers = new AtomicLong(0);
     private final AtomicLong rejectedPeers = new AtomicLong(0);
     private final AtomicLong totalSessionsCreated = new AtomicLong(0);
@@ -59,6 +69,16 @@ final class HardwareCodecBroker implements Closeable {
     private final AtomicLong totalRequestErrors = new AtomicLong(0);
     private final AtomicLong totalSharedInputBytes = new AtomicLong(0);
     private final AtomicLong totalSharedOutputBytes = new AtomicLong(0);
+    private final AtomicLong peakSharedTransferBytes = new AtomicLong(0);
+    private final AtomicLong totalInputRecords = new AtomicLong(0);
+    private final AtomicLong totalOutputRecords = new AtomicLong(0);
+    private final AtomicLong totalInputBytes = new AtomicLong(0);
+    private final AtomicLong totalOutputBytes = new AtomicLong(0);
+    private final AtomicLong totalInputDequeueTimeouts = new AtomicLong(0);
+    private final AtomicLong totalOutputDequeueTimeouts = new AtomicLong(0);
+    private final AtomicLong peakInputPayloadBytes = new AtomicLong(0);
+    private final AtomicLong peakOutputPayloadBytes = new AtomicLong(0);
+    private final AtomicLong peakQueueDepth = new AtomicLong(0);
     private final long startedElapsedRealtime = SystemClock.elapsedRealtime();
     private final AtomicLong nextSessionId = new AtomicLong(
             (System.currentTimeMillis() << 12) ^ Process.myPid());
@@ -122,7 +142,8 @@ final class HardwareCodecBroker implements Closeable {
             peer.setSoTimeout(PEER_TIMEOUT_MS);
             uid = credentials.getUid();
             pid = credentials.getPid();
-            activePeers.incrementAndGet();
+            int peers = activePeers.incrementAndGet();
+            updateMaximum(peakActivePeers, peers);
             HardwareCodecProbe.recordBrokerEvent(context, "PEER_CONNECTED uid="
                     + uid + " pid=" + pid);
             while (!closed.get()) {
@@ -447,6 +468,7 @@ final class HardwareCodecBroker implements Closeable {
         byte[] media = readSharedMemory(request.singleDescriptor(), length);
         session.recordSharedInput(length);
         totalSharedInputBytes.addAndGet(length);
+        updateMaximum(peakSharedTransferBytes, length);
         int status = session.queue(ByteBuffer.wrap(media), presentationTimeUs, flags);
         writeResponse(output, request.type, request.sessionId, request.requestId,
                 status, new byte[0]);
@@ -483,6 +505,7 @@ final class HardwareCodecBroker implements Closeable {
         writeSharedMemory(request.singleDescriptor(), record.payload);
         session.recordSharedOutput(record.payload.length);
         totalSharedOutputBytes.addAndGet(record.payload.length);
+        updateMaximum(peakSharedTransferBytes, record.payload.length);
         ByteBuffer actualLength = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
         actualLength.putInt(record.payload.length);
         writeResponse(output, request.type, request.sessionId, request.requestId,
@@ -563,14 +586,41 @@ final class HardwareCodecBroker implements Closeable {
         while (true) {
             int current = activeSessions.get();
             if (current >= HardwareCodecProtocol.MAX_SESSIONS) return false;
-            if (activeSessions.compareAndSet(current, current + 1)) return true;
+            if (activeSessions.compareAndSet(current, current + 1)) {
+                updateMaximum(peakActiveSessions, current + 1);
+                return true;
+            }
+        }
+    }
+
+    private static void updateMaximum(AtomicInteger target, int value) {
+        while (true) {
+            int current = target.get();
+            if (value <= current || target.compareAndSet(current, value)) return;
+        }
+    }
+
+    private static void updateMaximum(AtomicLong target, long value) {
+        while (true) {
+            long current = target.get();
+            if (value <= current || target.compareAndSet(current, value)) return;
         }
     }
 
     private void closeSession(CodecBridgeSession session) {
+        SessionCounters counters = session.counters();
         try {
             session.close();
         } finally {
+            totalInputRecords.addAndGet(counters.inputRecords);
+            totalOutputRecords.addAndGet(counters.outputRecords);
+            totalInputBytes.addAndGet(counters.inputBytes);
+            totalOutputBytes.addAndGet(counters.outputBytes);
+            totalInputDequeueTimeouts.addAndGet(counters.inputAgain);
+            totalOutputDequeueTimeouts.addAndGet(counters.outputAgain);
+            updateMaximum(peakInputPayloadBytes, counters.maxInputPayloadBytes);
+            updateMaximum(peakOutputPayloadBytes, counters.maxOutputPayloadBytes);
+            updateMaximum(peakQueueDepth, counters.queueDepthHighWater);
             if (session instanceof SurfaceTranscodeSession) {
                 activeTranscoders.decrementAndGet();
             }
@@ -608,23 +658,85 @@ final class HardwareCodecBroker implements Closeable {
     private byte[] healthPayload() {
         long uptimeMs = Math.max(0L,
                 SystemClock.elapsedRealtime() - startedElapsedRealtime);
+        Runtime runtime = Runtime.getRuntime();
         String value = "{\"protocol\":" + HardwareCodecProtocol.VERSION
                 + ",\"broker_state\":\"listening\""
+                + ",\"pid\":" + Process.myPid()
                 + ",\"uptime_ms\":" + uptimeMs
                 + ",\"active_peers\":" + activePeers.get()
+                + ",\"peak_active_peers\":" + peakActivePeers.get()
                 + ",\"accepted_peers\":" + acceptedPeers.get()
                 + ",\"rejected_peers\":" + rejectedPeers.get()
                 + ",\"active_sessions\":" + activeSessions.get()
+                + ",\"peak_active_sessions\":" + peakActiveSessions.get()
                 + ",\"active_transcoders\":" + activeTranscoders.get()
                 + ",\"sessions_created\":" + totalSessionsCreated.get()
                 + ",\"sessions_closed\":" + totalSessionsClosed.get()
                 + ",\"request_errors\":" + totalRequestErrors.get()
                 + ",\"shared_input_bytes\":" + totalSharedInputBytes.get()
                 + ",\"shared_output_bytes\":" + totalSharedOutputBytes.get()
+                + ",\"peak_shared_transfer_bytes\":" + peakSharedTransferBytes.get()
+                + ",\"input_records\":" + totalInputRecords.get()
+                + ",\"output_records\":" + totalOutputRecords.get()
+                + ",\"input_bytes\":" + totalInputBytes.get()
+                + ",\"output_bytes\":" + totalOutputBytes.get()
+                + ",\"input_dequeue_timeouts\":"
+                + totalInputDequeueTimeouts.get()
+                + ",\"output_dequeue_timeouts\":"
+                + totalOutputDequeueTimeouts.get()
+                + ",\"peak_input_payload_bytes\":" + peakInputPayloadBytes.get()
+                + ",\"peak_output_payload_bytes\":" + peakOutputPayloadBytes.get()
+                + ",\"queue_depth_high_water\":" + peakQueueDepth.get()
+                + ",\"queue_model\":\"synchronous_bounded_backpressure\""
                 + ",\"process_cpu_time_ms\":" + Process.getElapsedCpuTime()
+                + ",\"process_rss_kb\":" + Debug.getPss()
+                + ",\"open_fd_count\":" + openFileDescriptorCount()
+                + ",\"java_heap_used_bytes\":"
+                + (runtime.totalMemory() - runtime.freeMemory())
+                + ",\"java_heap_max_bytes\":" + runtime.maxMemory()
+                + ",\"thermal_status\":" + thermalStatus()
+                + ",\"battery_temperature_deci_c\":" + batteryTemperature()
+                + ",\"user_unlocked\":" + userUnlocked()
                 + ",\"software_fallback\":false}"
                 ;
         return textPayload(value);
+    }
+
+    private static int openFileDescriptorCount() {
+        String[] descriptors = new File("/proc/self/fd").list();
+        return descriptors == null ? -1 : descriptors.length;
+    }
+
+    private int thermalStatus() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return -1;
+        try {
+            PowerManager manager = (PowerManager) context.getSystemService(
+                    Context.POWER_SERVICE);
+            return manager == null ? -1 : manager.getCurrentThermalStatus();
+        } catch (RuntimeException ignored) {
+            return -1;
+        }
+    }
+
+    private int batteryTemperature() {
+        try {
+            Intent battery = context.registerReceiver(null,
+                    new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            return battery == null ? -1 : battery.getIntExtra(
+                    BatteryManager.EXTRA_TEMPERATURE, -1);
+        } catch (RuntimeException ignored) {
+            return -1;
+        }
+    }
+
+    private boolean userUnlocked() {
+        try {
+            UserManager manager = (UserManager) context.getSystemService(
+                    Context.USER_SERVICE);
+            return manager != null && manager.isUserUnlocked();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     private static void writeResponse(DataOutputStream output, int type, long sessionId,
@@ -775,6 +887,9 @@ final class HardwareCodecBroker implements Closeable {
         long errors;
         long cpuYuvFrames;
         long surfaceFrames;
+        long maxInputPayloadBytes;
+        long maxOutputPayloadBytes;
+        long queueDepthHighWater;
 
         String json(long id, String kind, String inputCodec, String outputCodec,
                     String transport) {
@@ -813,6 +928,11 @@ final class HardwareCodecBroker implements Closeable {
                     + ",\"shared_output_bytes\":" + sharedOutputBytes
                     + ",\"input_again\":" + inputAgain
                     + ",\"output_again\":" + outputAgain
+                    + ",\"input_dequeue_timeouts\":" + inputAgain
+                    + ",\"output_dequeue_timeouts\":" + outputAgain
+                    + ",\"peak_input_payload_bytes\":" + maxInputPayloadBytes
+                    + ",\"peak_output_payload_bytes\":" + maxOutputPayloadBytes
+                    + ",\"queue_depth_high_water\":" + queueDepthHighWater
                     + ",\"format_changes\":" + formatChanges
                     + ",\"input_eos\":" + inputEos
                     + ",\"output_eos\":" + outputEos
@@ -834,6 +954,7 @@ final class HardwareCodecBroker implements Closeable {
         void flush() throws RequestException;
         void requestKeyframe() throws RequestException;
         String statistics();
+        SessionCounters counters();
         void recordSocketInput(int length);
         void recordSocketOutput(int length);
         void recordSharedInput(int length);
@@ -853,6 +974,7 @@ final class HardwareCodecBroker implements Closeable {
         private final MediaCodec encoder;
         private final Surface encoderInputSurface;
         private final SessionCounters counters = new SessionCounters();
+        private boolean inputEosQueued;
         private boolean encoderEosSignaled;
         private boolean closed;
 
@@ -992,6 +1114,9 @@ final class HardwareCodecBroker implements Closeable {
         public int queue(ByteBuffer source, long presentationTimeUs, int flags)
                 throws RequestException {
             ensureOpen();
+            if (inputEosQueued) {
+                throw sessionError("transcoder input is closed after EOS");
+            }
             if (presentationTimeUs < 0) {
                 throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
                         "transcoder PTS must be non-negative");
@@ -1015,6 +1140,9 @@ final class HardwareCodecBroker implements Closeable {
                     flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
             counters.inputRecords++;
             counters.inputBytes += inputLength;
+            counters.maxInputPayloadBytes = Math.max(
+                    counters.maxInputPayloadBytes, inputLength);
+            counters.queueDepthHighWater = Math.max(counters.queueDepthHighWater, 1);
             if (inputLength > 0
                     && (flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
                 counters.inputFrames++;
@@ -1026,6 +1154,9 @@ final class HardwareCodecBroker implements Closeable {
         @Override
         public int queueEos(long presentationTimeUs) throws RequestException {
             ensureOpen();
+            if (inputEosQueued) {
+                throw sessionError("transcoder EOS was already queued");
+            }
             if (presentationTimeUs < 0) {
                 throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
                         "transcoder EOS PTS must be non-negative");
@@ -1038,6 +1169,7 @@ final class HardwareCodecBroker implements Closeable {
             }
             decoder.queueInputBuffer(index, 0, 0, presentationTimeUs,
                     MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+            inputEosQueued = true;
             counters.inputEos++;
             pumpDecoder(0);
             return HardwareCodecProtocol.OK;
@@ -1117,6 +1249,10 @@ final class HardwareCodecBroker implements Closeable {
                     if (info.size > 0) {
                         counters.outputRecords++;
                         counters.outputBytes += info.size;
+                        counters.maxOutputPayloadBytes = Math.max(
+                                counters.maxOutputPayloadBytes, info.size);
+                        counters.queueDepthHighWater = Math.max(
+                                counters.queueDepthHighWater, 1);
                         if ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
                             counters.outputFrames++;
                         }
@@ -1141,6 +1277,7 @@ final class HardwareCodecBroker implements Closeable {
             try {
                 decoder.flush();
                 encoder.flush();
+                inputEosQueued = false;
                 encoderEosSignaled = false;
             } catch (RuntimeException e) {
                 throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
@@ -1165,6 +1302,11 @@ final class HardwareCodecBroker implements Closeable {
         public String statistics() {
             return counters.json(sessionId, "surface_transcoder", decoderName,
                     encoderName, "surface_zero_copy");
+        }
+
+        @Override
+        public SessionCounters counters() {
+            return counters;
         }
 
         @Override
@@ -1215,6 +1357,7 @@ final class HardwareCodecBroker implements Closeable {
         final boolean encoder;
         private final MediaCodec codec;
         private final SessionCounters counters = new SessionCounters();
+        private boolean inputEosQueued;
         private boolean closed;
 
         private CodecSession(long id, String mime, String codecName,
@@ -1340,6 +1483,9 @@ final class HardwareCodecBroker implements Closeable {
         public int queue(ByteBuffer source, long presentationTimeUs, int flags)
                 throws RequestException {
             ensureOpen();
+            if (inputEosQueued) {
+                throw sessionError("codec input is closed after EOS");
+            }
             if (presentationTimeUs < 0) {
                 throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
                         "codec PTS must be non-negative");
@@ -1362,6 +1508,9 @@ final class HardwareCodecBroker implements Closeable {
                     flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
             counters.inputRecords++;
             counters.inputBytes += inputLength;
+            counters.maxInputPayloadBytes = Math.max(
+                    counters.maxInputPayloadBytes, inputLength);
+            counters.queueDepthHighWater = Math.max(counters.queueDepthHighWater, 1);
             if (inputLength > 0
                     && (flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
                 counters.inputFrames++;
@@ -1372,6 +1521,9 @@ final class HardwareCodecBroker implements Closeable {
         @Override
         public int queueEos(long presentationTimeUs) throws RequestException {
             ensureOpen();
+            if (inputEosQueued) {
+                throw sessionError("codec EOS was already queued");
+            }
             if (presentationTimeUs < 0) {
                 throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
                         "codec EOS PTS must be non-negative");
@@ -1383,6 +1535,7 @@ final class HardwareCodecBroker implements Closeable {
             }
             codec.queueInputBuffer(index, 0, 0, presentationTimeUs,
                     MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+            inputEosQueued = true;
             counters.inputEos++;
             return HardwareCodecProtocol.OK;
         }
@@ -1466,6 +1619,10 @@ final class HardwareCodecBroker implements Closeable {
                     if (outputSize > 0) {
                         counters.outputRecords++;
                         counters.outputBytes += outputSize;
+                        counters.maxOutputPayloadBytes = Math.max(
+                                counters.maxOutputPayloadBytes, outputSize);
+                        counters.queueDepthHighWater = Math.max(
+                                counters.queueDepthHighWater, 1);
                         if ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
                             counters.outputFrames++;
                         }
@@ -1489,7 +1646,13 @@ final class HardwareCodecBroker implements Closeable {
         @Override
         public void flush() throws RequestException {
             ensureOpen();
-            codec.flush();
+            try {
+                codec.flush();
+                inputEosQueued = false;
+            } catch (RuntimeException e) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
+                        "could not flush codec: " + safe(e));
+            }
         }
 
         @Override
@@ -1515,6 +1678,11 @@ final class HardwareCodecBroker implements Closeable {
             String input = encoder ? "video/raw" : codecName;
             String output = encoder ? codecName : "video/raw";
             return counters.json(id, kind, input, output, "bytebuffer");
+        }
+
+        @Override
+        public SessionCounters counters() {
+            return counters;
         }
 
         @Override

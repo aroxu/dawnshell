@@ -42,6 +42,9 @@ final class BfuRuntime {
         final File dockerNetworkConfiguratorScript;
         final File hostUsbConfiguratorScript;
         final File codecFfmpegAdapterScript;
+        final File codecLongRunScript;
+        final File codecConcurrencyTestScript;
+        final File codecErrorTestScript;
         final File lifecycleLog;
         final File debootstrapArchive;
         final File archiveKeyringPackage;
@@ -53,6 +56,10 @@ final class BfuRuntime {
         final File codec720pTestMetadata;
         final File codec1080pTestVector;
         final File codec1080pTestMetadata;
+        final File codecBFrameContainerVector;
+        final File codecBFrameContainerMetadata;
+        final File codecHevcContainerVector;
+        final File codecHevcContainerMetadata;
 
         Layout(File root, BfuArchitecture architecture) {
             this.root = root;
@@ -84,6 +91,12 @@ final class BfuRuntime {
                     "configure-host-usb.sh");
             codecFfmpegAdapterScript = new File(scripts,
                     "dawnshell-codec-ffmpeg.py");
+            codecLongRunScript = new File(scripts,
+                    "dawnshell-codec-long-run.sh");
+            codecConcurrencyTestScript = new File(scripts,
+                    "dawnshell-codec-concurrency-test.sh");
+            codecErrorTestScript = new File(scripts,
+                    "dawnshell-codec-error-test.sh");
             lifecycleLog = new File(run, "debian-lifecycle.log");
             debootstrapArchive = new File(downloads, "debootstrap_1.0.141.tar.gz");
             archiveKeyringPackage = new File(downloads,
@@ -102,6 +115,14 @@ final class BfuRuntime {
                     "avc-high-1920x1080-30fps-60f.h264");
             codec1080pTestMetadata = new File(downloads,
                     "avc-high-1920x1080-30fps-60f.properties");
+            codecBFrameContainerVector = new File(downloads,
+                    "avc-high-1280x720-30fps-30f-b2.mp4");
+            codecBFrameContainerMetadata = new File(downloads,
+                    "avc-high-1280x720-30fps-30f-b2.properties");
+            codecHevcContainerVector = new File(downloads,
+                    "hevc-main-1920x1080-30fps-60f.mp4");
+            codecHevcContainerMetadata = new File(downloads,
+                    "hevc-main-1920x1080-30fps-60f.properties");
         }
     }
 
@@ -169,6 +190,18 @@ final class BfuRuntime {
         copyPrivateAsset(deContext,
                 "bfu/codec-test/avc-high-1920x1080-30fps-60f.properties",
                 layout.codec1080pTestMetadata, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/avc-high-1280x720-30fps-30f-b2.mp4",
+                layout.codecBFrameContainerVector, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/avc-high-1280x720-30fps-30f-b2.properties",
+                layout.codecBFrameContainerMetadata, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/hevc-main-1920x1080-30fps-60f.mp4",
+                layout.codecHevcContainerVector, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/hevc-main-1920x1080-30fps-60f.properties",
+                layout.codecHevcContainerMetadata, false);
         copyPrivateAsset(deContext, "bfu/install-debian-rootfs.sh",
                 layout.rootfsInstallerScript, true);
         copyPrivateAsset(deContext, "bfu/configure-debian-systemd.sh",
@@ -179,6 +212,12 @@ final class BfuRuntime {
                 layout.hostUsbConfiguratorScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-codec-ffmpeg.py",
                 layout.codecFfmpegAdapterScript, true);
+        copyPrivateAsset(deContext, "bfu/dawnshell-codec-long-run.sh",
+                layout.codecLongRunScript, true);
+        copyPrivateAsset(deContext, "bfu/dawnshell-codec-concurrency-test.sh",
+                layout.codecConcurrencyTestScript, true);
+        copyPrivateAsset(deContext, "bfu/dawnshell-codec-error-test.sh",
+                layout.codecErrorTestScript, true);
         ensurePrivateFile(layout.lifecycleLog);
         return layout;
     }

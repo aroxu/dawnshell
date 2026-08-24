@@ -9,3 +9,5 @@ local.properties
 test-results/
 dist/
 .build-*.log
+__pycache__/
+*.py[cod]

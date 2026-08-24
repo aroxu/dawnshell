@@ -147,7 +147,19 @@ bfuBootstrapAssets.add(file(
         'src/main/assets/bfu/codec-test/avc-high-1920x1080-30fps-60f.h264'))
 bfuBootstrapAssets.add(file(
         'src/main/assets/bfu/codec-test/avc-high-1920x1080-30fps-60f.properties'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/avc-high-1280x720-30fps-30f-b2.mp4'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/avc-high-1280x720-30fps-30f-b2.properties'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/hevc-main-1920x1080-30fps-60f.mp4'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/hevc-main-1920x1080-30fps-60f.properties'))
 bfuBootstrapAssets.add(file('src/main/assets/bfu/dawnshell-codec-ffmpeg.py'))
+bfuBootstrapAssets.add(file('src/main/assets/bfu/dawnshell-codec-long-run.sh'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/dawnshell-codec-concurrency-test.sh'))
+bfuBootstrapAssets.add(file('src/main/assets/bfu/dawnshell-codec-error-test.sh'))
 
 def requiredLicenseFiles = [
         'README.md',

@@ -84,6 +84,9 @@ public class BootActivity extends AppCompatActivity {
     private TextView hardwareCodecStatus;
     private Button hardwareCodecSelfTestButton;
     private Button hardwareCodecPerformanceTestButton;
+    private Button hardwareCodecLongRunStartButton;
+    private Button hardwareCodecLongRunStopButton;
+    private TextView hardwareCodecLongRunStatus;
     private TextView lifecycleLog;
     private EditText rootPassword;
     private EditText rootPasswordConfirm;
@@ -98,9 +101,12 @@ public class BootActivity extends AppCompatActivity {
             Executors.newSingleThreadExecutor();
     private final ExecutorService codecSelfTestExecutor =
             Executors.newSingleThreadExecutor();
+    private final ExecutorService codecControlExecutor =
+            Executors.newSingleThreadExecutor();
     private volatile boolean rootAuthorizationInProgress;
     private volatile boolean passwordUpdateInProgress;
     private volatile boolean codecSelfTestInProgress;
+    private volatile boolean codecControlInProgress;
     private boolean activityResumed;
     private BfuRootAuthorization.Result pendingRootAuthorizationResult;
     private String pendingRootAuthorizationFailure;
@@ -118,6 +124,7 @@ public class BootActivity extends AppCompatActivity {
             refreshLifecycleStatus();
             refreshDockerPolicyStatus();
             refreshHardwareCodecStatus();
+            refreshHardwareCodecLongRunStatus();
             liveLogHandler.postDelayed(this, 1_000L);
         }
     };
@@ -153,6 +160,7 @@ public class BootActivity extends AppCompatActivity {
         rootAuthorizationExecutor.shutdownNow();
         passwordExecutor.shutdownNow();
         codecSelfTestExecutor.shutdownNow();
+        codecControlExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -228,6 +236,12 @@ public class BootActivity extends AppCompatActivity {
                 R.id.run_hardware_codec_self_test_button);
         hardwareCodecPerformanceTestButton = findViewById(
                 R.id.run_hardware_codec_performance_test_button);
+        hardwareCodecLongRunStartButton = findViewById(
+                R.id.start_hardware_codec_long_run_button);
+        hardwareCodecLongRunStopButton = findViewById(
+                R.id.stop_hardware_codec_long_run_button);
+        hardwareCodecLongRunStatus = findViewById(
+                R.id.hardware_codec_long_run_status);
         rootPassword = findViewById(R.id.root_password);
         rootPasswordConfirm = findViewById(R.id.root_password_confirm);
         debianPassword = findViewById(R.id.debian_password);
@@ -254,6 +268,13 @@ public class BootActivity extends AppCompatActivity {
                 runHardwareCodecSelfTest());
         hardwareCodecPerformanceTestButton.setOnClickListener(view ->
                 runHardwareCodecPerformanceTest());
+        hardwareCodecLongRunStartButton.setOnClickListener(view ->
+                confirmHardwareCodecLongRun());
+        hardwareCodecLongRunStopButton.setOnClickListener(view ->
+                runHardwareCodecLongRun(HardwareCodecLongRun.Operation.STOP));
+        findViewById(R.id.open_hardware_codec_long_run_log_button)
+                .setOnClickListener(view -> startActivity(LogDetailActivity.createIntent(
+                        this, DawnShellLogRepository.CODEC_LONG_RUN)));
         findViewById(R.id.open_hardware_codec_log_button).setOnClickListener(view ->
                 startActivity(LogDetailActivity.createIntent(
                         this, DawnShellLogRepository.HARDWARE_CODEC)));
@@ -1275,6 +1296,89 @@ public class BootActivity extends AppCompatActivity {
         runHardwareCodecTest(true);
     }
 
+    private void confirmHardwareCodecLongRun() {
+        if (!hardwareCodecBridge.isChecked()
+                || !BfuPreferences.hardwareCodecBridge(this)) {
+            Toast.makeText(this, R.string.dawnshell_codec_self_test_requires_setup,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dawnshell_codec_long_run_confirm_title)
+                .setMessage(R.string.dawnshell_codec_long_run_confirm_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.dawnshell_codec_long_run_start,
+                        (dialog, which) -> runHardwareCodecLongRun(
+                                HardwareCodecLongRun.Operation.START))
+                .show();
+    }
+
+    private void runHardwareCodecLongRun(HardwareCodecLongRun.Operation operation) {
+        if (codecControlInProgress) return;
+        if (operation == HardwareCodecLongRun.Operation.START
+                && (!hardwareCodecBridge.isChecked()
+                || !BfuPreferences.hardwareCodecBridge(this))) {
+            Toast.makeText(this, R.string.dawnshell_codec_self_test_requires_setup,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        final BfuRuntime.Layout layout;
+        try {
+            layout = BfuRuntime.provision(this);
+        } catch (IOException | IllegalStateException e) {
+            HardwareCodecLongRun.recordFailure(this, operation, e.getMessage());
+            Toast.makeText(this, getString(R.string.dawnshell_codec_long_run_failed,
+                    BfuSu.sanitize(e.getMessage())), Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (operation == HardwareCodecLongRun.Operation.START) {
+            HardwareCodecService.ensureStarted(this, false);
+        }
+        codecControlInProgress = true;
+        hardwareCodecLongRunStartButton.setEnabled(false);
+        hardwareCodecLongRunStopButton.setEnabled(false);
+        Toast.makeText(this, operation == HardwareCodecLongRun.Operation.START
+                        ? R.string.dawnshell_codec_long_run_start_requested
+                        : R.string.dawnshell_codec_long_run_stop_requested,
+                Toast.LENGTH_SHORT).show();
+        codecControlExecutor.execute(() -> {
+            boolean passed = false;
+            String output;
+            try {
+                BfuSu.Result result = HardwareCodecLongRun.run(this, layout, operation);
+                passed = result.exitedSuccessfully();
+                output = "exit=" + result.exitCode + " timeout=" + result.timedOut
+                        + " output=" + result.output;
+            } catch (IOException | RuntimeException e) {
+                output = BfuSu.sanitize(e.getMessage());
+                HardwareCodecLongRun.recordFailure(this, operation, output);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                output = "interrupted";
+                HardwareCodecLongRun.recordFailure(this, operation, output);
+            }
+            final boolean successful = passed;
+            final String summary = BfuSu.sanitize(output);
+            try {
+                BfuOperationLog.append(this, "HARDWARE_CODEC_LONG_RUN_"
+                        + operation.name() + "_"
+                        + (successful ? "SUCCEEDED " : "FAILED ") + summary);
+            } catch (IOException e) {
+                Log.w(TAG, "Could not persist hardware codec long-run operation", e);
+            }
+            runOnUiThread(() -> {
+                codecControlInProgress = false;
+                hardwareCodecLongRunStartButton.setEnabled(true);
+                hardwareCodecLongRunStopButton.setEnabled(true);
+                refreshHardwareCodecLongRunStatus();
+                String message = successful
+                        ? getString(R.string.dawnshell_codec_long_run_control_succeeded)
+                        : getString(R.string.dawnshell_codec_long_run_failed, summary);
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+
     private void runHardwareCodecTest(boolean performance) {
         if (codecSelfTestInProgress) return;
         if (!hardwareCodecBridge.isChecked()
@@ -1283,9 +1387,11 @@ public class BootActivity extends AppCompatActivity {
                     Toast.LENGTH_LONG).show();
             return;
         }
+        final BfuRuntime.Layout codecLayout;
         final String chrootTool;
         try {
-            chrootTool = BfuRuntime.provision(this).toolboxBinary.getAbsolutePath();
+            codecLayout = BfuRuntime.provision(this);
+            chrootTool = codecLayout.toolboxBinary.getAbsolutePath();
         } catch (IOException | IllegalStateException e) {
             Toast.makeText(this, getString(
                     R.string.dawnshell_codec_self_test_failed,
@@ -1310,19 +1416,29 @@ public class BootActivity extends AppCompatActivity {
                         + (performance
                         ? " /usr/local/bin/dawnshell-codec-performance-test"
                         : " /usr/local/bin/dawnshell-codec-self-test");
-                BfuSu.Result result = BfuSu.run(command,
-                        performance ? 180_000L : 30_000L);
+                BfuSu.Result result = performance
+                        ? BfuSu.runRaw(command, 600_000L)
+                        : BfuSu.run(command, 30_000L);
                 output = "command=" + result.command + " exit=" + result.exitCode
                         + " timeout=" + result.timedOut + " output=" + result.output;
                 passed = result.exitedSuccessfully();
+                if (passed && performance) {
+                    output += "\n" + HardwareCodecRecoveryTest.run(this, codecLayout);
+                }
+            } catch (IOException e) {
+                passed = false;
+                output = BfuSu.sanitizeTail(e.getMessage());
             } catch (InterruptedException e) {
+                passed = false;
                 Thread.currentThread().interrupt();
                 output = "interrupted";
             } catch (RuntimeException e) {
+                passed = false;
                 output = BfuSu.sanitize(e.getMessage());
             }
             final boolean finalPassed = passed;
-            final String finalOutput = BfuSu.sanitize(output);
+            final String finalOutput = performance
+                    ? BfuSu.sanitizeTail(output) : BfuSu.sanitize(output);
             HardwareCodecProbe.recordBrokerEvent(this,
                     (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
                             + (finalPassed ? "PASSED " : "FAILED ")
@@ -1659,6 +1775,23 @@ public class BootActivity extends AppCompatActivity {
         } catch (IOException | RuntimeException e) {
             replaceConsoleText(hardwareCodecStatus, getString(
                     R.string.dawnshell_codec_status_failed,
+                    BfuSu.sanitize(e.getMessage())), false);
+        }
+    }
+
+    private void refreshHardwareCodecLongRunStatus() {
+        if (hardwareCodecLongRunStatus == null) return;
+        try {
+            String status = HardwareCodecLongRun.readStatus(this);
+            if (status.isEmpty()) {
+                status = getString(R.string.dawnshell_codec_long_run_status_none);
+            }
+            replaceConsoleText(hardwareCodecLongRunStatus, getString(
+                    R.string.dawnshell_codec_long_run_status,
+                    compact(status, 520)), false);
+        } catch (IOException | RuntimeException e) {
+            replaceConsoleText(hardwareCodecLongRunStatus, getString(
+                    R.string.dawnshell_codec_long_run_status_failed,
                     BfuSu.sanitize(e.getMessage())), false);
         }
     }

@@ -211,7 +211,7 @@ echo "PASS: $cycles BFU cold cycles plus poweroff/reboot/shutdown isolation comp
 if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
   echo "Hardware codec decode, encode, and Surface transcode passed before and after unlock in every cycle."
   if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1" ]]; then
-    echo "720p shared-memory/socket decode, 1080p30 realtime Surface transcode, and resource cleanup passed in every cycle."
+    echo "B-frame/HEVC containers, 720p transport, 1080p30 realtime Surface transcode, malformed-input isolation, concurrency, and resource cleanup passed in every cycle."
   fi
 fi
 echo "Evidence directory: $results_dir"

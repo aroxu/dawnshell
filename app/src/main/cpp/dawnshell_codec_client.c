@@ -43,6 +43,7 @@
 #define DSCB_FORMAT_CHANGED 2
 #define DSCB_ERROR_PROTOCOL (-1)
 #define DSCB_ERROR_UNSUPPORTED (-4)
+#define DSCB_ERROR_LIMIT (-5)
 #define DSCB_ERROR_SESSION (-7)
 #define DSCB_MAX_PAYLOAD (8u * 1024u * 1024u)
 #define DSCB_BUFFER_FLAG_EOS 4u
@@ -487,6 +488,7 @@ static int simple_request(int descriptor, uint16_t type, uint64_t session_id,
 }
 
 static void close_session(int descriptor, uint64_t session_id);
+static int queue_eos(int descriptor, uint64_t session_id, uint64_t pts);
 
 static int request_keyframe(int descriptor, uint64_t session_id) {
     return simple_request(descriptor, DSCB_REQUEST_KEYFRAME, session_id,
@@ -542,6 +544,26 @@ static int run_negative_test(int descriptor) {
                              "unknown-statistics-session") != 0) {
         return 1;
     }
+    uint8_t invalid_create[28];
+    put_u32(invalid_create, DSCB_MODE_DECODE);
+    put_u32(invalid_create + 4, DSCB_CODEC_AVC);
+    put_u32(invalid_create + 8, 0);
+    put_u32(invalid_create + 12, 96);
+    put_u32(invalid_create + 16, 10);
+    put_u32(invalid_create + 20, 1000000);
+    put_u32(invalid_create + 24, 0);
+    if (expect_status(descriptor, DSCB_CREATE, 0, invalid_create,
+                      sizeof(invalid_create), DSCB_ERROR_LIMIT,
+                      "zero-width-create") != 0) {
+        return 1;
+    }
+    put_u32(invalid_create + 8, 4096);
+    put_u32(invalid_create + 12, 4096);
+    if (expect_status(descriptor, DSCB_CREATE, 0, invalid_create,
+                      sizeof(invalid_create), DSCB_ERROR_LIMIT,
+                      "oversized-frame-create") != 0) {
+        return 1;
+    }
     uint64_t session_id = 0;
     if (create_session(descriptor, DSCB_MODE_DECODE, DSCB_CODEC_AVC,
             128, 96, 10, 1000000, &session_id, NULL) != 0) return 1;
@@ -558,10 +580,28 @@ static int run_negative_test(int descriptor) {
         close_session(descriptor, session_id);
         return 1;
     }
+    if (queue_eos(descriptor, session_id, 0) != 0) {
+        close_session(descriptor, session_id);
+        return 1;
+    }
+    uint8_t eos_payload[8];
+    put_u64(eos_payload, 0);
+    put_u32(malformed_input + 8, 0);
+    if (expect_status(descriptor, DSCB_EOS, session_id, eos_payload,
+                      sizeof(eos_payload), DSCB_ERROR_SESSION,
+                      "duplicate-eos") != 0
+            || expect_status(descriptor, DSCB_INPUT, session_id, malformed_input,
+                             sizeof(malformed_input), DSCB_ERROR_SESSION,
+                             "input-after-eos") != 0
+            || simple_request(descriptor, DSCB_FLUSH, session_id, NULL, 0,
+                              "post-eos flush") != 0) {
+        close_session(descriptor, session_id);
+        return 1;
+    }
     close_session(descriptor, session_id);
     if (print_health(descriptor) != 0) return 1;
     fprintf(stderr,
-            "dawnshell-codec: negative-test passed rejected=4"
+            "dawnshell-codec: negative-test passed rejected=8"
             " session=responsive broker=responsive\n");
     return 0;
 }
@@ -707,8 +747,15 @@ static int queue_eos(int descriptor, uint64_t session_id, uint64_t pts) {
     }
 }
 
+struct pipe_output_state {
+    uint32_t frames;
+    uint64_t previous_pts;
+    int have_pts;
+    int saw_eos;
+};
+
 static int drain_output(int descriptor, uint64_t session_id, uint32_t timeout_ms,
-                        int *saw_eos) {
+                        struct pipe_output_state *state) {
     uint8_t request[4];
     put_u32(request, timeout_ms);
     struct response response;
@@ -740,16 +787,30 @@ static int drain_output(int descriptor, uint64_t session_id, uint32_t timeout_ms
         fprintf(stderr, "dawnshell-codec: malformed output record\n");
         result = 3;
     } else {
+        uint64_t pts = get_u64(response.payload);
         uint32_t flags = get_u32(response.payload + 8);
         uint32_t length = get_u32(response.payload + 12);
         if (length != response.payload_length - 16) {
             fprintf(stderr, "dawnshell-codec: output length mismatch\n");
             result = 3;
+        } else if (length > 0
+                && (flags & DSCB_BUFFER_FLAG_CODEC_CONFIG) == 0
+                && state->have_pts && pts < state->previous_pts) {
+            fprintf(stderr,
+                    "dawnshell-codec: non-monotonic output PTS=%" PRIu64
+                    " previous=%" PRIu64 "\n",
+                    pts, state->previous_pts);
+            result = 3;
         } else if (fwrite(response.payload, 1, response.payload_length, stdout)
                 != response.payload_length) {
             result = -1;
-        } else if ((flags & DSCB_BUFFER_FLAG_EOS) != 0) {
-            *saw_eos = 1;
+        } else {
+            if (length > 0 && (flags & DSCB_BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                state->frames++;
+                state->previous_pts = pts;
+                state->have_pts = 1;
+            }
+            if ((flags & DSCB_BUFFER_FLAG_EOS) != 0) state->saw_eos = 1;
         }
     }
     free_response(&response);
@@ -1247,6 +1308,132 @@ static int run_orphan_test(int descriptor, const char *kind) {
     _exit(0);
 }
 
+static int run_hold_test(int descriptor, const char *kind,
+                          uint32_t duration_ms) {
+    uint64_t session_id = 0;
+    int result;
+    if (strcmp(kind, "decode") == 0) {
+        result = create_session(descriptor, DSCB_MODE_DECODE, DSCB_CODEC_AVC,
+                128, 96, 10, 1000000, &session_id, NULL);
+    } else if (strcmp(kind, "encode") == 0) {
+        result = create_session(descriptor, DSCB_MODE_ENCODE, DSCB_CODEC_AVC,
+                128, 96, 10, 1000000, &session_id, NULL);
+    } else if (strcmp(kind, "transcode") == 0) {
+        result = create_transcode_session(descriptor, DSCB_CODEC_AVC,
+                DSCB_CODEC_AVC, 128, 96, 10, 1000000, &session_id);
+    } else {
+        return 2;
+    }
+    if (result != 0) return 1;
+    fprintf(stderr,
+            "dawnshell-codec: hold-test ready kind=%s session=%" PRIu64
+            " duration-ms=%" PRIu32 "\n",
+            kind, session_id, duration_ms);
+    fflush(NULL);
+    struct timespec remaining = {
+            .tv_sec = (time_t)(duration_ms / 1000u),
+            .tv_nsec = (long)(duration_ms % 1000u) * 1000000L
+    };
+    while (nanosleep(&remaining, &remaining) != 0) {
+        if (errno != EINTR) {
+            result = 1;
+            break;
+        }
+    }
+    if (result == 0 && report_session_stats(descriptor, session_id) != 0) {
+        result = 1;
+    }
+    close_session(descriptor, session_id);
+    return result;
+}
+
+static int run_idle_timeout_test(int descriptor, uint32_t duration_ms) {
+    fprintf(stderr,
+            "dawnshell-codec: idle-test waiting duration-ms=%" PRIu32 "\n",
+            duration_ms);
+    fflush(NULL);
+    struct timespec remaining = {
+            .tv_sec = (time_t)(duration_ms / 1000u),
+            .tv_nsec = (long)(duration_ms % 1000u) * 1000000L
+    };
+    while (nanosleep(&remaining, &remaining) != 0) {
+        if (errno != EINTR) {
+            fprintf(stderr, "dawnshell-codec: idle-test sleep failed: %s\n",
+                    strerror(errno));
+            return 1;
+        }
+    }
+    struct response response;
+    if (rpc(descriptor, DSCB_HEALTH, 0, NULL, 0, &response) == 0) {
+        free_response(&response);
+        fprintf(stderr,
+                "dawnshell-codec: idle-test peer remained connected unexpectedly\n");
+        return 1;
+    }
+    fprintf(stderr,
+            "dawnshell-codec: idle-test passed broker closed idle peer\n");
+    return 0;
+}
+
+static int run_slow_output_test(int descriptor) {
+    const uint32_t width = 128;
+    const uint32_t height = 96;
+    const uint32_t frame_rate = 10;
+    const uint32_t frame_size = width * height * 3u / 2u;
+    uint64_t session_id = 0;
+    if (create_session(descriptor, DSCB_MODE_ENCODE, DSCB_CODEC_AVC,
+                       width, height, frame_rate, 1000000,
+                       &session_id, NULL) != 0) return 1;
+    uint8_t *payload = calloc(1, 16u + frame_size);
+    if (payload == NULL) {
+        close_session(descriptor, session_id);
+        return 1;
+    }
+    put_u32(payload + 8, 0);
+    put_u32(payload + 12, frame_size);
+    uint32_t accepted = 0;
+    int reached_backpressure = 0;
+    int result = 0;
+    for (uint32_t frame = 0; frame < 64; frame++) {
+        put_u64(payload, (uint64_t)frame * 1000000u / frame_rate);
+        struct response response;
+        if (rpc(descriptor, DSCB_INPUT, session_id, payload,
+                16u + frame_size, &response) != 0) {
+            result = 1;
+            break;
+        }
+        if (response.status == DSCB_OK) {
+            accepted++;
+        } else if (response.status == DSCB_AGAIN) {
+            reached_backpressure = 1;
+            free_response(&response);
+            break;
+        } else {
+            result = report_error("slow-output input", &response);
+            free_response(&response);
+            break;
+        }
+        free_response(&response);
+    }
+    free(payload);
+    if (result == 0 && (!reached_backpressure || accepted == 0)) {
+        fprintf(stderr,
+                "dawnshell-codec: slow-output-test missing backpressure"
+                " accepted=%" PRIu32 "\n", accepted);
+        result = 1;
+    }
+    if (result == 0 && report_session_stats(descriptor, session_id) != 0) {
+        result = 1;
+    }
+    close_session(descriptor, session_id);
+    if (result == 0) {
+        fprintf(stderr,
+                "dawnshell-codec: slow-output-test passed"
+                " accepted=%" PRIu32 " backpressure=again\n", accepted);
+    }
+    return result;
+}
+
 static int run_encode_test(int descriptor, uint32_t width, uint32_t height,
                            uint32_t frame_rate, uint32_t frames,
                            uint32_t bitrate) {
@@ -1366,6 +1553,8 @@ static int run_pipe_session(int descriptor, uint64_t session_id, uint32_t mode,
         return 1;
     }
     uint64_t last_pts = 0;
+    uint32_t input_frames = 0;
+    struct pipe_output_state output_state = {0};
     for (;;) {
         uint8_t header[16];
         int header_result = read_record_header(header);
@@ -1393,6 +1582,9 @@ static int run_pipe_session(int descriptor, uint64_t session_id, uint32_t mode,
         if ((flags & DSCB_BUFFER_FLAG_EOS) != 0) {
             free(data);
             break;
+        }
+        if (length > 0 && (flags & DSCB_BUFFER_FLAG_CODEC_CONFIG) == 0) {
+            input_frames++;
         }
         const uint8_t *codec_input = data;
         uint8_t *converted = NULL;
@@ -1422,8 +1614,7 @@ static int run_pipe_session(int descriptor, uint64_t session_id, uint32_t mode,
         free(converted);
         free(data);
         for (;;) {
-            int saw_eos = 0;
-            int drained = drain_output(descriptor, session_id, 0, &saw_eos);
+            int drained = drain_output(descriptor, session_id, 0, &output_state);
             if (drained == 1) break;
             if (drained < 0 || drained > 2) {
                 result = 1;
@@ -1435,14 +1626,20 @@ static int run_pipe_session(int descriptor, uint64_t session_id, uint32_t mode,
     if (result == 0) {
         result = queue_eos(descriptor, session_id, last_pts);
     }
-    int saw_eos = 0;
-    for (int idle = 0; result == 0 && !saw_eos && idle < 50;) {
-        int drained = drain_output(descriptor, session_id, 100, &saw_eos);
+    for (int idle = 0; result == 0 && !output_state.saw_eos && idle < 50;) {
+        int drained = drain_output(descriptor, session_id, 100, &output_state);
         if (drained == 1) idle++;
         else if (drained < 0 || drained > 2) result = 1;
     }
-    if (result == 0 && !saw_eos) {
+    if (result == 0 && !output_state.saw_eos) {
         fprintf(stderr, "dawnshell-codec: timed out waiting for output EOS\n");
+        result = 1;
+    }
+    if (result == 0 && (input_frames == 0 || output_state.frames != input_frames)) {
+        fprintf(stderr,
+                "dawnshell-codec: pipe frame count mismatch input=%" PRIu32
+                " output=%" PRIu32 "\n",
+                input_frames, output_state.frames);
         result = 1;
     }
     if (report_session_stats(descriptor, session_id) != 0) result = 1;
@@ -1483,6 +1680,9 @@ static void usage(FILE *stream) {
             "  dawnshell-codec encode-test WIDTH HEIGHT FPS FRAMES BITRATE\n"
             "  dawnshell-codec transcode-test FILE WIDTH HEIGHT FPS FRAMES BITRATE\n"
             "  dawnshell-codec orphan-test decode|transcode\n"
+            "  dawnshell-codec hold-test decode|encode|transcode DURATION_MS\n"
+            "  dawnshell-codec idle-test DURATION_MS\n"
+            "  dawnshell-codec slow-output-test\n"
             "  dawnshell-codec pipe MODE CODEC WIDTH HEIGHT FPS BITRATE\n"
             "  dawnshell-codec transcode INPUT_CODEC OUTPUT_CODEC WIDTH HEIGHT FPS BITRATE\n\n"
             "MODE is decode or encode; CODEC is avc/h264 or hevc/h265.\n"
@@ -1571,6 +1771,22 @@ int main(int argc, char **argv) {
         }
     } else if (strcmp(argv[1], "orphan-test") == 0 && argc == 3) {
         result = run_orphan_test(descriptor, argv[2]);
+    } else if (strcmp(argv[1], "hold-test") == 0 && argc == 4) {
+        uint32_t duration_ms;
+        if (parse_u32(argv[3], 100, 900000, &duration_ms) == 0) {
+            result = run_hold_test(descriptor, argv[2], duration_ms);
+        } else {
+            usage(stderr);
+        }
+    } else if (strcmp(argv[1], "idle-test") == 0 && argc == 3) {
+        uint32_t duration_ms;
+        if (parse_u32(argv[2], 31000, 60000, &duration_ms) == 0) {
+            result = run_idle_timeout_test(descriptor, duration_ms);
+        } else {
+            usage(stderr);
+        }
+    } else if (strcmp(argv[1], "slow-output-test") == 0 && argc == 2) {
+        result = run_slow_output_test(descriptor);
     } else if (strcmp(argv[1], "decode-test") == 0 && argc == 7) {
         uint32_t width, height, frame_rate, frames;
         if (parse_u32(argv[3], 16, 4096, &width) == 0
