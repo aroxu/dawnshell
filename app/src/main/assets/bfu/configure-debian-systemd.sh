@@ -372,6 +372,7 @@ cat > /usr/local/bin/dawnshell-codec-self-test <<'EOF_CODEC_SELF_TEST'
 #!/bin/sh
 set -eu
 export LC_ALL=C
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 if [ "${DAWNSHELL_CODEC_TEST_LOCK_HELD:-0}" != 1 ]; then
     install -d -m 0700 -o root -g root /var/lib/dawnshell
     exec 9> /var/lib/dawnshell/codec-test.lock
@@ -426,6 +427,7 @@ cat > /usr/local/bin/dawnshell-codec-performance-test <<'EOF_CODEC_PERFORMANCE_T
 #!/bin/sh
 set -eu
 export LC_ALL=C
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 if [ "${DAWNSHELL_CODEC_TEST_LOCK_HELD:-0}" != 1 ]; then
     install -d -m 0700 -o root -g root /var/lib/dawnshell
     exec 9> /var/lib/dawnshell/codec-test.lock
@@ -673,6 +675,7 @@ cat > /usr/local/bin/dawnshell-hwdecode <<'EOF_CODEC_FFMPEG'
 #!/bin/bash
 set -euo pipefail
 export LC_ALL=C
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 usage() {
     echo "usage: dawnshell-hwdecode INPUT OUTPUT" >&2
@@ -815,6 +818,7 @@ cat > /usr/local/bin/dawnshell-hwencode <<'EOF_CODEC_FFMPEG_ENCODE'
 #!/bin/bash
 set -euo pipefail
 export LC_ALL=C
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 usage() {
     echo "usage: dawnshell-hwencode INPUT OUTPUT [BITRATE] [avc|hevc]" >&2
@@ -948,6 +952,7 @@ cat > /usr/local/bin/dawnshell-hwtranscode <<'EOF_CODEC_SURFACE_TRANSCODE'
 #!/bin/sh
 set -eu
 export LC_ALL=C
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 usage() {
     echo "usage: dawnshell-hwtranscode INPUT OUTPUT [BITRATE]" >&2
@@ -1073,6 +1078,7 @@ cat > /usr/local/bin/dawnshell-ffmpeg <<'EOF_CODEC_AUTO_FFMPEG'
 #!/bin/bash
 set -euo pipefail
 export LC_ALL=C
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Transparent front end for ordinary FFmpeg callers. Commands the DawnShell
 # bridge can reproduce exactly run on the Android hardware codec. Everything

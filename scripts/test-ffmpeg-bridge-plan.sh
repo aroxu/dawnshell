@@ -83,6 +83,33 @@ pathlib.Path(sys.argv[2]).write_text(source[begin:end] + "\n", encoding="utf-8")
 PYTHON_EXTRACT_WRAPPER
 bash -n "$wrapper_dir/dawnshell-ffmpeg"
 
+# Generated Debian tools run from systemd and root shells with a minimal
+# environment, so each one must set its own PATH instead of inheriting it.
+# A missing PATH previously surfaced as "install: not found".
+generated_scripts="$(grep -c '^export LC_ALL=C$' "$wrapper_source")"
+generated_paths="$(grep -c '^export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin$' \
+    "$wrapper_source")"
+if [[ "$generated_scripts" -lt 1 || "$generated_scripts" != "$generated_paths" ]]; then
+    echo "FAIL: $generated_scripts generated tools but $generated_paths declare PATH" >&2
+    exit 1
+fi
+python3 - "$wrapper_source" <<'PYTHON_VERIFY_PATH'
+import pathlib
+import re
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+expected = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+for match in re.finditer(r"cat > (/usr/local/(?:bin|sbin)/[\w.-]+) <<'(\w+)'\n", source):
+    name, marker = match.group(1), match.group(2)
+    body = source[match.end():source.index("\n" + marker + "\n", match.end())]
+    if "install " not in body and "mktemp" not in body:
+        continue
+    if expected not in body:
+        raise SystemExit(f"{name} uses install/mktemp without declaring PATH")
+print("generated Debian tools declare an explicit PATH")
+PYTHON_VERIFY_PATH
+
 stub_dir="$wrapper_dir/stubs"
 mkdir -p "$stub_dir"
 for stub in ffmpeg dawnshell-hwdecode dawnshell-hwtranscode; do
@@ -90,8 +117,11 @@ for stub in ffmpeg dawnshell-hwdecode dawnshell-hwtranscode; do
     chmod 0755 "$stub_dir/$stub"
 done
 runnable="$wrapper_dir/runnable"
+# The generated wrapper pins a minimal PATH, so the stub harness must reach
+# its interpreter and the adapter by absolute path.
+python_binary="$(command -v python3)"
 sed -e "s#^real_ffmpeg=.*#real_ffmpeg=$stub_dir/ffmpeg#" \
-    -e "s#/usr/local/libexec/dawnshell-codec-ffmpeg.py#python3 $adapter#g" \
+    -e "s#/usr/local/libexec/dawnshell-codec-ffmpeg.py#$python_binary $adapter#g" \
     -e "s#/usr/local/bin/dawnshell-hwdecode#$stub_dir/dawnshell-hwdecode#g" \
     -e "s#/usr/local/bin/dawnshell-hwtranscode#$stub_dir/dawnshell-hwtranscode#g" \
     "$wrapper_dir/dawnshell-ffmpeg" > "$runnable"
