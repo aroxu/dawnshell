@@ -271,7 +271,7 @@ apt-get -o Acquire::Retries=3 update
 echo "STAGE: Installing Debian systemd, D-Bus, OpenSSH, and diagnostics"
 apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     systemd systemd-sysv dbus openssh-server iproute2 procps ca-certificates \
-    bash passwd mawk usbutils
+    bash passwd mawk usbutils ffmpeg
 
 cat > /etc/apt/sources.list <<'EOF_APT_HTTPS'
 deb https://deb.debian.org/debian trixie main
@@ -282,7 +282,7 @@ apt-get -o Acquire::Retries=3 update
 
 for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
     /usr/bin/timeout /usr/bin/ss /usr/bin/mawk /usr/bin/touch \
-    /usr/bin/lsusb /usr/sbin/shutdown; do
+    /usr/bin/lsusb /usr/bin/ffmpeg /usr/bin/ffprobe /usr/sbin/shutdown; do
     [ -x "$tool" ] || {
         echo "ERROR: required BFU health tool is missing: $tool"
         exit 35
@@ -298,8 +298,9 @@ set -eu
 vector=/usr/local/share/dawnshell/avc-baseline-128x96-10fps.h264
 expected=777feb39bd92b899fc9cf7c184396e3ecec4fdbcd7a582fc560fc37011f18053
 temporary="$(mktemp /run/dawnshell-codec-i420.XXXXXX)"
+encoded="$(mktemp /run/dawnshell-codec-h264.XXXXXX)"
 cleanup() {
-    rm -f "$temporary"
+    rm -f "$temporary" "$encoded"
 }
 trap cleanup EXIT HUP INT TERM
 /usr/local/bin/dawnshell-codec decode-test "$vector" 128 96 10 10 > "$temporary"
@@ -309,6 +310,16 @@ actual="$(sha256sum "$temporary" | awk '{print $1}')"
     exit 1
 }
 echo "DawnShell hardware AVC decode passed: frames=10 pts=exact i420_sha256=$actual"
+/usr/local/bin/dawnshell-codec encode-test 128 96 10 10 1000000 > "$encoded"
+ffmpeg -hide_banner -loglevel error -f h264 -i "$encoded" -f null -
+encoded_frames="$(ffprobe -v error -count_frames -select_streams v:0 \
+    -show_entries stream=nb_read_frames -of default=nokey=1:noprint_wrappers=1 \
+    "$encoded")"
+[ "$encoded_frames" = 10 ] || {
+    echo "hardware AVC encode frame count mismatch: $encoded_frames" >&2
+    exit 1
+}
+echo "DawnShell hardware AVC encode passed: frames=10 pts=exact ffmpeg_decode=passed"
 EOF_CODEC_SELF_TEST
 chmod 0755 /usr/local/bin/dawnshell-codec-self-test
 

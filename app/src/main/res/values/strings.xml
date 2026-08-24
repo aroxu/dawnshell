@@ -244,10 +244,10 @@
     <string name="dawnshell_codec_scope">This is video codec acceleration, not OpenGL/Vulkan or general GPU passthrough. A root-authenticated local Unix socket gives Debian bounded access to hardware AVC/HEVC sessions. It never silently selects a software codec. Android 10+ uses platform hardware/vendor flags; Android 7–9 uses a conservative labeled vendor-name heuristic. Run the fixed-vector self-test after configuring Debian. If media services are unavailable during BFU, only this feature fails.</string>
     <string name="dawnshell_codec_apply_probe">Save and probe hardware codecs</string>
     <string name="dawnshell_codec_view_log">View hardware codec report</string>
-    <string name="dawnshell_codec_run_self_test">Run hardware AVC decode self-test</string>
-    <string name="dawnshell_codec_self_test_started">Running the fixed 10-frame hardware AVC test…</string>
-    <string name="dawnshell_codec_self_test_passed">Hardware AVC decode self-test passed.</string>
-    <string name="dawnshell_codec_self_test_failed">Hardware AVC decode self-test failed: %1$s</string>
+    <string name="dawnshell_codec_run_self_test">Run hardware AVC decode + encode self-test</string>
+    <string name="dawnshell_codec_self_test_started">Running fixed 10-frame hardware AVC decode and encode tests…</string>
+    <string name="dawnshell_codec_self_test_passed">Hardware AVC decode and encode self-tests passed.</string>
+    <string name="dawnshell_codec_self_test_failed">Hardware AVC self-test failed: %1$s</string>
     <string name="dawnshell_codec_self_test_requires_setup">Enable the codec bridge, save settings, and configure Debian before running the self-test.</string>
     <string name="dawnshell_codec_requires_bfu">Enable Direct Boot before enabling the hardware codec bridge.</string>
     <string name="dawnshell_codec_probe_requested">The isolated codec process is probing hardware codecs. This can take several seconds.</string>

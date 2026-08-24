@@ -117,6 +117,11 @@ broker가 `Image` plane의 row/pixel stride와 crop을 정규화한 I420 frame 1
 
 통과: 유효한 H.264 출력과 실시간 이상의 처리 속도.
 
+`dawnshell-codec encode-test`는 결정적인 I420 pattern과 PTS를 생성하고 codec이
+선택한 planar/semi-planar ByteBuffer layout으로 변환합니다. frame 수, PTS, EOS,
+출력 byte 수와 wall-clock 처리 시간을 검사한 후 `dawnshell-codec-self-test`가
+Debian FFmpeg로 출력 Annex-B를 다시 decode해 10 frame임을 확인합니다.
+
 ### M5 — FFmpeg pipeline
 
 - Debian FFmpeg demux/mux와 독립 client를 연결합니다.
@@ -149,5 +154,7 @@ binary framing, 실제 hardware session create/input/output/flush/EOS/close, pee
 
 실기기 BFU backend와 session create 통과 조건은 마지막 일괄 기기 시험에서
 검증합니다. M3에는 작은 고정 H.264 smoke vector, Android Image→I420 정규화,
-frame/PTS/SHA-256 자체 검사와 앱 실행 버튼까지 구현됐습니다. M3의 최종 720p
-통과 판정, shared-memory 전송, FFmpeg 통합과 zero-copy 경로는 아직 남아 있습니다.
+frame/PTS/SHA-256 자체 검사와 앱 실행 버튼까지 구현됐습니다. M4에는 결정적 I420
+pattern hardware encode, PTS/EOS/실시간 속도 검사와 FFmpeg bitstream 재검증이
+구현됐습니다. M3의 최종 720p 및 M4 실기기 통과 판정, shared-memory 전송,
+일반 FFmpeg adapter와 zero-copy 경로는 아직 남아 있습니다.

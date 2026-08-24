@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #define DSCB_MAGIC 0x44534342u
@@ -34,6 +35,10 @@
 #define DSCB_MAX_PAYLOAD (8u * 1024u * 1024u)
 #define DSCB_BUFFER_FLAG_EOS 4u
 #define DSCB_PIXEL_FORMAT_I420 1u
+#define DSCB_COLOR_YUV420_PLANAR 19u
+#define DSCB_COLOR_YUV420_SEMIPLANAR 21u
+#define DSCB_COLOR_YUV420_FLEXIBLE 0x7f420888u
+#define DSCB_BUFFER_FLAG_CODEC_CONFIG 2u
 #define DSCB_SOCKET_NAME "dawnshell.codec.v1"
 
 struct response {
@@ -259,7 +264,8 @@ static int parse_u32(const char *value, uint32_t minimum, uint32_t maximum,
 
 static int create_session(int descriptor, uint32_t mode, uint32_t codec,
                           uint32_t width, uint32_t height, uint32_t frame_rate,
-                          uint32_t bitrate, uint64_t *session_id) {
+                          uint32_t bitrate, uint64_t *session_id,
+                          uint32_t *selected_color_format) {
     uint8_t payload[28];
     put_u32(payload, mode);
     put_u32(payload + 4, codec);
@@ -277,6 +283,18 @@ static int create_session(int descriptor, uint32_t mode, uint32_t codec,
         result = report_error("create", &response);
     } else {
         *session_id = response.session_id;
+        if (selected_color_format != NULL && response.payload != NULL) {
+            const char *marker = strstr((const char *)response.payload,
+                                        "\"color_format\":");
+            if (marker != NULL) {
+                marker += strlen("\"color_format\":");
+                char *end = NULL;
+                unsigned long parsed = strtoul(marker, &end, 10);
+                if (end != marker && parsed <= UINT32_MAX) {
+                    *selected_color_format = (uint32_t)parsed;
+                }
+            }
+        }
         fprintf(stderr, "dawnshell-codec: session=%" PRIu64 " %.*s\n",
                 *session_id, (int)response.payload_length,
                 response.payload == NULL ? (uint8_t *)"" : response.payload);
@@ -536,7 +554,7 @@ static int run_decode_test(int descriptor, const char *path, uint32_t width,
 
     uint64_t session_id = 0;
     if (create_session(descriptor, DSCB_MODE_DECODE, DSCB_CODEC_AVC, width,
-                       height, frame_rate, 2000000, &session_id) != 0) {
+                       height, frame_rate, 2000000, &session_id, NULL) != 0) {
         free(vector);
         return 1;
     }
@@ -621,11 +639,211 @@ static int inspect_vector(const char *path, uint32_t expected_frames) {
     return 0;
 }
 
+struct encode_test_state {
+    uint32_t frame_rate;
+    uint32_t frame_count;
+    uint64_t output_bytes;
+    int format_seen;
+    int saw_eos;
+};
+
+static int drain_encode_test(int descriptor, uint64_t session_id,
+                             uint32_t timeout_ms, struct encode_test_state *state) {
+    uint8_t request[4];
+    put_u32(request, timeout_ms);
+    struct response response;
+    if (rpc(descriptor, DSCB_OUTPUT, session_id, request, sizeof(request),
+            &response) != 0) return -1;
+    int result = 0;
+    if (response.status == DSCB_AGAIN) {
+        result = 1;
+    } else if (response.status == DSCB_FORMAT_CHANGED) {
+        if (response.payload_length != 20
+                || get_u32(response.payload + 16) != 0) {
+            fprintf(stderr, "dawnshell-codec: unexpected encode output format\n");
+            result = 3;
+        } else {
+            state->format_seen = 1;
+            result = 2;
+        }
+    } else if (response.status != DSCB_OK) {
+        result = report_error("encode-test output", &response) + 2;
+    } else if (response.payload_length < 16) {
+        fprintf(stderr, "dawnshell-codec: malformed encode-test output\n");
+        result = 3;
+    } else {
+        uint64_t pts = get_u64(response.payload);
+        uint32_t flags = get_u32(response.payload + 8);
+        uint32_t length = get_u32(response.payload + 12);
+        if (length != response.payload_length - 16) {
+            fprintf(stderr, "dawnshell-codec: encode-test output length mismatch\n");
+            result = 3;
+        } else if (length > 0) {
+            if ((flags & DSCB_BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                uint64_t expected_pts = (uint64_t)state->frame_count * 1000000u
+                        / state->frame_rate;
+                if (pts != expected_pts) {
+                    fprintf(stderr,
+                            "dawnshell-codec: encoded PTS mismatch index=%" PRIu32
+                            " pts=%" PRIu64 " expected=%" PRIu64 "\n",
+                            state->frame_count, pts, expected_pts);
+                    result = 3;
+                } else {
+                    state->frame_count++;
+                }
+            }
+            if (result == 0 && fwrite(response.payload + 16, 1, length, stdout)
+                    != length) {
+                result = -1;
+            } else if (result == 0) {
+                state->output_bytes += length;
+            }
+        }
+        if ((flags & DSCB_BUFFER_FLAG_EOS) != 0) state->saw_eos = 1;
+    }
+    free_response(&response);
+    return result;
+}
+
+static void fill_i420_pattern(uint8_t *frame, uint32_t width, uint32_t height,
+                              uint32_t frame_index) {
+    size_t y_size = (size_t)width * height;
+    size_t chroma_size = y_size / 4;
+    for (uint32_t y = 0; y < height; y++) {
+        for (uint32_t x = 0; x < width; x++) {
+            frame[(size_t)y * width + x] =
+                    (uint8_t)((x * 3u + y * 5u + frame_index * 11u) & 0xffu);
+        }
+    }
+    for (size_t index = 0; index < chroma_size; index++) {
+        frame[y_size + index] = (uint8_t)(64u + (index + frame_index * 3u) % 96u);
+        frame[y_size + chroma_size + index] =
+                (uint8_t)(192u - (index + frame_index * 5u) % 96u);
+    }
+}
+
+static int queue_encoder_frame(int descriptor, uint64_t session_id,
+                               uint32_t color_format, uint32_t width,
+                               uint32_t height, uint32_t frame_rate,
+                               uint32_t frame_index, uint8_t *i420,
+                               uint8_t *converted) {
+    size_t y_size = (size_t)width * height;
+    size_t chroma_size = y_size / 4;
+    fill_i420_pattern(i420, width, height, frame_index);
+    const uint8_t *input = i420;
+    if (color_format == DSCB_COLOR_YUV420_SEMIPLANAR) {
+        memcpy(converted, i420, y_size);
+        for (size_t index = 0; index < chroma_size; index++) {
+            converted[y_size + index * 2] = i420[y_size + index];
+            converted[y_size + index * 2 + 1] =
+                    i420[y_size + chroma_size + index];
+        }
+        input = converted;
+    } else if (color_format != DSCB_COLOR_YUV420_PLANAR
+            && color_format != DSCB_COLOR_YUV420_FLEXIBLE) {
+        fprintf(stderr, "dawnshell-codec: unsupported encoder color format=%" PRIu32
+                "\n", color_format);
+        return 1;
+    }
+    uint8_t header[16];
+    put_u64(header, (uint64_t)frame_index * 1000000u / frame_rate);
+    put_u32(header + 8, 0);
+    put_u32(header + 12, (uint32_t)(y_size + chroma_size * 2));
+    return queue_input(descriptor, session_id, header, input,
+                       (uint32_t)(y_size + chroma_size * 2));
+}
+
+static uint64_t elapsed_microseconds(const struct timespec *start,
+                                     const struct timespec *end) {
+    int64_t seconds = end->tv_sec - start->tv_sec;
+    int64_t nanoseconds = end->tv_nsec - start->tv_nsec;
+    return (uint64_t)(seconds * 1000000 + nanoseconds / 1000);
+}
+
+static int run_encode_test(int descriptor, uint32_t width, uint32_t height,
+                           uint32_t frame_rate, uint32_t frames,
+                           uint32_t bitrate) {
+    uint64_t session_id = 0;
+    uint32_t color_format = 0;
+    if (create_session(descriptor, DSCB_MODE_ENCODE, DSCB_CODEC_AVC, width,
+                       height, frame_rate, bitrate, &session_id,
+                       &color_format) != 0) return 1;
+    size_t frame_size = (size_t)width * height * 3u / 2u;
+    uint8_t *i420 = malloc(frame_size);
+    uint8_t *converted = malloc(frame_size);
+    if (i420 == NULL || converted == NULL) {
+        free(i420);
+        free(converted);
+        close_session(descriptor, session_id);
+        return 1;
+    }
+    struct encode_test_state state = {
+            .frame_rate = frame_rate,
+            .frame_count = 0,
+            .output_bytes = 0,
+            .format_seen = 0,
+            .saw_eos = 0
+    };
+    struct timespec started;
+    struct timespec finished;
+    clock_gettime(CLOCK_MONOTONIC, &started);
+    int result = 0;
+    for (uint32_t frame = 0; frame < frames; frame++) {
+        if (queue_encoder_frame(descriptor, session_id, color_format, width,
+                                height, frame_rate, frame, i420, converted) != 0) {
+            result = 1;
+            break;
+        }
+        for (;;) {
+            int drained = drain_encode_test(descriptor, session_id, 0, &state);
+            if (drained == 1) break;
+            if (drained < 0 || drained > 2) {
+                result = 1;
+                break;
+            }
+        }
+        if (result != 0) break;
+    }
+    free(i420);
+    free(converted);
+    if (result == 0) {
+        result = queue_eos(descriptor, session_id,
+                (uint64_t)frames * 1000000u / frame_rate);
+    }
+    for (int idle = 0; result == 0 && !state.saw_eos && idle < 50;) {
+        int drained = drain_encode_test(descriptor, session_id, 100, &state);
+        if (drained == 1) idle++;
+        else if (drained < 0 || drained > 2) result = 1;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &finished);
+    uint64_t elapsed_us = elapsed_microseconds(&started, &finished);
+    uint64_t media_duration_us = (uint64_t)frames * 1000000u / frame_rate;
+    if (result == 0 && (!state.format_seen || !state.saw_eos
+            || state.frame_count != frames || state.output_bytes == 0
+            || elapsed_us > media_duration_us)) {
+        fprintf(stderr,
+                "dawnshell-codec: encode-test incomplete format=%d eos=%d"
+                " frames=%" PRIu32 "/%" PRIu32 " bytes=%" PRIu64
+                " elapsed-us=%" PRIu64 " media-us=%" PRIu64 "\n",
+                state.format_seen, state.saw_eos, state.frame_count, frames,
+                state.output_bytes, elapsed_us, media_duration_us);
+        result = 1;
+    }
+    if (result == 0) {
+        fprintf(stderr,
+                "dawnshell-codec: encode-test passed frames=%" PRIu32
+                " pts=exact bytes=%" PRIu64 " elapsed-us=%" PRIu64 "\n",
+                state.frame_count, state.output_bytes, elapsed_us);
+    }
+    close_session(descriptor, session_id);
+    return result;
+}
+
 static int run_probe(int descriptor, uint32_t mode, uint32_t codec,
                      uint32_t width, uint32_t height) {
     uint64_t session_id = 0;
     if (create_session(descriptor, mode, codec, width, height, 30, 2000000,
-                       &session_id) != 0) return 1;
+                       &session_id, NULL) != 0) return 1;
     int result = simple_request(descriptor, DSCB_FLUSH, session_id, NULL, 0,
                                 "flush");
     if (result == 0) {
@@ -641,7 +859,7 @@ static int run_pipe(int descriptor, uint32_t mode, uint32_t codec,
                     uint32_t bitrate) {
     uint64_t session_id = 0;
     if (create_session(descriptor, mode, codec, width, height, frame_rate, bitrate,
-                       &session_id) != 0) return 1;
+                       &session_id, NULL) != 0) return 1;
     int result = 0;
     uint64_t last_pts = 0;
     for (;;) {
@@ -713,6 +931,7 @@ static void usage(FILE *stream) {
             "  dawnshell-codec capabilities\n"
             "  dawnshell-codec probe MODE CODEC [WIDTH HEIGHT]\n"
             "  dawnshell-codec decode-test FILE WIDTH HEIGHT FPS FRAMES\n"
+            "  dawnshell-codec encode-test WIDTH HEIGHT FPS FRAMES BITRATE\n"
             "  dawnshell-codec pipe MODE CODEC WIDTH HEIGHT FPS BITRATE\n\n"
             "MODE is decode or encode; CODEC is avc/h264 or hevc/h265.\n"
             "pipe stdin/stdout records are: pts_us:u64, flags:u32, length:u32, data; big-endian.\n");
@@ -775,6 +994,18 @@ int main(int argc, char **argv) {
                 && parse_u32(argv[6], 1, 1024, &frames) == 0) {
             result = run_decode_test(descriptor, argv[2], width, height,
                                      frame_rate, frames);
+        } else {
+            usage(stderr);
+        }
+    } else if (strcmp(argv[1], "encode-test") == 0 && argc == 7) {
+        uint32_t width, height, frame_rate, frames, bitrate;
+        if (parse_u32(argv[2], 16, 4096, &width) == 0
+                && parse_u32(argv[3], 16, 4096, &height) == 0
+                && parse_u32(argv[4], 1, 240, &frame_rate) == 0
+                && parse_u32(argv[5], 1, 1024, &frames) == 0
+                && parse_u32(argv[6], 1000, 100000000, &bitrate) == 0) {
+            result = run_encode_test(descriptor, width, height, frame_rate,
+                                     frames, bitrate);
         } else {
             usage(stderr);
         }

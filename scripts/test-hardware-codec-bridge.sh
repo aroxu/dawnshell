@@ -29,12 +29,16 @@ grep -Fq '#define DSCB_SOCKET_NAME "dawnshell.codec.v1"' "$client"
 grep -Fq 'address.sun_path[0]' "$client"
 grep -Fq 'pipe stdin/stdout records are:' "$client"
 grep -Fq 'run_decode_test' "$client"
+grep -Fq 'run_encode_test' "$client"
 grep -Fq 'inspect_vector' "$client"
 
 grep -Fq 'codecClientBinary = new File(bin, "dawnshell-codec")' "$runtime"
 grep -Fq 'hardware_codec_client=/usr/local/bin/dawnshell-codec' "$configurator"
 grep -Fq 'hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test' \
     "$configurator"
+grep -Fq 'ffmpeg -hide_banner -loglevel error -f h264' "$configurator"
+# shellcheck disable=SC2016 # Assert literal generated shell source.
+grep -Fq 'encoded_frames="$(ffprobe' "$configurator"
 vector="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.h264"
 metadata="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.properties"
 printf '%s  %s\n' \

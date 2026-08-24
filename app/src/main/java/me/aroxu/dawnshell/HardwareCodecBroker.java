@@ -568,9 +568,9 @@ final class HardwareCodecBroker implements Closeable {
                         "requested encoder color format is unavailable");
             }
             int[] preferred = {
-                    android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
+                    android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar,
                     android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar,
-                    android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
+                    android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
             };
             for (int candidate : preferred) {
                 for (int available : selection.colorFormats) {

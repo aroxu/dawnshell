@@ -54,6 +54,11 @@ dawnshell-codec pipe decode avc 1280 720 30 4000000 < packets.bin > frames.bin
 dawnshell-codec-self-test
 ```
 
+자체 검사는 고정 AVC decode의 frame/PTS/I420 checksum을 확인한 다음 고정 I420
+pattern 10개를 hardware encoder로 처리합니다. encoder 출력의 frame/PTS/EOS와
+실시간 이상 처리 속도를 확인하고 Debian FFmpeg가 결과 Annex-B bitstream 10개를
+오류 없이 decode하는지 재검증합니다.
+
 `pipe`의 stdin/stdout record는 `pts_us:u64`, `flags:u32`, `length:u32`, `data` 순서의
 big-endian framing입니다. 이 framing은 M3 고정 test vector와 이후 FFmpeg adapter가
 공유합니다. 현재 경로는 bounded socket copy이며 shared-memory/`SCM_RIGHTS` 경로는
