@@ -19,6 +19,9 @@ final class HardwareCodecProtocol {
     static final int INPUT_SHARED_MEMORY = 9;
     static final int OUTPUT_SHARED_MEMORY = 10;
     static final int CREATE_TRANSCODER = 11;
+    static final int REQUEST_KEYFRAME = 12;
+    static final int HEALTH = 13;
+    static final int SESSION_STATS = 14;
 
     static final int MODE_DECODE = 1;
     static final int MODE_ENCODE = 2;

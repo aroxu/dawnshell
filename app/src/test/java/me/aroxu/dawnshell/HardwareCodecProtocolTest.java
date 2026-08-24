@@ -32,7 +32,10 @@ public class HardwareCodecProtocolTest {
                 HardwareCodecProtocol.CLOSE,
                 HardwareCodecProtocol.INPUT_SHARED_MEMORY,
                 HardwareCodecProtocol.OUTPUT_SHARED_MEMORY,
-                HardwareCodecProtocol.CREATE_TRANSCODER
+                HardwareCodecProtocol.CREATE_TRANSCODER,
+                HardwareCodecProtocol.REQUEST_KEYFRAME,
+                HardwareCodecProtocol.HEALTH,
+                HardwareCodecProtocol.SESSION_STATS
         };
         for (int type : types) {
             assertEquals(0, type & HardwareCodecProtocol.RESPONSE_BIT);

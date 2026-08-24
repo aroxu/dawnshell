@@ -321,6 +321,8 @@ cleanup() {
     rm -f "$temporary" "$encoded" "$transcoded" "$transcoded.h264"
 }
 trap cleanup EXIT HUP INT TERM
+/usr/local/bin/dawnshell-codec health --format json
+/usr/local/bin/dawnshell-codec negative-test
 /usr/local/bin/dawnshell-codec decode-test "$vector" 128 96 10 10 > "$temporary"
 actual="$(sha256sum "$temporary" | awk '{print $1}')"
 [ "$actual" = "$expected" ] || {
@@ -347,6 +349,7 @@ transcoded_frames="$(ffprobe -v error -count_frames -select_streams v:0 \
     exit 1
 }
 echo "DawnShell Surface zero-copy AVC transcode passed: frames=10"
+/usr/local/bin/dawnshell-codec health --format json
 EOF_CODEC_SELF_TEST
 chmod 0755 /usr/local/bin/dawnshell-codec-self-test
 
@@ -496,6 +499,7 @@ raw="$temporary/input.i420"
 framed_input="$temporary/framed-input.bin"
 framed_output="$temporary/framed-output.bin"
 annex_b="$temporary/output.h264"
+client_log="$temporary/client.log"
 
 ffprobe -v error -select_streams v:0 \
     -show_entries stream=width,height,avg_frame_rate \
@@ -532,10 +536,18 @@ ffmpeg -hide_banner -loglevel error -y -i "$input" -map 0:v:0 -an \
     -pix_fmt yuv420p -f rawvideo "$raw"
 input_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 \
     "$raw" "$width" "$height" "$frame_rate" "$framed_input")"
-/usr/local/bin/dawnshell-codec pipe encode avc "$width" "$height" \
-    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output"
+if /usr/local/bin/dawnshell-codec pipe encode avc "$width" "$height" \
+    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output" \
+    2> "$client_log"; then
+    :
+else
+    status=$?
+    cat "$client_log" >&2
+    exit "$status"
+fi
+cat "$client_log" >&2
 output_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
-    "$framed_output" "$annex_b")"
+    "$framed_output" "$annex_b" --require-keyframe)"
 [ "$input_frames" = "$output_frames" ] || {
     echo "dawnshell-hwencode: frame count mismatch: $input_frames != $output_frames" >&2
     exit 4
@@ -592,6 +604,7 @@ raw_packets="$temporary/raw-packets.json"
 framed_input="$temporary/framed-input.bin"
 framed_output="$temporary/framed-output.bin"
 encoded="$temporary/output.h264"
+client_log="$temporary/client.log"
 
 ffprobe -v error -select_streams v:0 \
     -show_entries stream=codec_name,width,height,avg_frame_rate \
@@ -649,10 +662,20 @@ ffprobe -v error -f "$elementary_format" -show_packets \
     -show_entries packet=pos,size -of json "$annex_b" > "$raw_packets"
 /usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
     "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
-/usr/local/bin/dawnshell-codec transcode "$input_codec" avc "$width" "$height" \
-    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output"
+if /usr/local/bin/dawnshell-codec transcode "$input_codec" avc "$width" "$height" \
+    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output" \
+    2> "$client_log"; then
+    :
+else
+    status=$?
+    cat "$client_log" >&2
+    exit "$status"
+fi
+cat "$client_log" >&2
 frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
-    "$framed_output" "$encoded")"
+    "$framed_output" "$encoded" --require-keyframe)"
+/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-stats \
+    "$client_log" "$frames"
 case "$output" in
     *.h264|*.H264|*.264)
         cp -- "$encoded" "$output"

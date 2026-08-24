@@ -25,6 +25,12 @@ grep -Fq 'HardwareCodecProtocol.CLOSE' "$broker"
 grep -Fq 'HardwareCodecProtocol.INPUT_SHARED_MEMORY' "$broker"
 grep -Fq 'HardwareCodecProtocol.OUTPUT_SHARED_MEMORY' "$broker"
 grep -Fq 'HardwareCodecProtocol.CREATE_TRANSCODER' "$broker"
+grep -Fq 'HardwareCodecProtocol.REQUEST_KEYFRAME' "$broker"
+grep -Fq 'HardwareCodecProtocol.HEALTH' "$broker"
+grep -Fq 'HardwareCodecProtocol.SESSION_STATS' "$broker"
+grep -Fq 'MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME' "$broker"
+grep -Fq 'surface_zero_copy' "$broker"
+grep -Fq 'software_fallback' "$broker"
 grep -Fq 'encoder.createInputSurface()' "$broker"
 grep -Fq 'decoder.configure(decoderFormat, inputSurface' "$broker"
 grep -Fq 'decoder.releaseOutputBuffer(index, info.size > 0)' "$broker"
@@ -45,6 +51,12 @@ grep -Fq 'inspect_vector' "$client"
 grep -Fq '#define DSCB_INPUT_SHARED_MEMORY 9u' "$client"
 grep -Fq '#define DSCB_OUTPUT_SHARED_MEMORY 10u' "$client"
 grep -Fq '#define DSCB_CREATE_TRANSCODER 11u' "$client"
+grep -Fq '#define DSCB_REQUEST_KEYFRAME 12u' "$client"
+grep -Fq '#define DSCB_HEALTH 13u' "$client"
+grep -Fq '#define DSCB_SESSION_STATS 14u' "$client"
+grep -Fq 'first-frame=key' "$client"
+grep -Fq 'session-stats=' "$client"
+grep -Fq 'negative-test passed rejected=3 broker=responsive' "$client"
 grep -Fq '__NR_memfd_create' "$client"
 grep -Fq 'SCM_RIGHTS' "$client"
 grep -Fq 'DAWNSHELL_CODEC_DISABLE_SHM' "$client"
@@ -66,6 +78,8 @@ grep -Fq 'cat > /usr/local/bin/dawnshell-hwtranscode' "$configurator"
 grep -Fq 'hevc_mp4toannexb' "$configurator"
 grep -Fq 'h264_mp4toannexb' "$configurator"
 grep -Fq '/usr/local/libexec/dawnshell-codec-ffmpeg.py pack' "$configurator"
+grep -Fq '/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-stats' "$configurator"
+grep -Fq 'dawnshell-codec health --format json' "$configurator"
 test -f "$ffmpeg_adapter"
 python3 - "$ffmpeg_adapter" <<'PYTHON_SYNTAX_CHECK'
 import pathlib
@@ -135,12 +149,17 @@ import sys
 
 pathlib.Path(sys.argv[1]).write_bytes(
     struct.pack(">QII", 0, 2, 4) + b"csd0"
-    + struct.pack(">QII", 0, 0, 3) + b"one"
+    + struct.pack(">QII", 0, 1, 3) + b"one"
     + struct.pack(">QII", 40_000, 4, 3) + b"two"
 )
 PYTHON_ENCODE_RECORD
 python3 "$ffmpeg_adapter" unpack-annexb "$adapter_test_dir/encoded.bin" \
-    "$adapter_test_dir/output.h264" | grep -Fqx 2
+    "$adapter_test_dir/output.h264" --require-keyframe | grep -Fqx 2
 test "$(wc -c < "$adapter_test_dir/output.h264")" -eq 10
+cat > "$adapter_test_dir/client.log" <<'EOF_SESSION_STATS'
+dawnshell-codec: session-stats={"session_id":7,"kind":"surface_transcoder","input_codec":"OMX.Exynos.avc.dec","output_codec":"OMX.Exynos.AVC.Encoder","transport":"surface_zero_copy","input_frames":2,"output_frames":2,"surface_frames":2,"cpu_yuv_frames":0,"input_eos":1,"output_eos":1,"errors":0,"dropped_frames":0}
+EOF_SESSION_STATS
+python3 "$ffmpeg_adapter" validate-stats "$adapter_test_dir/client.log" 2 \
+    | grep -Fqx 'surface_zero_copy=verified frames=2 cpu_yuv_frames=0 session_id=7'
 
 echo "Hardware codec broker protocol, client, and three-ABI assets are pinned"

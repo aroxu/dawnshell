@@ -136,6 +136,7 @@ def pack_i420(arguments):
 def unpack_annex_b(arguments):
     frames = 0
     previous_pts = -1
+    first_frame_is_key = False
     with open(arguments.input, "rb") as source, open(arguments.output, "wb") as output:
         while True:
             header = source.read(RECORD.size)
@@ -152,6 +153,8 @@ def unpack_annex_b(arguments):
             if size:
                 output.write(data)
                 if not flags & CODEC_CONFIG_FLAG:
+                    if frames == 0:
+                        first_frame_is_key = bool(flags & 1)
                     if pts < previous_pts:
                         raise ValueError("encoded PTS is not monotonic")
                     previous_pts = pts
@@ -160,7 +163,42 @@ def unpack_annex_b(arguments):
                 break
     if frames == 0:
         raise ValueError("hardware encoder produced no frames")
+    if arguments.require_keyframe and not first_frame_is_key:
+        raise ValueError("first hardware-encoded frame is not a keyframe")
     print(frames)
+
+
+def validate_stats(arguments):
+    prefix = "dawnshell-codec: session-stats="
+    stats = None
+    with open(arguments.input, "r", encoding="utf-8", errors="replace") as source:
+        for line in source:
+            if line.startswith(prefix):
+                stats = json.loads(line[len(prefix):])
+    if not isinstance(stats, dict):
+        raise ValueError("client log has no session statistics")
+    expected = arguments.frames
+    checks = {
+        "kind": "surface_transcoder",
+        "transport": "surface_zero_copy",
+        "input_frames": expected,
+        "output_frames": expected,
+        "surface_frames": expected,
+        "cpu_yuv_frames": 0,
+        "errors": 0,
+        "dropped_frames": 0,
+    }
+    for key, expected_value in checks.items():
+        if stats.get(key) != expected_value:
+            raise ValueError(
+                f"session statistic {key}={stats.get(key)!r}; expected {expected_value!r}"
+            )
+    if int(stats.get("input_eos", 0)) < 1 or int(stats.get("output_eos", 0)) < 1:
+        raise ValueError("transcoder statistics do not prove EOS completion")
+    print(
+        "surface_zero_copy=verified "
+        f"frames={expected} cpu_yuv_frames=0 session_id={stats.get('session_id')}"
+    )
 
 
 def positive_int(value):
@@ -196,7 +234,12 @@ def main():
     unpack_annex_b_parser = commands.add_parser("unpack-annexb")
     unpack_annex_b_parser.add_argument("input")
     unpack_annex_b_parser.add_argument("output")
+    unpack_annex_b_parser.add_argument("--require-keyframe", action="store_true")
     unpack_annex_b_parser.set_defaults(handler=unpack_annex_b)
+    validate_stats_parser = commands.add_parser("validate-stats")
+    validate_stats_parser.add_argument("input")
+    validate_stats_parser.add_argument("frames", type=positive_int)
+    validate_stats_parser.set_defaults(handler=validate_stats)
     arguments = parser.parse_args()
     try:
         arguments.handler(arguments)

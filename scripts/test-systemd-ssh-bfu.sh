@@ -183,6 +183,7 @@ echo "PASS: SSH :${ssh_port}, systemd PID 1, D-Bus, and ssh.service were live be
 codec_command='set -eu
 [ -x /usr/local/bin/dawnshell-codec ]
 [ -x /usr/local/bin/dawnshell-codec-self-test ]
+dawnshell-codec health --format json
 dawnshell-codec capabilities
 timeout 120 /usr/local/bin/dawnshell-codec-self-test'
 if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
@@ -192,6 +193,7 @@ if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
   locked_codec_result="$(ssh "${ssh_args[@]}" \
     "$ssh_user@$BFU_PHONE_HOST" "$codec_command")"
   printf 'BFU codec result:\n%s\n' "$locked_codec_result"
+  grep -Fq '"broker_state":"listening"' <<<"$locked_codec_result"
   grep -Fq 'hardware AVC decode passed' <<<"$locked_codec_result"
   grep -Fq 'hardware AVC encode passed' <<<"$locked_codec_result"
   grep -Fq 'Surface zero-copy AVC transcode passed' <<<"$locked_codec_result"
@@ -233,6 +235,7 @@ if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
   unlocked_codec_result="$(ssh "${ssh_args[@]}" \
     "$ssh_user@$BFU_PHONE_HOST" "$codec_command")"
   printf 'AFU codec result:\n%s\n' "$unlocked_codec_result"
+  grep -Fq '"broker_state":"listening"' <<<"$unlocked_codec_result"
   grep -Fq 'Surface zero-copy AVC transcode passed' <<<"$unlocked_codec_result"
 fi
 
