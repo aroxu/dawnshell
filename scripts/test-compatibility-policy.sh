@@ -64,6 +64,21 @@ grep -Fq 'block_ipc_namespace_creation' "$launcher_source"
 grep -Fq 'ipc_namespace_creation_blocked' "$launcher_source"
 grep -Fq 'SECCOMP_RET_ERRNO | EPERM' "$launcher_source"
 grep -Fq 'CLONE_NEWIPC' "$launcher_source"
+# PR_SET_NO_NEW_PRIVS would disable every setuid binary in Debian and break
+# `sudo`. The launcher runs as root, so the filter must be installed without it.
+if grep -Fq 'PR_SET_NO_NEW_PRIVS, 1' "$launcher_source"; then
+    echo "no_new_privs breaks sudo inside Debian; do not set it" >&2
+    exit 1
+fi
+
+# A root shell has a minimal PATH, so every chroot call must name the
+# provisioned toolbox applet instead of relying on command lookup.
+password_manager="$repo_dir/app/src/main/java/me/aroxu/dawnshell/DebianPasswordManager.java"
+grep -Fq 'toolboxBinary' "$password_manager"
+if grep -Eq '"chroot ' "$password_manager"; then
+    echo "chroot must be invoked through the provisioned toolbox path" >&2
+    exit 1
+fi
 # shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.
 grep -Fq 'exec "$real_docker" "${rewritten[@]}"' "$policy_script"
 # shellcheck disable=SC2016 # Assert literal shell source, not this test's variables.

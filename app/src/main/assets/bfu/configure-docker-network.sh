@@ -229,29 +229,59 @@ if (( ${#arguments[@]} > 0 )); then
             # for every service; a service that already declares `ipc:` keeps
             # its own value because Compose merges the base file last.
             compose_wants_override=false
-            for argument in "${arguments[@]:1}"; do
-                case "$argument" in
-                    up|run|create|start|restart) compose_wants_override=true ;;
+            # Compose global options precede the subcommand, so they must be
+            # replayed when querying the project. Everything from the
+            # subcommand onward is the action itself.
+            compose_options=()
+            compose_action_index=-1
+            for (( index = 1; index < ${#arguments[@]}; index++ )); do
+                case "${arguments[index]}" in
+                    up|run|create|start|restart)
+                        compose_wants_override=true
+                        compose_action_index=$index
+                        break
+                        ;;
+                    config|ps|logs|down|stop|kill|rm|build|pull|push|images|top|events|version|port|exec|cp|wait|watch|attach|alpha)
+                        break
+                        ;;
+                    -f|--file|-p|--project-name|--project-directory|--profile|--env-file|--parallel|--progress|--ansi)
+                        compose_options+=("${arguments[index]}" "${arguments[index + 1]}")
+                        (( index++ ))
+                        ;;
+                    *)
+                        compose_options+=("${arguments[index]}")
+                        ;;
                 esac
             done
             if [ "$compose_wants_override" = true ]; then
                 # Resolve the project exactly as the user requested it, keeping
-                # any -f/--project-name flags, then discover its services and
-                # the base files Compose selected.
-                services="$("$real_docker" "${arguments[@]}" config --services 2>/dev/null || true)"
-                base_files="$("$real_docker" "${arguments[@]}" config --no-interpolate --format json 2>/dev/null \
-                    | sed -n 's/.*"ComposeFiles":\[\([^]]*\)\].*/\1/p' | tr -d '"' | tr ',' '\n')"
+                # any -f/--project-name options, then discover its services.
+                services="$("$real_docker" compose "${compose_options[@]}" \
+                    config --services 2>/dev/null || true)"
+                # Passing -f replaces Compose's own file discovery, so the
+                # resolved project files must be replayed before the override.
+                base_files=""
+                for option in "${compose_options[@]}"; do
+                    case "$option" in
+                        -f|--file) base_files="explicit" ;;
+                    esac
+                done
                 if [ -z "$base_files" ]; then
                     for candidate in compose.yaml compose.yml \
-                            docker-compose.yaml docker-compose.yml; do
-                        [ -f "$candidate" ] && base_files="$candidate" && break
+                            docker-compose.yaml docker-compose.yml \
+                            compose.override.yaml compose.override.yml \
+                            docker-compose.override.yaml \
+                            docker-compose.override.yml; do
+                        [ -f "$candidate" ] || continue
+                        compose_options+=(-f "$candidate")
                     done
                 fi
-                if [ -n "$services" ] && [ -n "$base_files" ]; then
+                if [ -n "$services" ]; then
                     # Compose merges later files over earlier ones, so a
                     # service that already declares `ipc:` must be skipped to
                     # keep the user's own value.
-                    declared="$("$real_docker" "${arguments[@]}" config 2>/dev/null \
+                    declared="$("$real_docker" compose "${compose_options[@]}" \
+                        config 2>/dev/null \
                         | awk '/^  [A-Za-z0-9._-]+:$/ { gsub(/[ :]/, "", $0); service = $0 }
                                /^    ipc:/ { print service }')"
                     override="$(mktemp /tmp/dawnshell-compose-ipc.XXXXXX.yml)"
@@ -266,16 +296,12 @@ if (( ${#arguments[@]} > 0 )); then
                             printf '  %s:\n    ipc: host\n' "$service"
                         done <<< "$services"
                     } > "$override"
-                    # The base project is listed first so an explicit `ipc:`
-                    # in the user's file wins over this default.
-                    compose_files=()
-                    while IFS= read -r base_file; do
-                        [ -n "$base_file" ] || continue
-                        compose_files+=(-f "$base_file")
-                    done <<< "$base_files"
-                    compose_files+=(-f "$override")
-                    exec "$real_docker" compose "${compose_files[@]}" \
-                        "${arguments[@]:1}"
+                    # Compose keeps its own project discovery, so only the
+                    # override is appended; it merges last and therefore
+                    # supplies the default without hiding the base project.
+                    exec "$real_docker" compose "${compose_options[@]}" \
+                        -f "$override" \
+                        "${arguments[@]:$compose_action_index}"
                 fi
             fi
             ;;

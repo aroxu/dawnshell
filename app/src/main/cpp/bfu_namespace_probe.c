@@ -2367,9 +2367,10 @@ static int wait_for_network_manager(int manager_ready_fd) {
    which covers dockerd, containerd, runc, and Compose alike. */
 static int block_ipc_namespace_creation(void) {
 #ifdef DAWNSHELL_AUDIT_ARCH
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-        return fail_errno("seccomp_no_new_privs", 53);
-    }
+    /* PR_SET_NO_NEW_PRIVS is deliberately not set. It would disable every
+       setuid binary inside Debian, which breaks `sudo`. The launcher already
+       runs as root, and a privileged process may install a filter without
+       that flag. */
     /* clone(2) and unshare(2) take the flags in different argument slots, and
        clone3(2) passes a struct this filter cannot inspect, so it is denied
        outright; callers fall back to clone(2). */

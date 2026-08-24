@@ -15,12 +15,20 @@ cat > "$temporary_dir/fake-docker" <<'EOF_FAKE_DOCKER'
 #!/usr/bin/env bash
 # Compose project queries are answered from fixtures so the wrapper can build
 # its override; every other invocation records its arguments.
+# A real `docker compose` rejects a project query that still carries the
+# action, so the fixture does too. That is what previously broke `up -d`.
+if [[ "${1:-}" == compose && ( "${*: -1}" == --services || "${*: -1}" == config ) ]]; then
+    for argument in "${@:2}"; do
+        case "$argument" in
+            up|down|start|restart|stop)
+                echo "fixture: unexpected action in project query: $*" >&2
+                exit 64
+                ;;
+        esac
+    done
+fi
 if [[ "${1:-}" == compose && "${*: -1}" == --services ]]; then
     cat "${DAWNSHELL_FAKE_SERVICES:-/dev/null}"
-    exit 0
-fi
-if [[ "${1:-}" == compose && "${*: -1}" == json ]]; then
-    printf '{"ComposeFiles":["docker-compose.yml"]}\n'
     exit 0
 fi
 if [[ "${1:-}" == compose && "${*: -1}" == config ]]; then
@@ -75,9 +83,25 @@ override="$(sed -n '5p' "$temporary_dir/arguments")"
 [[ "$(sed -n '6p' "$temporary_dir/arguments")" == up ]]
 [[ "$(sed -n '7p' "$temporary_dir/arguments")" == -d ]]
 
+# Global options must be replayed for the project query and the final command.
+printf 'speedtest\n' > "$temporary_dir/services"
+printf 'services:\n  speedtest:\n    image: demo\n' > "$temporary_dir/config"
+(cd "$compose_project" && run_wrapper compose -f docker-compose.yml -p demo up -d)
+[[ "$(sed -n '2p' "$temporary_dir/arguments")" == -f ]]
+[[ "$(sed -n '3p' "$temporary_dir/arguments")" == docker-compose.yml ]]
+[[ "$(sed -n '4p' "$temporary_dir/arguments")" == -p ]]
+[[ "$(sed -n '5p' "$temporary_dir/arguments")" == demo ]]
+[[ "$(sed -n '6p' "$temporary_dir/arguments")" == -f ]]
+[[ "$(sed -n '7p' "$temporary_dir/arguments")" == /tmp/dawnshell-compose-ipc.* ]]
+[[ "$(sed -n '8p' "$temporary_dir/arguments")" == up ]]
+[[ "$(sed -n '9p' "$temporary_dir/arguments")" == -d ]]
+
 # Commands that never start a container must stay untouched.
 run_wrapper compose ps
 assert_arguments compose ps
+
+run_wrapper compose down
+assert_arguments compose down
 
 # Without services the wrapper must not invent an override.
 : > "$temporary_dir/services"

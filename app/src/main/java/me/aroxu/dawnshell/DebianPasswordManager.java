@@ -5,6 +5,7 @@ import android.os.Build;
 import android.os.UserManager;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /** AFU-only local Debian password updater. Password bytes are never persisted. */
@@ -52,6 +53,18 @@ final class DebianPasswordManager {
         validatePassword(password);
         requireConfiguredRootfs();
 
+        // A root shell starts with a minimal PATH, so `chroot` must be the
+        // provisioned toolbox applet rather than a bare command name.
+        final String chrootTool;
+        try {
+            chrootTool = BfuRuntime.provision(context).toolboxBinary
+                    .getAbsolutePath();
+        } catch (IOException | IllegalStateException e) {
+            throw new IllegalStateException(
+                    "Could not provision the DawnShell toolbox: "
+                            + BfuSu.sanitize(e.getMessage()));
+        }
+
         byte[] input = null;
         try {
             StringBuilder line = new StringBuilder(account.length() + password.length + 2);
@@ -60,7 +73,9 @@ final class DebianPasswordManager {
             for (int i = 0; i < line.length(); i++) line.setCharAt(i, '\0');
 
             BfuSu.Result result = BfuSu.runWithInput(
-                    "chroot " + ROOTFS + " /usr/sbin/chpasswd", input, TIMEOUT_MS);
+                    BfuSu.shellQuote(chrootTool) + " chroot "
+                            + BfuSu.shellQuote(ROOTFS) + " /usr/sbin/chpasswd",
+                    input, TIMEOUT_MS);
             input = null; // BfuSu wiped the array in its finally block.
             return new Result(account, result);
         } finally {
