@@ -10,7 +10,6 @@ import android.os.Looper;
 import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -56,7 +55,7 @@ public final class LogDetailActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         type = getIntent().getStringExtra(EXTRA_TYPE);
         if (!DawnShellLogRepository.isKnown(type)) {
-            Toast.makeText(this, R.string.dawnshell_log_unknown, Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_log_unknown);
             finish();
             return;
         }
@@ -204,19 +203,17 @@ public final class LogDetailActivity extends AppCompatActivity {
     private void copyAll() {
         CharSequence value = logText.getText();
         if (TextUtils.isEmpty(value)) {
-            Toast.makeText(this, R.string.dawnshell_log_copy_empty,
-                    Toast.LENGTH_SHORT).show();
+            DawnShellNotice.show(this, R.string.dawnshell_log_copy_empty);
             return;
         }
         ClipboardManager clipboard = (ClipboardManager) getSystemService(
                 Context.CLIPBOARD_SERVICE);
         if (clipboard == null) {
-            Toast.makeText(this, R.string.bfu_clipboard_unavailable,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_clipboard_unavailable);
             return;
         }
         clipboard.setPrimaryClip(ClipData.newPlainText(
                 getString(DawnShellLogRepository.titleRes(type)), value));
-        Toast.makeText(this, R.string.dawnshell_log_copied, Toast.LENGTH_SHORT).show();
+        DawnShellNotice.show(this, R.string.dawnshell_log_copied);
     }
 }

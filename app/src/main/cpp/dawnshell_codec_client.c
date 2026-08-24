@@ -211,6 +211,13 @@ static int connect_broker(void) {
         errno = saved;
         return -1;
     }
+    // A default AF_UNIX buffer is too small for one maximum media record, so
+    // an unsplit send fails with EMSGSIZE. Best-effort enlarge both directions.
+    const int buffer_bytes = (int)(DSCB_MAX_PAYLOAD + 64u * 1024u);
+    (void)setsockopt(descriptor, SOL_SOCKET, SO_SNDBUF,
+                     &buffer_bytes, sizeof(buffer_bytes));
+    (void)setsockopt(descriptor, SOL_SOCKET, SO_RCVBUF,
+                     &buffer_bytes, sizeof(buffer_bytes));
     return descriptor;
 }
 

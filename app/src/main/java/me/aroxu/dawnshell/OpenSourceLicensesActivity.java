@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.res.AssetManager;
 import android.os.Bundle;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -92,13 +91,11 @@ public final class OpenSourceLicensesActivity extends AppCompatActivity {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(
                 Context.CLIPBOARD_SERVICE);
         if (clipboard == null) {
-            Toast.makeText(this, R.string.bfu_clipboard_unavailable,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_clipboard_unavailable);
             return;
         }
         clipboard.setPrimaryClip(ClipData.newPlainText(
                 getString(R.string.dawnshell_open_source_licenses), displayedText));
-        Toast.makeText(this, R.string.dawnshell_licenses_copied,
-                Toast.LENGTH_SHORT).show();
+        DawnShellNotice.show(this, R.string.dawnshell_licenses_copied);
     }
 }

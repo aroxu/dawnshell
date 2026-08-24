@@ -56,6 +56,11 @@ final class HardwareCodecBroker implements Closeable {
 
     private static final String TAG = "DawnShellCodec";
     private static final int PEER_TIMEOUT_MS = 30_000;
+    /** Holds one maximum media record plus its framing header. */
+    private static final int SOCKET_BUFFER_BYTES =
+            HardwareCodecProtocol.MAX_MEDIA_PAYLOAD + 64 * 1024;
+    /** Bounded write size that stays below conservative socket buffers. */
+    private static final int SOCKET_CHUNK_BYTES = 8 * 1024;
 
     private final Context context;
     private final ExecutorService acceptExecutor = Executors.newSingleThreadExecutor();
@@ -165,6 +170,10 @@ final class HardwareCodecBroker implements Closeable {
              DataOutputStream output = new DataOutputStream(new BufferedOutputStream(
                      peer.getOutputStream()))) {
             peer.setSoTimeout(PEER_TIMEOUT_MS);
+            // LocalSocket defaults to a small kernel buffer, so a single large
+            // media record fails with EMSGSIZE ("Message too long"). Raise both
+            // directions to hold one maximum-size framed record.
+            configureSocketBuffers(peer);
             HardwareCodecProbe.recordBrokerEvent(context, "PEER_CONNECTED uid="
                     + uid + " pid=" + pid);
             while (!closed.get()) {
@@ -195,6 +204,20 @@ final class HardwareCodecBroker implements Closeable {
             activePeers.decrementAndGet();
             HardwareCodecProbe.recordBrokerEvent(context, "PEER_CLOSED uid="
                     + uid + " pid=" + pid);
+        }
+    }
+
+    private static void configureSocketBuffers(LocalSocket peer) {
+        try {
+            if (peer.getSendBufferSize() < SOCKET_BUFFER_BYTES) {
+                peer.setSendBufferSize(SOCKET_BUFFER_BYTES);
+            }
+            if (peer.getReceiveBufferSize() < SOCKET_BUFFER_BYTES) {
+                peer.setReceiveBufferSize(SOCKET_BUFFER_BYTES);
+            }
+        } catch (IOException | RuntimeException e) {
+            // A kernel that caps the buffer still works through short writes.
+            Log.w(TAG, "Could not enlarge codec socket buffers", e);
         }
     }
 
@@ -810,7 +833,12 @@ final class HardwareCodecBroker implements Closeable {
         output.writeInt(payload.length);
         output.writeInt(requestId);
         output.writeInt(status);
-        output.write(payload);
+        // A single large write can exceed the kernel socket buffer and fail
+        // with EMSGSIZE, so media payloads are written in bounded chunks.
+        for (int offset = 0; offset < payload.length; offset += SOCKET_CHUNK_BYTES) {
+            output.write(payload, offset,
+                    Math.min(SOCKET_CHUNK_BYTES, payload.length - offset));
+        }
         output.flush();
     }
 

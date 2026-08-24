@@ -35,7 +35,6 @@ import android.widget.LinearLayout;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -172,8 +171,7 @@ public class BootActivity extends AppCompatActivity {
                 || resultCode != RESULT_OK || data == null) return;
         Uri destination = data.getData();
         if (destination == null) {
-            Toast.makeText(this, R.string.bfu_private_key_export_failed,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_private_key_export_failed);
             return;
         }
         try {
@@ -186,13 +184,12 @@ public class BootActivity extends AppCompatActivity {
                 output.flush();
             }
             recordOperation("SSH_CLIENT_PRIVATE_KEY_EXPORTED destination=document_provider");
-            Toast.makeText(this, R.string.bfu_private_key_exported,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_private_key_exported);
         } catch (IOException e) {
             recordOperation("SSH_CLIENT_PRIVATE_KEY_EXPORT_FAILED "
                     + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(R.string.bfu_private_key_export_failed_detail,
-                    e.getMessage()), Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_private_key_export_failed_detail,
+                    e.getMessage()));
         }
     }
 
@@ -679,8 +676,7 @@ public class BootActivity extends AppCompatActivity {
 
     private void confirmRotateSshClientKey() {
         if (!isUserUnlocked()) {
-            Toast.makeText(this, R.string.bfu_ssh_key_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_ssh_key_requires_unlock);
             return;
         }
         new MaterialAlertDialogBuilder(this)
@@ -708,15 +704,14 @@ public class BootActivity extends AppCompatActivity {
         } catch (IOException e) {
             recordOperation("SSH_CLIENT_KEY_ROTATE_FAILED "
                     + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(R.string.bfu_generated_key_failed,
-                    e.getMessage()), Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_generated_key_failed,
+                    e.getMessage()));
         }
     }
 
     private void confirmPrivateKeyFileExport() {
         if (!isUserUnlocked()) {
-            Toast.makeText(this, R.string.bfu_ssh_key_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_ssh_key_requires_unlock);
             return;
         }
         new MaterialAlertDialogBuilder(this)
@@ -738,8 +733,7 @@ public class BootActivity extends AppCompatActivity {
 
     private void confirmCopyKeyImportCommand() {
         if (!isUserUnlocked()) {
-            Toast.makeText(this, R.string.bfu_ssh_key_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_ssh_key_requires_unlock);
             return;
         }
         new MaterialAlertDialogBuilder(this)
@@ -760,8 +754,8 @@ public class BootActivity extends AppCompatActivity {
         } catch (IOException e) {
             recordOperation("SSH_CLIENT_KEY_IMPORT_COPY_FAILED "
                     + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(R.string.bfu_generated_key_failed,
-                    e.getMessage()), Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_generated_key_failed,
+                    e.getMessage()));
         }
     }
 
@@ -798,12 +792,11 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void copySshClientCommand(String operation, String command,
-                                      int toastMessage) {
+                                      int noticeMessage) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(
                 Context.CLIPBOARD_SERVICE);
         if (clipboard == null) {
-            Toast.makeText(this, R.string.bfu_clipboard_unavailable,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_clipboard_unavailable);
             recordOperation("SSH_CLIENT_COMMAND_COPY_FAILED type=" + operation
                     + " clipboard_unavailable=true");
             return;
@@ -816,7 +809,7 @@ public class BootActivity extends AppCompatActivity {
         }
         clipboard.setPrimaryClip(clip);
         recordOperation("SSH_CLIENT_COMMAND_COPIED type=" + operation);
-        Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show();
+        DawnShellNotice.show(this, noticeMessage);
     }
 
     private void loadSettings() {
@@ -931,20 +924,17 @@ public class BootActivity extends AppCompatActivity {
             } else {
                 HardwareCodecService.stop(this);
             }
-            Toast.makeText(this, getString(R.string.bfu_saved, layout.root),
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_saved, layout.root));
         } catch (IOException | IllegalStateException e) {
             recordOperation("PROVISION_FAILED " + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(R.string.bfu_provision_failed, e.getMessage()),
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_provision_failed, e.getMessage()));
         }
     }
 
     private void confirmRootAuthorization() {
         if (!isUserUnlocked()) {
             recordOperation("ROOT_AUTHORIZATION_REJECTED user_locked=true");
-            Toast.makeText(this, R.string.bfu_root_authorization_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_root_authorization_requires_unlock);
             return;
         }
 
@@ -1063,14 +1053,12 @@ public class BootActivity extends AppCompatActivity {
     private void confirmDebianInstall() {
         if (!enableBfu.isChecked()) {
             recordOperation("DEBIAN_INSTALL_REJECTED bfu_disabled=true");
-            Toast.makeText(this, R.string.bfu_install_requires_enabled,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
             return;
         }
         if (!isUserUnlocked()) {
             recordOperation("DEBIAN_INSTALL_REJECTED user_locked=true");
-            Toast.makeText(this, R.string.bfu_install_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_install_requires_unlock);
             return;
         }
 
@@ -1086,8 +1074,7 @@ public class BootActivity extends AppCompatActivity {
     private void confirmDebianRootfsRemoval() {
         if (!isUserUnlocked()) {
             recordOperation("DEBIAN_ROOTFS_REMOVE_REJECTED user_locked=true");
-            Toast.makeText(this, R.string.bfu_remove_rootfs_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_remove_rootfs_requires_unlock);
             return;
         }
         new MaterialAlertDialogBuilder(this)
@@ -1114,16 +1101,13 @@ public class BootActivity extends AppCompatActivity {
                             String value = confirmation.getText().toString();
                             confirmation.setText("");
                             if (!"DELETE".equals(value)) {
-                                Toast.makeText(this,
-                                        R.string.bfu_remove_rootfs_confirmation_mismatch,
-                                        Toast.LENGTH_LONG).show();
+                                DawnShellNotice.show(this, R.string.bfu_remove_rootfs_confirmation_mismatch);
                                 return;
                             }
                             BfuBootService.requestDebianRootfsRemoval(this);
                             recordOperation("DEBIAN_ROOTFS_REMOVE_REQUESTED "
                                     + "root=/data/local/debian");
-                            Toast.makeText(this, R.string.bfu_remove_rootfs_requested,
-                                    Toast.LENGTH_LONG).show();
+                            DawnShellNotice.show(this, R.string.bfu_remove_rootfs_requested);
                         })
                 .show();
     }
@@ -1137,27 +1121,23 @@ public class BootActivity extends AppCompatActivity {
             recordOperation("DEBIAN_INSTALL_REQUESTED suite=trixie architecture="
                     + layout.architecture.debianArchitecture
                     + " android_abi=" + layout.architecture.androidAbi);
-            Toast.makeText(this, R.string.bfu_install_requested,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_install_requested);
             refreshInstallerStatus();
         } catch (IOException | IllegalStateException e) {
             recordOperation("DEBIAN_INSTALL_REQUEST_FAILED " + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(R.string.bfu_provision_failed, e.getMessage()),
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_provision_failed, e.getMessage()));
         }
     }
 
     private void confirmSystemConfiguration() {
         if (!enableBfu.isChecked()) {
             recordOperation("DEBIAN_CONFIG_REJECTED bfu_disabled=true");
-            Toast.makeText(this, R.string.bfu_install_requires_enabled,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
             return;
         }
         if (!isUserUnlocked()) {
             recordOperation("DEBIAN_CONFIG_REJECTED user_locked=true");
-            Toast.makeText(this, R.string.bfu_system_config_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_system_config_requires_unlock);
             return;
         }
         new MaterialAlertDialogBuilder(this)
@@ -1179,29 +1159,25 @@ public class BootActivity extends AppCompatActivity {
             BfuBootService.requestDebianSystemConfiguration(this);
             recordOperation("DEBIAN_CONFIG_REQUESTED suite=trixie ssh_user=debian"
                     + " ssh_port=22 authorized_key_count=" + keyCount);
-            Toast.makeText(this, R.string.bfu_system_config_requested,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_system_config_requested);
             refreshSystemConfigurationStatus();
         } catch (IOException | IllegalStateException e) {
             recordOperation("DEBIAN_CONFIG_REQUEST_FAILED "
                     + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(
-                    R.string.bfu_system_config_request_failed, e.getMessage()),
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(
+                    R.string.bfu_system_config_request_failed, e.getMessage()));
         }
     }
 
     private void confirmDockerNetworkPolicy() {
         if (!enableBfu.isChecked()) {
             recordOperation("DOCKER_POLICY_REJECTED bfu_disabled=true");
-            Toast.makeText(this, R.string.bfu_install_requires_enabled,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
             return;
         }
         if (!isUserUnlocked()) {
             recordOperation("DOCKER_POLICY_REJECTED user_locked=true");
-            Toast.makeText(this, R.string.dawnshell_docker_policy_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_docker_policy_requires_unlock);
             return;
         }
         String policy = selectedDockerNetworkPolicy();
@@ -1220,14 +1196,12 @@ public class BootActivity extends AppCompatActivity {
     private void confirmHostUsbPolicy() {
         if (!enableBfu.isChecked()) {
             recordOperation("HOST_USB_POLICY_REJECTED bfu_disabled=true");
-            Toast.makeText(this, R.string.bfu_install_requires_enabled,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
             return;
         }
         if (!isUserUnlocked()) {
             recordOperation("HOST_USB_POLICY_REJECTED user_locked=true");
-            Toast.makeText(this, R.string.dawnshell_host_usb_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_host_usb_requires_unlock);
             return;
         }
         new MaterialAlertDialogBuilder(this)
@@ -1248,21 +1222,19 @@ public class BootActivity extends AppCompatActivity {
                     + selectedUsbPassthroughMode()
                     + " device_ids="
                     + BfuPreferences.usbExclusiveDeviceIds(this));
-            Toast.makeText(this, R.string.dawnshell_host_usb_policy_requested,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_host_usb_policy_requested);
         } catch (IOException | IllegalStateException e) {
             recordOperation("HOST_USB_POLICY_REQUEST_FAILED "
                     + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(R.string.bfu_provision_failed,
-                    e.getMessage()), Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_provision_failed,
+                    e.getMessage()));
         }
     }
 
     private void applyHardwareCodecSetting() {
         if (hardwareCodecBridge.isChecked() && !enableBfu.isChecked()) {
             recordOperation("HARDWARE_CODEC_REJECTED bfu_disabled=true");
-            Toast.makeText(this, R.string.dawnshell_codec_requires_bfu,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_codec_requires_bfu);
             return;
         }
         try {
@@ -1271,20 +1243,18 @@ public class BootActivity extends AppCompatActivity {
                 BfuBootService.requestHardwareCodecProbe(this);
                 recordOperation("HARDWARE_CODEC_PROBE_REQUESTED user_unlocked="
                         + isUserUnlocked());
-                Toast.makeText(this, R.string.dawnshell_codec_probe_requested,
-                        Toast.LENGTH_LONG).show();
+                DawnShellNotice.show(this, R.string.dawnshell_codec_probe_requested);
             } else {
                 HardwareCodecService.stop(this);
                 recordOperation("HARDWARE_CODEC_SERVICE_STOP_REQUESTED");
-                Toast.makeText(this, R.string.dawnshell_codec_disabled,
-                        Toast.LENGTH_SHORT).show();
+                DawnShellNotice.show(this, R.string.dawnshell_codec_disabled);
             }
             refreshHardwareCodecStatus();
         } catch (IllegalStateException e) {
             recordOperation("HARDWARE_CODEC_REQUEST_FAILED "
                     + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(R.string.bfu_provision_failed,
-                    e.getMessage()), Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_provision_failed,
+                    e.getMessage()));
         }
     }
 
@@ -1299,8 +1269,7 @@ public class BootActivity extends AppCompatActivity {
     private void confirmHardwareCodecLongRun() {
         if (!hardwareCodecBridge.isChecked()
                 || !BfuPreferences.hardwareCodecBridge(this)) {
-            Toast.makeText(this, R.string.dawnshell_codec_self_test_requires_setup,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_requires_setup);
             return;
         }
         new MaterialAlertDialogBuilder(this)
@@ -1318,8 +1287,7 @@ public class BootActivity extends AppCompatActivity {
         if (operation == HardwareCodecLongRun.Operation.START
                 && (!hardwareCodecBridge.isChecked()
                 || !BfuPreferences.hardwareCodecBridge(this))) {
-            Toast.makeText(this, R.string.dawnshell_codec_self_test_requires_setup,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_requires_setup);
             return;
         }
         final BfuRuntime.Layout layout;
@@ -1327,8 +1295,8 @@ public class BootActivity extends AppCompatActivity {
             layout = BfuRuntime.provision(this);
         } catch (IOException | IllegalStateException e) {
             HardwareCodecLongRun.recordFailure(this, operation, e.getMessage());
-            Toast.makeText(this, getString(R.string.dawnshell_codec_long_run_failed,
-                    BfuSu.sanitize(e.getMessage())), Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.dawnshell_codec_long_run_failed,
+                    BfuSu.sanitize(e.getMessage())));
             return;
         }
         if (operation == HardwareCodecLongRun.Operation.START) {
@@ -1337,10 +1305,9 @@ public class BootActivity extends AppCompatActivity {
         codecControlInProgress = true;
         hardwareCodecLongRunStartButton.setEnabled(false);
         hardwareCodecLongRunStopButton.setEnabled(false);
-        Toast.makeText(this, operation == HardwareCodecLongRun.Operation.START
+        DawnShellNotice.show(this, operation == HardwareCodecLongRun.Operation.START
                         ? R.string.dawnshell_codec_long_run_start_requested
-                        : R.string.dawnshell_codec_long_run_stop_requested,
-                Toast.LENGTH_SHORT).show();
+                        : R.string.dawnshell_codec_long_run_stop_requested);
         codecControlExecutor.execute(() -> {
             boolean passed = false;
             String output;
@@ -1374,7 +1341,7 @@ public class BootActivity extends AppCompatActivity {
                 String message = successful
                         ? getString(R.string.dawnshell_codec_long_run_control_succeeded)
                         : getString(R.string.dawnshell_codec_long_run_failed, summary);
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                DawnShellNotice.show(this, message);
             });
         });
     }
@@ -1383,8 +1350,7 @@ public class BootActivity extends AppCompatActivity {
         if (codecSelfTestInProgress) return;
         if (!hardwareCodecBridge.isChecked()
                 || !BfuPreferences.hardwareCodecBridge(this)) {
-            Toast.makeText(this, R.string.dawnshell_codec_self_test_requires_setup,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_requires_setup);
             return;
         }
         final BfuRuntime.Layout codecLayout;
@@ -1400,20 +1366,18 @@ public class BootActivity extends AppCompatActivity {
             recordOperation("HARDWARE_CODEC_"
                     + (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
                     + "FAILED runtime_provisioning " + detail);
-            Toast.makeText(this, getString(performance
+            DawnShellNotice.show(this, getString(performance
                             ? R.string.dawnshell_codec_performance_test_failed
-                            : R.string.dawnshell_codec_self_test_failed),
-                    Toast.LENGTH_LONG).show();
+                            : R.string.dawnshell_codec_self_test_failed));
             refreshHardwareCodecStatus();
             return;
         }
         codecSelfTestInProgress = true;
         hardwareCodecSelfTestButton.setEnabled(false);
         hardwareCodecPerformanceTestButton.setEnabled(false);
-        Toast.makeText(this, performance
+        DawnShellNotice.show(this, performance
                         ? R.string.dawnshell_codec_performance_test_started
-                        : R.string.dawnshell_codec_self_test_started,
-                Toast.LENGTH_SHORT).show();
+                        : R.string.dawnshell_codec_self_test_started);
         HardwareCodecService.ensureStarted(this, false);
         codecSelfTestExecutor.execute(() -> {
             String output;
@@ -1483,11 +1447,10 @@ public class BootActivity extends AppCompatActivity {
                 if (finalMissingTools) {
                     failedText = R.string.dawnshell_codec_tools_missing;
                 }
-                // A toast truncates long codec output, so it only reports the
-                // outcome; the full detail stays in the hardware codec log.
-                Toast.makeText(this, getString(
-                                finalPassed ? passedText : failedText),
-                        Toast.LENGTH_LONG).show();
+                // The notice reports the outcome only; the full codec output
+                // stays in the hardware codec log, where it can be copied.
+                DawnShellNotice.show(this, getString(
+                                finalPassed ? passedText : failedText));
             });
         });
     }
@@ -1502,14 +1465,13 @@ public class BootActivity extends AppCompatActivity {
                     + " android_network_namespace=shared"
                     + " host_ipc_compatibility="
                     + dockerHostIpcCompatibility.isChecked());
-            Toast.makeText(this, R.string.dawnshell_docker_policy_requested,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.dawnshell_docker_policy_requested);
             refreshDockerPolicyStatus();
         } catch (IOException | IllegalStateException e) {
             recordOperation("DOCKER_POLICY_REQUEST_FAILED "
                     + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(R.string.bfu_provision_failed,
-                    e.getMessage()), Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_provision_failed,
+                    e.getMessage()));
         }
     }
 
@@ -1520,8 +1482,7 @@ public class BootActivity extends AppCompatActivity {
             recordOperation("DEBIAN_LIFECYCLE_REJECTED operation="
                     + operation.name().toLowerCase(java.util.Locale.US)
                     + " bfu_disabled=true");
-            Toast.makeText(this, R.string.bfu_install_requires_enabled,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
             return;
         }
         try {
@@ -1531,15 +1492,14 @@ public class BootActivity extends AppCompatActivity {
             BfuBootService.requestDebianLifecycle(this, operation);
             recordOperation("DEBIAN_LIFECYCLE_REQUESTED operation="
                     + operation.name().toLowerCase(java.util.Locale.US));
-            Toast.makeText(this, getString(R.string.bfu_lifecycle_requested,
-                    operation.name()), Toast.LENGTH_SHORT).show();
+            DawnShellNotice.show(this, getString(R.string.bfu_lifecycle_requested,
+                    operation.name()));
             refreshLifecycleStatus();
         } catch (IOException | IllegalStateException e) {
             recordOperation("DEBIAN_LIFECYCLE_REQUEST_FAILED operation="
                     + operation.name() + " " + BfuSu.sanitize(e.getMessage()));
-            Toast.makeText(this, getString(
-                    R.string.bfu_lifecycle_request_failed, e.getMessage()),
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(
+                    R.string.bfu_lifecycle_request_failed, e.getMessage()));
         }
     }
 
@@ -1643,15 +1603,13 @@ public class BootActivity extends AppCompatActivity {
     private void updateDebianPassword(String account, EditText passwordEditor,
                                       EditText confirmationEditor) {
         if (!isUserUnlocked()) {
-            Toast.makeText(this, R.string.bfu_password_requires_unlock,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_password_requires_unlock);
             recordOperation("DEBIAN_PASSWORD_REJECTED account=" + account
                     + " user_locked=true");
             return;
         }
         if (passwordUpdateInProgress) {
-            Toast.makeText(this, R.string.bfu_password_busy,
-                    Toast.LENGTH_SHORT).show();
+            DawnShellNotice.show(this, R.string.bfu_password_busy);
             return;
         }
 
@@ -1664,8 +1622,7 @@ public class BootActivity extends AppCompatActivity {
         if (!Arrays.equals(password, confirmation)) {
             Arrays.fill(password, '\0');
             Arrays.fill(confirmation, '\0');
-            Toast.makeText(this, R.string.bfu_password_mismatch,
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, R.string.bfu_password_mismatch);
             recordOperation("DEBIAN_PASSWORD_REJECTED account=" + account
                     + " confirmation_mismatch=true");
             return;
@@ -1706,17 +1663,16 @@ public class BootActivity extends AppCompatActivity {
         if (result != null && result.succeeded()) {
             recordOperation("DEBIAN_PASSWORD_UPDATED account=" + account
                     + " command=" + result.command + " exit=0 timeout=false");
-            Toast.makeText(this, getString(
-                    R.string.bfu_password_updated, account), Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(
+                    R.string.bfu_password_updated, account));
         } else {
             String safeFailure = result == null
                     ? (failure == null ? "unknown failure" : failure)
                     : result.summary();
             recordOperation("DEBIAN_PASSWORD_FAILED account=" + account
                     + " " + safeFailure);
-            Toast.makeText(this, getString(
-                    R.string.bfu_password_failed, account, safeFailure),
-                    Toast.LENGTH_LONG).show();
+            DawnShellNotice.show(this, getString(
+                    R.string.bfu_password_failed, account, safeFailure));
         }
     }
 
