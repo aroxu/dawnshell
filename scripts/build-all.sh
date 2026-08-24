@@ -26,15 +26,19 @@ fi
 "$root_dir/scripts/test-compatibility-policy.sh"
 "$root_dir/scripts/test-docker-ipc-wrapper.sh"
 "$root_dir/scripts/test-host-usb-policy.sh"
+"$root_dir/scripts/test-hardware-codec-bridge.sh"
 "$root_dir/scripts/test-rootfs-path-resolution.sh"
 "$root_dir/scripts/test-lifecycle-control-policy.sh"
 "$root_dir/gradlew" -p "$root_dir" \
   clean :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
 
 mkdir -p "$dist_dir"
-cp "$root_dir/app/build/outputs/apk/debug/dawnshell-app_v0.2.2+debug.apk" \
-   "$dist_dir/dawnshell_0.2.2_debug.apk"
+apk_path="$(find "$root_dir/app/build/outputs/apk/debug" -maxdepth 1 \
+    -type f -name '*.apk' -print -quit)"
+[[ -n "$apk_path" && -s "$apk_path" ]]
+output_apk="$dist_dir/$(basename "$apk_path")"
+cp "$apk_path" "$output_apk"
 
-sha256sum "$dist_dir/dawnshell_0.2.2_debug.apk"
+sha256sum "$output_apk"
 echo "Package: me.aroxu.dawnshell"
 echo "Debug APK uses a public development key; use a private key for production."

@@ -86,6 +86,7 @@ esac
 [ -x "$ROOT/bin/bash" ] || fail 15 "rootfs has no executable /bin/bash"
 [ -f "$AUTHORIZED_KEYS" ] || fail 16 "save at least one SSH public key first"
 [ ! -L "$AUTHORIZED_KEYS" ] || fail 16 "authorized_keys symlinks are forbidden"
+[ -x "$BIN/dawnshell-codec" ] || fail 16 "source-built hardware codec client is missing"
 
 key_size="$(stat -c '%s' "$AUTHORIZED_KEYS")"
 case "$key_size" in
@@ -158,6 +159,18 @@ mkdir -p "$ROOT/run/lock"
 cp "$AUTHORIZED_KEYS" "$ROOT/run/dawnshell-authorized-keys"
 chmod 0600 "$ROOT/run/dawnshell-authorized-keys"
 chown 0:0 "$ROOT/run/dawnshell-authorized-keys"
+
+# The client is a static Android ELF, so it remains executable inside the
+# Debian chroot without exposing /system or app-private libraries.
+mkdir -p "$ROOT/usr/local/bin"
+if [ -L "$ROOT/usr/local" ] || [ -L "$ROOT/usr/local/bin" ]; then
+    fail 18 "rootfs codec client destination is a symlink"
+fi
+cp "$BIN/dawnshell-codec" "$ROOT/usr/local/bin/dawnshell-codec.new"
+chown 0:0 "$ROOT/usr/local/bin/dawnshell-codec.new"
+chmod 0755 "$ROOT/usr/local/bin/dawnshell-codec.new"
+mv "$ROOT/usr/local/bin/dawnshell-codec.new" \
+    "$ROOT/usr/local/bin/dawnshell-codec"
 
 dns="$(getprop net.dns1 2>/dev/null || true)"
 case "$dns" in
@@ -253,6 +266,10 @@ for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
         exit 35
     }
 done
+[ -x /usr/local/bin/dawnshell-codec ] || {
+    echo "ERROR: DawnShell hardware codec client is missing"
+    exit 35
+}
 
 install -d -m 0755 -o root -g root /usr/local/sbin
 cat > /usr/local/sbin/reboot <<'EOF_HOST_REBOOT'
@@ -437,6 +454,7 @@ boot_proof_service=dawnshell-boot-proof.service
 ssh_user=debian
 ssh_port=22
 host_reboot_bridge=/usr/local/sbin/reboot
+hardware_codec_client=/usr/local/bin/dawnshell-codec
 configured_epoch=$(date +%s)
 EOF_READY
 chown 0:0 "${READY_MARKER}.new"

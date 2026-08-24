@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
+import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,6 +38,7 @@ public final class HardwareCodecService extends Service {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean probeRunning = new AtomicBoolean(false);
+    private HardwareCodecBroker broker;
 
     static void ensureStarted(Context context, boolean bootRetry) {
         Intent intent = new Intent(context, HardwareCodecService.class)
@@ -70,6 +72,13 @@ public final class HardwareCodecService extends Service {
             Log.i(TAG, "Hardware codec service stopped because the opt-in is disabled");
             stopSelf();
             return START_NOT_STICKY;
+        }
+        try {
+            ensureBrokerStarted();
+        } catch (IOException e) {
+            Log.e(TAG, "Could not start hardware codec local broker", e);
+            HardwareCodecProbe.recordBrokerEvent(this,
+                    "START_FAILED error=" + BfuSu.sanitize(e.getMessage()));
         }
         boolean retry = ACTION_BOOT.equals(action);
         if (probeRunning.compareAndSet(false, true)) {
@@ -108,6 +117,12 @@ public final class HardwareCodecService extends Service {
 
     @Override
     public void onDestroy() {
+        synchronized (this) {
+            if (broker != null) {
+                broker.close();
+                broker = null;
+            }
+        }
         executor.shutdownNow();
         stopForeground(true);
         super.onDestroy();
@@ -116,6 +131,18 @@ public final class HardwareCodecService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    private synchronized void ensureBrokerStarted() throws IOException {
+        if (broker != null) return;
+        HardwareCodecBroker candidate = new HardwareCodecBroker(this);
+        try {
+            candidate.start();
+            broker = candidate;
+        } catch (IOException | RuntimeException e) {
+            candidate.close();
+            throw e;
+        }
     }
 
     private Notification buildNotification() {

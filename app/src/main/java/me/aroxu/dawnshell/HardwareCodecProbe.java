@@ -42,6 +42,7 @@ final class HardwareCodecProbe {
     private static final String STATUS_FILE = "probe.status";
     private static final String LOG_FILE = "probe.log";
     private static final String CAPABILITIES_FILE = "capabilities.json";
+    private static final String BROKER_STATUS_FILE = "broker.status";
     private static final int MAX_LOG_BYTES = 128 * 1024;
     private static final int ROTATE_LOG_BYTES = 512 * 1024;
     private static final Object FILE_LOCK = new Object();
@@ -168,6 +169,11 @@ final class HardwareCodecProbe {
                 CAPABILITIES_FILE), 512 * 1024);
     }
 
+    static String readBrokerStatus(Context context) throws IOException {
+        return readSmallFile(file(BfuPreferences.deviceProtectedContext(context),
+                BROKER_STATUS_FILE), 16 * 1024);
+    }
+
     static String readLogTail(Context context) throws IOException {
         File log = file(BfuPreferences.deviceProtectedContext(context), LOG_FILE);
         if (!log.isFile()) return "";
@@ -187,6 +193,50 @@ final class HardwareCodecProbe {
                         StandardCharsets.UTF_8);
                 return start > 0L ? "… earlier log omitted …\n" + value : value;
             }
+        }
+    }
+
+    static CodecSelection selectHardwareCodec(String mime, boolean encoder) {
+        List<CodecSelection> selections = selectHardwareCodecs(mime, encoder);
+        return selections.isEmpty() ? null : selections.get(0);
+    }
+
+    static List<CodecSelection> selectHardwareCodecs(String mime, boolean encoder) {
+        List<CodecSelection> selections = new ArrayList<>();
+        MediaCodecInfo[] infos = new MediaCodecList(
+                MediaCodecList.ALL_CODECS).getCodecInfos();
+        for (MediaCodecInfo info : infos) {
+            if (info.isEncoder() != encoder || isSecureCodec(info.getName())) continue;
+            Classification classification = classify(info);
+            if (!classification.usableAsHardware()) continue;
+            for (String type : info.getSupportedTypes()) {
+                if (mime.equalsIgnoreCase(type)) {
+                    int[] colorFormats = new int[0];
+                    try {
+                        colorFormats = info.getCapabilitiesForType(type)
+                                .colorFormats.clone();
+                    } catch (RuntimeException ignored) {
+                        // Session configuration will still try this codec.
+                    }
+                    selections.add(new CodecSelection(info.getName(),
+                            classification.source, colorFormats));
+                    break;
+                }
+            }
+        }
+        return selections;
+    }
+
+    static void recordBrokerEvent(Context context, String value) {
+        append(BfuPreferences.deviceProtectedContext(context), "BROKER " + value);
+    }
+
+    static void writeBrokerStatus(Context context, String value) {
+        try {
+            writeAtomic(file(BfuPreferences.deviceProtectedContext(context),
+                    BROKER_STATUS_FILE), clean(value) + "\n");
+        } catch (IOException | RuntimeException e) {
+            Log.e(TAG, "Could not persist codec broker status", e);
         }
     }
 
@@ -445,6 +495,18 @@ final class HardwareCodecProbe {
         Result(boolean passed, String summary) {
             this.passed = passed;
             this.summary = summary;
+        }
+    }
+
+    static final class CodecSelection {
+        final String name;
+        final String classification;
+        final int[] colorFormats;
+
+        CodecSelection(String name, String classification, int[] colorFormats) {
+            this.name = name;
+            this.classification = classification;
+            this.colorFormats = colorFormats;
         }
     }
 

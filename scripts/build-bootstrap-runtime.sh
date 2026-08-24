@@ -217,6 +217,31 @@ validate_elf() {
     fi
 }
 
+validate_static_elf() {
+    local binary="$1"
+    local machine_pattern="$2"
+
+    "$llvm_readelf" -h "$binary" \
+        | grep -E "Machine:[[:space:]]+$machine_pattern" >/dev/null
+    "$llvm_readelf" -h "$binary" \
+        | grep -E 'Type:[[:space:]]+EXEC' >/dev/null
+    if "$llvm_readelf" -l "$binary" | grep -F 'Requesting program interpreter' \
+            >/dev/null; then
+        echo "Static codec client unexpectedly has a program interpreter" >&2
+        exit 5
+    fi
+    if "$llvm_readelf" -d "$binary" | grep -F 'Shared library:' >/dev/null; then
+        echo "Static codec client unexpectedly has shared dependencies" >&2
+        exit 5
+    fi
+    if "$llvm_strings" "$binary" \
+            | grep -E '/data/(data|user|user_de)/[^/ ]+|[A-Za-z]:/Users/' \
+                >/dev/null; then
+        echo "Forbidden fixed data or host path embedded in $binary" >&2
+        exit 6
+    fi
+}
+
 merge_busybox_config() {
     local source_root="$1"
     local fragment="$repo_dir/bfu-runtime/config/busybox-bootstrap.config"
@@ -421,6 +446,18 @@ build_namespace_probe() {
     chmod 700 "$stage/bfu-namespace-probe"
 }
 
+build_codec_client() {
+    local stage="$1"
+    "$clang" "--target=$clang_target" \
+        -std=c17 -Os -static -fPIE -fstack-protector-strong \
+        -Wall -Wextra -Werror -Wformat=2 \
+        -Wl,-z,relro,-z,now -Wl,--gc-sections \
+        "$repo_dir/app/src/main/cpp/dawnshell_codec_client.c" \
+        -o "$stage/dawnshell-codec"
+    "$llvm_strip" --strip-unneeded "$stage/dawnshell-codec"
+    chmod 700 "$stage/dawnshell-codec"
+}
+
 build_architecture() {
     local abi="$1"
     local clang_target="$2"
@@ -438,11 +475,13 @@ build_architecture() {
     build_pkgdetails "$work" "$stage"
     build_gpgv "$work" "$stage"
     build_namespace_probe "$stage"
+    build_codec_client "$stage"
 
     local binary
     for binary in dawnshell-toolbox pkgdetails gpgv bfu-namespace-probe; do
         validate_elf "$stage/$binary" "$machine_pattern" "$interpreter"
     done
+    validate_static_elf "$stage/dawnshell-codec" "$machine_pattern"
 
     mkdir -p "$output_dir/$abi"
     install -m 700 "$stage/dawnshell-toolbox" \
@@ -451,6 +490,8 @@ build_architecture() {
     install -m 700 "$stage/gpgv" "$output_dir/$abi/gpgv"
     install -m 700 "$stage/bfu-namespace-probe" \
         "$output_dir/$abi/bfu-namespace-probe"
+    install -m 700 "$stage/dawnshell-codec" \
+        "$output_dir/$abi/dawnshell-codec"
 
     printf '%s\n' \
         "android_abi=$abi" \
@@ -459,9 +500,10 @@ build_architecture() {
         "busybox=1.38.0" \
         "pkgdetails_base_installer=1.226" \
         "gpgv=2.4.9" \
+        "dawnshell_codec_protocol=1" \
         > "$output_dir/$abi/runtime.properties"
 
-    sha256sum "$output_dir/$abi/"{dawnshell-toolbox,pkgdetails,gpgv,bfu-namespace-probe}
+    sha256sum "$output_dir/$abi/"{dawnshell-toolbox,pkgdetails,gpgv,bfu-namespace-probe,dawnshell-codec}
 }
 
 mkdir -p "$output_dir" "$bootstrap_assets_dir"

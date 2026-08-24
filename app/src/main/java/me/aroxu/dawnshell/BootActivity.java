@@ -1553,6 +1553,8 @@ public class BootActivity extends AppCompatActivity {
             if (status.isEmpty()) {
                 status = getString(R.string.dawnshell_codec_status_none);
             }
+            String broker = HardwareCodecProbe.readBrokerStatus(this);
+            if (!broker.isEmpty()) status = status + "\n" + broker;
             replaceConsoleText(hardwareCodecStatus, getString(
                     R.string.dawnshell_codec_status, compact(status, 520)), false);
         } catch (IOException | RuntimeException e) {

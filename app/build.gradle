@@ -120,7 +120,8 @@ task versionName {
 
 def bfuBootstrapAbis = ['armeabi-v7a', 'arm64-v8a', 'x86_64']
 def bfuBootstrapExecutables = [
-        'dawnshell-toolbox', 'pkgdetails', 'gpgv', 'bfu-namespace-probe']
+        'dawnshell-toolbox', 'pkgdetails', 'gpgv', 'bfu-namespace-probe',
+        'dawnshell-codec']
 def bfuBootstrapAssets = []
 bfuBootstrapAbis.each { abi ->
     bfuBootstrapExecutables.each { executable ->

@@ -124,7 +124,13 @@ DE 로그에는 codec 이름, capability와 오류만 저장하고 frame, bitstr
 
 ## 현재 상태
 
-M0/M1의 앱 측 기반이 구현되어 있습니다. 기본 비활성 옵션, 별도 `:codec`
-프로세스, API 24~28/29+ 분류, BFU bounded retry, DE 상태/로그/JSON 및 AVC/HEVC
-instance create/release probe가 포함됩니다. 실기기 BFU backend 검증, Debian IPC,
-frame 처리와 FFmpeg 통합은 아직 남아 있습니다.
+M0/M1 앱 측 기반과 M2 코드 경로가 구현되어 있습니다. M2에는 별도 `:codec`
+프로세스의 versioned abstract Unix socket broker, `SO_PEERCRED` root 인증, bounded
+binary framing, 실제 hardware session create/input/output/flush/EOS/close, peer 종료
+시 release, 그리고 `armeabi-v7a`/`arm64-v8a`/`x86_64` 정적 `dawnshell-codec` CLI가
+포함됩니다. CLI는 Debian `/usr/local/bin`에 설치되며 length-framed pipe 경로를
+제공합니다.
+
+실기기 BFU backend와 session create 통과 조건은 마지막 일괄 기기 시험에서
+검증합니다. M3 고정 H.264 vector 검증, shared-memory 전송, FFmpeg 통합과 zero-copy
+경로는 아직 남아 있습니다.

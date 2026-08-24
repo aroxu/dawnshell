@@ -36,6 +36,7 @@ final class BfuRuntime {
         final File toolboxBinary;
         final File gpgvBinary;
         final File pkgdetailsBinary;
+        final File codecClientBinary;
         final File rootfsInstallerScript;
         final File systemdConfiguratorScript;
         final File dockerNetworkConfiguratorScript;
@@ -66,6 +67,7 @@ final class BfuRuntime {
             toolboxBinary = new File(bin, "busybox");
             gpgvBinary = new File(bin, "gpgv");
             pkgdetailsBinary = new File(bin, "pkgdetails");
+            codecClientBinary = new File(bin, "dawnshell-codec");
             rootfsInstallerScript = new File(scripts, "install-debian-rootfs.sh");
             systemdConfiguratorScript = new File(scripts,
                     "configure-debian-systemd.sh");
@@ -113,6 +115,8 @@ final class BfuRuntime {
                 layout.gpgvBinary, true);
         copyPrivateAsset(deContext, abiAssets + "/pkgdetails",
                 layout.pkgdetailsBinary, true);
+        copyPrivateAsset(deContext, abiAssets + "/dawnshell-codec",
+                layout.codecClientBinary, true);
         copyPrivateAsset(deContext, abiAssets + "/runtime.properties",
                 layout.runtimeProperties, false);
         verifyRuntimeProperties(layout.runtimeProperties, layout.architecture);
@@ -218,7 +222,8 @@ final class BfuRuntime {
         if (!metadata.contains("android_abi=" + architecture.androidAbi + "\n")
                 || !metadata.contains("debian_architecture="
                 + architecture.debianArchitecture + "\n")
-                || !metadata.contains("android_api=24\n")) {
+                || !metadata.contains("android_api=24\n")
+                || !metadata.contains("dawnshell_codec_protocol=1\n")) {
             throw new IOException("BFU runtime metadata does not match the device ABI");
         }
     }
