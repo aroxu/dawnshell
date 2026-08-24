@@ -765,6 +765,10 @@ static int run_negative_test(int descriptor) {
     put_u32(frame_header + 12, frame_length);
     if (queue_input(descriptor, encoder_session_id, frame_header, frame,
                     frame_length) != 0) {
+        fprintf(stderr,
+                "dawnshell-codec: negative-test could not queue the baseline "
+                "encoder frame length=%" PRIu32 " shared_memory=%d: %s\n",
+                frame_length, shared_memory_supported, strerror(errno));
         free(frame);
         free(reversed_input);
         close_session(descriptor, encoder_session_id);
@@ -823,6 +827,18 @@ static int queue_input(int descriptor, uint64_t session_id,
             if (response.status == DSCB_AGAIN) {
                 free_response(&response);
                 usleep(2000);
+                /* The broker closes the received descriptor after every
+                   request, so a retry must carry a fresh one. */
+                close(shared_descriptor);
+                shared_descriptor = create_shared_memory(
+                        "dawnshell-codec-input", length);
+                if (shared_descriptor < 0
+                        || pwrite_all(shared_descriptor, data, length) != 0) {
+                    if (shared_descriptor >= 0) close(shared_descriptor);
+                    shared_descriptor = -1;
+                    result = 2;
+                    break;
+                }
                 continue;
             }
             if (response.status == DSCB_ERROR_UNSUPPORTED) {
@@ -835,7 +851,7 @@ static int queue_input(int descriptor, uint64_t session_id,
             free_response(&response);
             break;
         }
-        close(shared_descriptor);
+        if (shared_descriptor >= 0) close(shared_descriptor);
         if (result != 2) return result;
     }
     uint8_t *payload = malloc((size_t)length + 16);
