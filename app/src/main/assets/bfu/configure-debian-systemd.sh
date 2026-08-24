@@ -316,8 +316,9 @@ vector=/usr/local/share/dawnshell/avc-baseline-128x96-10fps.h264
 expected=777feb39bd92b899fc9cf7c184396e3ecec4fdbcd7a582fc560fc37011f18053
 temporary="$(mktemp /run/dawnshell-codec-i420.XXXXXX)"
 encoded="$(mktemp /run/dawnshell-codec-h264.XXXXXX)"
+transcoded="$(mktemp /run/dawnshell-codec-transcode.XXXXXX)"
 cleanup() {
-    rm -f "$temporary" "$encoded"
+    rm -f "$temporary" "$encoded" "$transcoded" "$transcoded.h264"
 }
 trap cleanup EXIT HUP INT TERM
 /usr/local/bin/dawnshell-codec decode-test "$vector" 128 96 10 10 > "$temporary"
@@ -337,6 +338,15 @@ encoded_frames="$(ffprobe -v error -count_frames -select_streams v:0 \
     exit 1
 }
 echo "DawnShell hardware AVC encode passed: frames=10 pts=exact ffmpeg_decode=passed"
+/usr/local/bin/dawnshell-hwtranscode "$vector" "$transcoded.h264" 1000000
+transcoded_frames="$(ffprobe -v error -count_frames -select_streams v:0 \
+    -show_entries stream=nb_read_frames -of default=nokey=1:noprint_wrappers=1 \
+    "$transcoded.h264")"
+[ "$transcoded_frames" = 10 ] || {
+    echo "hardware Surface transcode frame count mismatch: $transcoded_frames" >&2
+    exit 1
+}
+echo "DawnShell Surface zero-copy AVC transcode passed: frames=10"
 EOF_CODEC_SELF_TEST
 chmod 0755 /usr/local/bin/dawnshell-codec-self-test
 
@@ -449,6 +459,213 @@ echo "DawnShell hardware decode complete: frames=$frames output=$output"
 EOF_CODEC_FFMPEG
 chmod 0755 /usr/local/bin/dawnshell-hwdecode
 chown 0:0 /usr/local/bin/dawnshell-hwdecode
+
+cat > /usr/local/bin/dawnshell-hwencode <<'EOF_CODEC_FFMPEG_ENCODE'
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: dawnshell-hwencode INPUT OUTPUT [BITRATE]" >&2
+    echo "OUTPUT ending in .h264 keeps Annex-B; other outputs are muxed without re-encoding." >&2
+    exit 2
+}
+
+[ "$#" -eq 2 ] || [ "$#" -eq 3 ] || usage
+input="$1"
+output="$2"
+bit_rate="${3:-4000000}"
+[ -f "$input" ] || {
+    echo "dawnshell-hwencode: input is not a regular file: $input" >&2
+    exit 2
+}
+case "$bit_rate" in
+    ''|*[!0-9]*) usage ;;
+esac
+if [ "$bit_rate" -lt 1000 ] || [ "$bit_rate" -gt 100000000 ]; then
+    echo "dawnshell-hwencode: bitrate must be within 1000..100000000" >&2
+    exit 2
+fi
+
+temporary="$(mktemp -d /run/dawnshell-hwencode.XXXXXX)"
+cleanup() {
+    rm -rf -- "$temporary"
+}
+trap cleanup EXIT HUP INT TERM
+stream_info="$temporary/stream.txt"
+raw="$temporary/input.i420"
+framed_input="$temporary/framed-input.bin"
+framed_output="$temporary/framed-output.bin"
+annex_b="$temporary/output.h264"
+
+ffprobe -v error -select_streams v:0 \
+    -show_entries stream=width,height,avg_frame_rate \
+    -of default=noprint_wrappers=1 "$input" > "$stream_info"
+width="$(sed -n 's/^width=//p' "$stream_info" | head -n 1)"
+height="$(sed -n 's/^height=//p' "$stream_info" | head -n 1)"
+frame_rate="$(sed -n 's/^avg_frame_rate=//p' "$stream_info" | head -n 1)"
+case "$width:$height" in
+    *[!0-9:]*|:*|*:)
+        echo "dawnshell-hwencode: invalid video dimensions" >&2
+        exit 3
+        ;;
+esac
+if [ "$width" -lt 16 ] || [ "$height" -lt 16 ] || \
+    [ "$width" -gt 4096 ] || [ "$height" -gt 4096 ] || \
+    [ $((width % 2)) -ne 0 ] || [ $((height % 2)) -ne 0 ]; then
+    echo "dawnshell-hwencode: dimensions must be even and within 16..4096" >&2
+    exit 3
+fi
+integer_rate="$(printf '%s\n' "$frame_rate" | mawk -F/ '
+    NF == 2 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $2 != 0 {
+        rate = $1 / $2
+        if (rate >= 1 && rate <= 240) printf "%d\n", int(rate + 0.5)
+    }')"
+case "$integer_rate" in
+    ''|*[!0-9]*)
+        echo "dawnshell-hwencode: invalid average frame rate: ${frame_rate:-unknown}" >&2
+        exit 3
+        ;;
+esac
+
+echo "DawnShell hardware encode: codec=avc size=${width}x${height} rate=$frame_rate"
+ffmpeg -hide_banner -loglevel error -y -i "$input" -map 0:v:0 -an \
+    -pix_fmt yuv420p -f rawvideo "$raw"
+input_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 \
+    "$raw" "$width" "$height" "$frame_rate" "$framed_input")"
+/usr/local/bin/dawnshell-codec pipe encode avc "$width" "$height" \
+    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output"
+output_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
+    "$framed_output" "$annex_b")"
+[ "$input_frames" = "$output_frames" ] || {
+    echo "dawnshell-hwencode: frame count mismatch: $input_frames != $output_frames" >&2
+    exit 4
+}
+case "$output" in
+    *.h264|*.H264|*.264)
+        cp -- "$annex_b" "$output"
+        ;;
+    *)
+        ffmpeg -hide_banner -loglevel error -y -r "$frame_rate" -f h264 \
+            -i "$annex_b" -map 0:v:0 -an -c:v copy "$output"
+        ;;
+esac
+echo "DawnShell hardware encode complete: frames=$output_frames output=$output"
+EOF_CODEC_FFMPEG_ENCODE
+chmod 0755 /usr/local/bin/dawnshell-hwencode
+chown 0:0 /usr/local/bin/dawnshell-hwencode
+
+cat > /usr/local/bin/dawnshell-hwtranscode <<'EOF_CODEC_SURFACE_TRANSCODE'
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: dawnshell-hwtranscode INPUT OUTPUT [BITRATE]" >&2
+    echo "H.264/HEVC input is decoded to an Android Surface and encoded as H.264." >&2
+    exit 2
+}
+
+[ "$#" -eq 2 ] || [ "$#" -eq 3 ] || usage
+input="$1"
+output="$2"
+bit_rate="${3:-4000000}"
+[ -f "$input" ] || {
+    echo "dawnshell-hwtranscode: input is not a regular file: $input" >&2
+    exit 2
+}
+case "$bit_rate" in
+    ''|*[!0-9]*) usage ;;
+esac
+if [ "$bit_rate" -lt 1000 ] || [ "$bit_rate" -gt 100000000 ]; then
+    echo "dawnshell-hwtranscode: bitrate must be within 1000..100000000" >&2
+    exit 2
+fi
+
+temporary="$(mktemp -d /run/dawnshell-hwtranscode.XXXXXX)"
+cleanup() {
+    rm -rf -- "$temporary"
+}
+trap cleanup EXIT HUP INT TERM
+stream_info="$temporary/stream.txt"
+input_packets="$temporary/input-packets.json"
+annex_b="$temporary/input.bitstream"
+raw_packets="$temporary/raw-packets.json"
+framed_input="$temporary/framed-input.bin"
+framed_output="$temporary/framed-output.bin"
+encoded="$temporary/output.h264"
+
+ffprobe -v error -select_streams v:0 \
+    -show_entries stream=codec_name,width,height,avg_frame_rate \
+    -of default=noprint_wrappers=1 "$input" > "$stream_info"
+codec_name="$(sed -n 's/^codec_name=//p' "$stream_info" | head -n 1)"
+width="$(sed -n 's/^width=//p' "$stream_info" | head -n 1)"
+height="$(sed -n 's/^height=//p' "$stream_info" | head -n 1)"
+frame_rate="$(sed -n 's/^avg_frame_rate=//p' "$stream_info" | head -n 1)"
+case "$codec_name" in
+    h264)
+        input_codec=avc
+        bitstream_filter=h264_mp4toannexb
+        elementary_format=h264
+        ;;
+    hevc)
+        input_codec=hevc
+        bitstream_filter=hevc_mp4toannexb
+        elementary_format=hevc
+        ;;
+    *)
+        echo "dawnshell-hwtranscode: input codec must be H.264 or HEVC" >&2
+        exit 3
+        ;;
+esac
+case "$width:$height" in
+    *[!0-9:]*|:*|*:)
+        echo "dawnshell-hwtranscode: invalid video dimensions" >&2
+        exit 3
+        ;;
+esac
+if [ "$width" -lt 16 ] || [ "$height" -lt 16 ] || \
+    [ "$width" -gt 4096 ] || [ "$height" -gt 4096 ] || \
+    [ $((width % 2)) -ne 0 ] || [ $((height % 2)) -ne 0 ]; then
+    echo "dawnshell-hwtranscode: dimensions must be even and within 16..4096" >&2
+    exit 3
+fi
+integer_rate="$(printf '%s\n' "$frame_rate" | mawk -F/ '
+    NF == 2 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $2 != 0 {
+        rate = $1 / $2
+        if (rate >= 1 && rate <= 240) printf "%d\n", int(rate + 0.5)
+    }')"
+case "$integer_rate" in
+    ''|*[!0-9]*)
+        echo "dawnshell-hwtranscode: invalid frame rate: ${frame_rate:-unknown}" >&2
+        exit 3
+        ;;
+esac
+
+echo "DawnShell Surface transcode: ${codec_name}->h264 ${width}x${height} rate=$frame_rate"
+ffprobe -v error -select_streams v:0 -show_packets \
+    -show_entries packet=pts_time,dts_time -of json "$input" > "$input_packets"
+ffmpeg -hide_banner -loglevel error -y -i "$input" -map 0:v:0 -an \
+    -c:v copy -bsf:v "$bitstream_filter" -f "$elementary_format" "$annex_b"
+ffprobe -v error -f "$elementary_format" -show_packets \
+    -show_entries packet=pos,size -of json "$annex_b" > "$raw_packets"
+/usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
+    "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
+/usr/local/bin/dawnshell-codec transcode "$input_codec" avc "$width" "$height" \
+    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output"
+frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
+    "$framed_output" "$encoded")"
+case "$output" in
+    *.h264|*.H264|*.264)
+        cp -- "$encoded" "$output"
+        ;;
+    *)
+        ffmpeg -hide_banner -loglevel error -y -r "$frame_rate" -f h264 \
+            -i "$encoded" -map 0:v:0 -an -c:v copy "$output"
+        ;;
+esac
+echo "DawnShell Surface transcode complete: frames=$frames output=$output"
+EOF_CODEC_SURFACE_TRANSCODE
+chmod 0755 /usr/local/bin/dawnshell-hwtranscode
+chown 0:0 /usr/local/bin/dawnshell-hwtranscode
 
 install -d -m 0755 -o root -g root /usr/local/sbin
 cat > /usr/local/sbin/reboot <<'EOF_HOST_REBOOT'
@@ -622,6 +839,9 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ "$(systemctl --root=/ is-enabled ssh.service)" = enabled ]
 [ "$(systemctl --root=/ is-enabled dawnshell-boot-proof.service)" = enabled ]
 [ -x /usr/local/sbin/reboot ]
+[ -x /usr/local/bin/dawnshell-hwdecode ]
+[ -x /usr/local/bin/dawnshell-hwencode ]
+[ -x /usr/local/bin/dawnshell-hwtranscode ]
 
 cat > "${READY_MARKER}.new" <<EOF_READY
 format=1
@@ -635,6 +855,9 @@ ssh_port=22
 host_reboot_bridge=/usr/local/sbin/reboot
 hardware_codec_client=/usr/local/bin/dawnshell-codec
 hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test
+hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode
+hardware_codec_encode=/usr/local/bin/dawnshell-hwencode
+hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode
 configured_epoch=$(date +%s)
 EOF_READY
 chown 0:0 "${READY_MARKER}.new"

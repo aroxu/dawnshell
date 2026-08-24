@@ -29,7 +29,10 @@ public class HardwareCodecProtocolTest {
                 HardwareCodecProtocol.OUTPUT,
                 HardwareCodecProtocol.FLUSH,
                 HardwareCodecProtocol.EOS,
-                HardwareCodecProtocol.CLOSE
+                HardwareCodecProtocol.CLOSE,
+                HardwareCodecProtocol.INPUT_SHARED_MEMORY,
+                HardwareCodecProtocol.OUTPUT_SHARED_MEMORY,
+                HardwareCodecProtocol.CREATE_TRANSCODER
         };
         for (int type : types) {
             assertEquals(0, type & HardwareCodecProtocol.RESPONSE_BIT);

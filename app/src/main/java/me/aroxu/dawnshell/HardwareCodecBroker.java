@@ -8,6 +8,9 @@ import android.net.Credentials;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.Process;
+import android.system.ErrnoException;
+import android.system.Os;
+import android.view.Surface;
 import android.util.Log;
 import android.graphics.Rect;
 
@@ -22,6 +25,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.FileDescriptor;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -44,6 +48,7 @@ final class HardwareCodecBroker implements Closeable {
     private final ExecutorService peerExecutor = Executors.newFixedThreadPool(4);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicInteger activeSessions = new AtomicInteger(0);
+    private final AtomicInteger activeTranscoders = new AtomicInteger(0);
     private final AtomicLong nextSessionId = new AtomicLong(
             (System.currentTimeMillis() << 12) ^ Process.myPid());
     private LocalServerSocket server;
@@ -93,7 +98,7 @@ final class HardwareCodecBroker implements Closeable {
     }
 
     private void handlePeer(LocalSocket socket, Credentials credentials) {
-        Map<Long, CodecSession> sessions = new HashMap<>();
+        Map<Long, CodecBridgeSession> sessions = new HashMap<>();
         int uid = -1;
         int pid = -1;
         try (LocalSocket peer = socket;
@@ -109,7 +114,7 @@ final class HardwareCodecBroker implements Closeable {
             while (!closed.get()) {
                 Request request;
                 try {
-                    request = readRequest(input);
+                    request = readRequest(peer, input);
                 } catch (EOFException e) {
                     break;
                 } catch (ProtocolException e) {
@@ -117,7 +122,11 @@ final class HardwareCodecBroker implements Closeable {
                             e.status, textPayload(e.getMessage()));
                     break;
                 }
-                dispatch(request, sessions, output);
+                try {
+                    dispatch(request, sessions, output);
+                } finally {
+                    request.closeDescriptors();
+                }
             }
         } catch (IOException | RuntimeException e) {
             if (!closed.get()) {
@@ -125,13 +134,14 @@ final class HardwareCodecBroker implements Closeable {
                         + uid + " pid=" + pid + " error=" + safe(e));
             }
         } finally {
-            for (CodecSession session : sessions.values()) closeSession(session);
+            for (CodecBridgeSession session : sessions.values()) closeSession(session);
             HardwareCodecProbe.recordBrokerEvent(context, "PEER_CLOSED uid="
                     + uid + " pid=" + pid);
         }
     }
 
-    private Request readRequest(DataInputStream input) throws IOException, ProtocolException {
+    private Request readRequest(LocalSocket peer, DataInputStream input)
+            throws IOException, ProtocolException {
         int magic = input.readInt();
         int version = input.readUnsignedShort();
         int type = input.readUnsignedShort();
@@ -162,10 +172,26 @@ final class HardwareCodecBroker implements Closeable {
         }
         byte[] payload = new byte[payloadLength];
         input.readFully(payload);
-        return new Request(type, sessionId, requestId, payload);
+        FileDescriptor[] descriptors = peer.getAncillaryFileDescriptors();
+        boolean sharedMemoryRequest = type == HardwareCodecProtocol.INPUT_SHARED_MEMORY
+                || type == HardwareCodecProtocol.OUTPUT_SHARED_MEMORY;
+        if (sharedMemoryRequest) {
+            if (descriptors == null || descriptors.length != 1) {
+                closeDescriptors(descriptors);
+                throw new ProtocolException(type, sessionId, requestId,
+                        HardwareCodecProtocol.ERROR_PROTOCOL,
+                        "shared-memory request requires exactly one file descriptor");
+            }
+        } else if (descriptors != null && descriptors.length > 0) {
+            closeDescriptors(descriptors);
+            throw new ProtocolException(type, sessionId, requestId,
+                    HardwareCodecProtocol.ERROR_PROTOCOL,
+                    "file descriptors are forbidden for this request");
+        }
+        return new Request(type, sessionId, requestId, payload, descriptors);
     }
 
-    private void dispatch(Request request, Map<Long, CodecSession> sessions,
+    private void dispatch(Request request, Map<Long, CodecBridgeSession> sessions,
                           DataOutputStream output) throws IOException {
         try {
             switch (request.type) {
@@ -182,11 +208,20 @@ final class HardwareCodecBroker implements Closeable {
                 case HardwareCodecProtocol.CREATE:
                     create(request, sessions, output);
                     return;
+                case HardwareCodecProtocol.CREATE_TRANSCODER:
+                    createTranscoder(request, sessions, output);
+                    return;
                 case HardwareCodecProtocol.INPUT:
                     input(request, requireSession(request, sessions), output);
                     return;
                 case HardwareCodecProtocol.OUTPUT:
                     output(request, requireSession(request, sessions), output);
+                    return;
+                case HardwareCodecProtocol.INPUT_SHARED_MEMORY:
+                    inputSharedMemory(request, requireSession(request, sessions), output);
+                    return;
+                case HardwareCodecProtocol.OUTPUT_SHARED_MEMORY:
+                    outputSharedMemory(request, requireSession(request, sessions), output);
                     return;
                 case HardwareCodecProtocol.FLUSH:
                     requireEmpty(request);
@@ -199,7 +234,7 @@ final class HardwareCodecBroker implements Closeable {
                     return;
                 case HardwareCodecProtocol.CLOSE:
                     requireEmpty(request);
-                    CodecSession removed = sessions.remove(request.sessionId);
+                    CodecBridgeSession removed = sessions.remove(request.sessionId);
                     if (removed == null) throw sessionError("unknown session");
                     closeSession(removed);
                     writeResponse(output, request.type, request.sessionId,
@@ -223,7 +258,7 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private void create(Request request, Map<Long, CodecSession> sessions,
+    private void create(Request request, Map<Long, CodecBridgeSession> sessions,
                         DataOutputStream output) throws IOException, RequestException {
         if (request.sessionId != 0 || request.payload.length
                 != HardwareCodecProtocol.CREATE_PAYLOAD_BYTES) {
@@ -260,7 +295,53 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private void input(Request request, CodecSession session, DataOutputStream output)
+    private void createTranscoder(Request request,
+                                  Map<Long, CodecBridgeSession> sessions,
+                                  DataOutputStream output)
+            throws IOException, RequestException {
+        if (request.sessionId != 0 || request.payload.length
+                != HardwareCodecProtocol.CREATE_TRANSCODER_PAYLOAD_BYTES) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
+                    "invalid transcoder create request");
+        }
+        if (sessions.size() >= HardwareCodecProtocol.MAX_SESSIONS_PER_PEER
+                || !reserveGlobalSession()) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                    "hardware codec session limit reached");
+        }
+        if (!activeTranscoders.compareAndSet(0, 1)) {
+            activeSessions.decrementAndGet();
+            throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                    "only one Surface transcoder is allowed");
+        }
+        boolean reserved = true;
+        try {
+            ByteBuffer values = ByteBuffer.wrap(request.payload).order(ByteOrder.BIG_ENDIAN);
+            int inputCodec = values.getInt();
+            int outputCodec = values.getInt();
+            int width = values.getInt();
+            int height = values.getInt();
+            int frameRate = values.getInt();
+            int bitrate = values.getInt();
+            long sessionId = nextSessionId.incrementAndGet();
+            SurfaceTranscodeSession session = SurfaceTranscodeSession.create(sessionId,
+                    inputCodec, outputCodec, width, height, frameRate, bitrate);
+            sessions.put(sessionId, session);
+            reserved = false;
+            HardwareCodecProbe.recordBrokerEvent(context, "TRANSCODER_CREATED id="
+                    + sessionId + " input=" + session.decoderName + " output="
+                    + session.encoderName + " size=" + width + "x" + height);
+            writeResponse(output, request.type, sessionId, request.requestId,
+                    HardwareCodecProtocol.OK, textPayload(session.description()));
+        } finally {
+            if (reserved) {
+                activeTranscoders.decrementAndGet();
+                activeSessions.decrementAndGet();
+            }
+        }
+    }
+
+    private void input(Request request, CodecBridgeSession session, DataOutputStream output)
             throws IOException, RequestException {
         if (request.payload.length < 16) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -279,7 +360,7 @@ final class HardwareCodecBroker implements Closeable {
                 status, new byte[0]);
     }
 
-    private void output(Request request, CodecSession session, DataOutputStream output)
+    private void output(Request request, CodecBridgeSession session, DataOutputStream output)
             throws IOException, RequestException {
         if (request.payload.length != 4) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -295,7 +376,94 @@ final class HardwareCodecBroker implements Closeable {
                 record.status, record.payload);
     }
 
-    private void eos(Request request, CodecSession session, DataOutputStream output)
+    private void inputSharedMemory(Request request, CodecBridgeSession session,
+                                   DataOutputStream output)
+            throws IOException, RequestException {
+        if (request.payload.length != HardwareCodecProtocol.SHARED_INPUT_PAYLOAD_BYTES) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
+                    "shared input payload must contain pts_us, flags, and length");
+        }
+        ByteBuffer values = ByteBuffer.wrap(request.payload).order(ByteOrder.BIG_ENDIAN);
+        long presentationTimeUs = values.getLong();
+        int flags = values.getInt();
+        int length = values.getInt();
+        if (length < 0 || length > HardwareCodecProtocol.MAX_MEDIA_PAYLOAD - 16) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                    "shared input length exceeds limit");
+        }
+        byte[] media = readSharedMemory(request.singleDescriptor(), length);
+        int status = session.queue(ByteBuffer.wrap(media), presentationTimeUs, flags);
+        writeResponse(output, request.type, request.sessionId, request.requestId,
+                status, new byte[0]);
+    }
+
+    private void outputSharedMemory(Request request, CodecBridgeSession session,
+                                    DataOutputStream output)
+            throws IOException, RequestException {
+        if (request.payload.length != HardwareCodecProtocol.SHARED_OUTPUT_PAYLOAD_BYTES) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
+                    "shared output payload must contain timeout_ms and capacity");
+        }
+        ByteBuffer values = ByteBuffer.wrap(request.payload).order(ByteOrder.BIG_ENDIAN);
+        int timeoutMs = values.getInt();
+        int capacity = values.getInt();
+        if (timeoutMs < 0 || timeoutMs > 1000) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                    "output timeout must be 0..1000ms");
+        }
+        if (capacity < 16 || capacity > HardwareCodecProtocol.MAX_MEDIA_PAYLOAD) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                    "shared output capacity exceeds limit");
+        }
+        OutputRecord record = session.dequeue(timeoutMs);
+        if (record.status != HardwareCodecProtocol.OK) {
+            writeResponse(output, request.type, request.sessionId, request.requestId,
+                    record.status, record.payload);
+            return;
+        }
+        if (record.payload.length > capacity) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                    "shared output record exceeds supplied capacity");
+        }
+        writeSharedMemory(request.singleDescriptor(), record.payload);
+        ByteBuffer actualLength = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN);
+        actualLength.putInt(record.payload.length);
+        writeResponse(output, request.type, request.sessionId, request.requestId,
+                HardwareCodecProtocol.OK, actualLength.array());
+    }
+
+    private static byte[] readSharedMemory(FileDescriptor descriptor, int length)
+            throws IOException {
+        byte[] result = new byte[length];
+        int offset = 0;
+        try {
+            while (offset < length) {
+                int count = Os.pread(descriptor, result, offset, length - offset, offset);
+                if (count <= 0) throw new IOException("shared input ended early");
+                offset += count;
+            }
+        } catch (ErrnoException e) {
+            throw new IOException("could not read shared input", e);
+        }
+        return result;
+    }
+
+    private static void writeSharedMemory(FileDescriptor descriptor, byte[] value)
+            throws IOException {
+        int offset = 0;
+        try {
+            while (offset < value.length) {
+                int count = Os.pwrite(descriptor, value, offset,
+                        value.length - offset, offset);
+                if (count <= 0) throw new IOException("shared output write stalled");
+                offset += count;
+            }
+        } catch (ErrnoException e) {
+            throw new IOException("could not write shared output", e);
+        }
+    }
+
+    private void eos(Request request, CodecBridgeSession session, DataOutputStream output)
             throws IOException, RequestException {
         if (request.payload.length != 8) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -308,9 +476,10 @@ final class HardwareCodecBroker implements Closeable {
                 status, new byte[0]);
     }
 
-    private CodecSession requireSession(Request request, Map<Long, CodecSession> sessions)
+    private CodecBridgeSession requireSession(Request request,
+                                              Map<Long, CodecBridgeSession> sessions)
             throws RequestException {
-        CodecSession session = sessions.get(request.sessionId);
+        CodecBridgeSession session = sessions.get(request.sessionId);
         if (request.sessionId == 0 || session == null) throw sessionError("unknown session");
         return session;
     }
@@ -334,13 +503,16 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private void closeSession(CodecSession session) {
+    private void closeSession(CodecBridgeSession session) {
         try {
             session.close();
         } finally {
+            if (session instanceof SurfaceTranscodeSession) {
+                activeTranscoders.decrementAndGet();
+            }
             activeSessions.decrementAndGet();
             HardwareCodecProbe.recordBrokerEvent(context, "SESSION_CLOSED id="
-                    + session.id);
+                    + session.id());
         }
     }
 
@@ -353,7 +525,9 @@ final class HardwareCodecBroker implements Closeable {
             root.put("max_sessions", HardwareCodecProtocol.MAX_SESSIONS);
             root.put("max_sessions_per_peer", HardwareCodecProtocol.MAX_SESSIONS_PER_PEER);
             root.put("max_media_payload", HardwareCodecProtocol.MAX_MEDIA_PAYLOAD);
-            root.put("messages", "capabilities,create,input,output,flush,eos,close");
+            root.put("messages", "capabilities,create,input,output,input_shm,output_shm,"
+                    + "create_transcoder,flush,eos,close");
+            root.put("shared_memory", "memfd_scm_rights_with_socket_fallback");
             return textPayload(root.toString());
         } catch (JSONException e) {
             return textPayload("{\"protocol\":1}");
@@ -396,6 +570,18 @@ final class HardwareCodecBroker implements Closeable {
         return sanitized.replace('\n', ' ').replace('\r', ' ');
     }
 
+    private static void closeDescriptors(FileDescriptor[] descriptors) {
+        if (descriptors == null) return;
+        for (FileDescriptor descriptor : descriptors) {
+            if (descriptor == null || !descriptor.valid()) continue;
+            try {
+                Os.close(descriptor);
+            } catch (ErrnoException ignored) {
+                // The peer lifecycle still closes the LocalSocket itself.
+            }
+        }
+    }
+
     @Override
     public synchronized void close() {
         if (!closed.compareAndSet(false, true)) return;
@@ -420,12 +606,28 @@ final class HardwareCodecBroker implements Closeable {
         final long sessionId;
         final int requestId;
         final byte[] payload;
+        final FileDescriptor[] descriptors;
 
-        Request(int type, long sessionId, int requestId, byte[] payload) {
+        Request(int type, long sessionId, int requestId, byte[] payload,
+                FileDescriptor[] descriptors) {
             this.type = type;
             this.sessionId = sessionId;
             this.requestId = requestId;
             this.payload = payload;
+            this.descriptors = descriptors;
+        }
+
+        FileDescriptor singleDescriptor() throws RequestException {
+            if (descriptors == null || descriptors.length != 1
+                    || descriptors[0] == null || !descriptors[0].valid()) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
+                        "shared-memory descriptor is unavailable");
+            }
+            return descriptors[0];
+        }
+
+        void closeDescriptors() {
+            HardwareCodecBroker.closeDescriptors(descriptors);
         }
     }
 
@@ -464,7 +666,301 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private static final class CodecSession implements Closeable {
+    private interface CodecBridgeSession extends Closeable {
+        long id();
+        public int queue(ByteBuffer source, long presentationTimeUs, int flags)
+                throws RequestException;
+        int queueEos(long presentationTimeUs) throws RequestException;
+        OutputRecord dequeue(int timeoutMs) throws RequestException;
+        void flush() throws RequestException;
+        @Override void close();
+    }
+
+    /** Decoder output Surface wired directly to an encoder input Surface. */
+    private static final class SurfaceTranscodeSession implements CodecBridgeSession {
+        final long sessionId;
+        final String inputMime;
+        final String outputMime;
+        final String decoderName;
+        final String encoderName;
+        private final MediaCodec decoder;
+        private final MediaCodec encoder;
+        private final Surface encoderInputSurface;
+        private boolean encoderEosSignaled;
+        private boolean closed;
+
+        private SurfaceTranscodeSession(long sessionId, String inputMime,
+                                        String outputMime, String decoderName,
+                                        String encoderName, MediaCodec decoder,
+                                        MediaCodec encoder, Surface encoderInputSurface) {
+            this.sessionId = sessionId;
+            this.inputMime = inputMime;
+            this.outputMime = outputMime;
+            this.decoderName = decoderName;
+            this.encoderName = encoderName;
+            this.decoder = decoder;
+            this.encoder = encoder;
+            this.encoderInputSurface = encoderInputSurface;
+        }
+
+        static SurfaceTranscodeSession create(long sessionId, int inputCodec,
+                                               int outputCodec, int width, int height,
+                                               int frameRate, int bitrate)
+                throws RequestException {
+            validateParameters(width, height, frameRate, bitrate);
+            String inputMime = mime(inputCodec);
+            String outputMime = mime(outputCodec);
+            java.util.List<HardwareCodecProbe.CodecSelection> decoders =
+                    HardwareCodecProbe.selectHardwareCodecs(inputMime, false);
+            java.util.List<HardwareCodecProbe.CodecSelection> encoders =
+                    HardwareCodecProbe.selectHardwareCodecs(outputMime, true);
+            if (decoders.isEmpty() || encoders.isEmpty()) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_UNSUPPORTED,
+                        "no hardware decoder/encoder pair is available");
+            }
+            String lastError = "no encoder advertises COLOR_FormatSurface";
+            for (HardwareCodecProbe.CodecSelection selectedEncoder : encoders) {
+                if (!supportsSurfaceInput(selectedEncoder)) continue;
+                for (HardwareCodecProbe.CodecSelection selectedDecoder : decoders) {
+                    MediaCodec decoder = null;
+                    MediaCodec encoder = null;
+                    Surface inputSurface = null;
+                    try {
+                        encoder = MediaCodec.createByCodecName(selectedEncoder.name);
+                        MediaFormat encoderFormat = MediaFormat.createVideoFormat(
+                                outputMime, width, height);
+                        encoderFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT,
+                                android.media.MediaCodecInfo.CodecCapabilities
+                                        .COLOR_FormatSurface);
+                        encoderFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
+                        encoderFormat.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
+                        encoderFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
+                        encoder.configure(encoderFormat, null, null,
+                                MediaCodec.CONFIGURE_FLAG_ENCODE);
+                        inputSurface = encoder.createInputSurface();
+                        encoder.start();
+
+                        decoder = MediaCodec.createByCodecName(selectedDecoder.name);
+                        MediaFormat decoderFormat = MediaFormat.createVideoFormat(
+                                inputMime, width, height);
+                        decoderFormat.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
+                        decoderFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE,
+                                HardwareCodecProtocol.MAX_MEDIA_PAYLOAD - 16);
+                        decoder.configure(decoderFormat, inputSurface, null, 0);
+                        decoder.start();
+                        return new SurfaceTranscodeSession(sessionId, inputMime,
+                                outputMime, selectedDecoder.name, selectedEncoder.name,
+                                decoder, encoder, inputSurface);
+                    } catch (IOException | RuntimeException e) {
+                        lastError = safe(e);
+                        releaseCodec(decoder);
+                        releaseCodec(encoder);
+                        if (inputSurface != null) inputSurface.release();
+                    }
+                }
+            }
+            throw new RequestException(HardwareCodecProtocol.ERROR_CODEC, lastError);
+        }
+
+        private static void validateParameters(int width, int height, int frameRate,
+                                               int bitrate) throws RequestException {
+            if (width < 16 || width > 4096 || height < 16 || height > 4096
+                    || (width & 1) != 0 || (height & 1) != 0
+                    || frameRate < 1 || frameRate > 240 || bitrate < 1_000
+                    || bitrate > 100_000_000) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                        "transcoder parameters exceed bounded limits");
+            }
+        }
+
+        private static String mime(int codecId) throws RequestException {
+            if (codecId == HardwareCodecProtocol.CODEC_AVC) {
+                return HardwareCodecProbe.MIME_AVC;
+            }
+            if (codecId == HardwareCodecProtocol.CODEC_HEVC) {
+                return HardwareCodecProbe.MIME_HEVC;
+            }
+            throw new RequestException(HardwareCodecProtocol.ERROR_UNSUPPORTED,
+                    "transcoder codec must be AVC or HEVC");
+        }
+
+        private static boolean supportsSurfaceInput(
+                HardwareCodecProbe.CodecSelection selection) {
+            int surface = android.media.MediaCodecInfo.CodecCapabilities
+                    .COLOR_FormatSurface;
+            for (int available : selection.colorFormats) {
+                if (available == surface) return true;
+            }
+            return false;
+        }
+
+        private static void releaseCodec(MediaCodec codec) {
+            if (codec == null) return;
+            try {
+                codec.stop();
+            } catch (RuntimeException ignored) {
+                // A partially configured codec may not have started.
+            }
+            try {
+                codec.release();
+            } catch (RuntimeException ignored) {
+                // Try the next hardware pair.
+            }
+        }
+
+        String description() {
+            return "{\"transport\":\"surface_zero_copy\",\"decoder_name\":\""
+                    + CodecSession.json(decoderName) + "\",\"encoder_name\":\""
+                    + CodecSession.json(encoderName) + "\",\"input_mime\":\""
+                    + CodecSession.json(inputMime) + "\",\"output_mime\":\""
+                    + CodecSession.json(outputMime) + "\"}";
+        }
+
+        @Override
+        public long id() {
+            return sessionId;
+        }
+
+        @Override
+        public int queue(ByteBuffer source, long presentationTimeUs, int flags)
+                throws RequestException {
+            ensureOpen();
+            pumpDecoder(0);
+            int index = decoder.dequeueInputBuffer(100_000L);
+            if (index < 0) return HardwareCodecProtocol.AGAIN;
+            ByteBuffer destination = decoder.getInputBuffer(index);
+            if (destination == null || source.remaining() > destination.capacity()) {
+                decoder.queueInputBuffer(index, 0, 0, presentationTimeUs, 0);
+                throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                        "transcoder input exceeds decoder buffer capacity");
+            }
+            destination.clear();
+            destination.put(source);
+            decoder.queueInputBuffer(index, 0, destination.position(), presentationTimeUs,
+                    flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
+            pumpDecoder(0);
+            return HardwareCodecProtocol.OK;
+        }
+
+        @Override
+        public int queueEos(long presentationTimeUs) throws RequestException {
+            ensureOpen();
+            pumpDecoder(0);
+            int index = decoder.dequeueInputBuffer(100_000L);
+            if (index < 0) return HardwareCodecProtocol.AGAIN;
+            decoder.queueInputBuffer(index, 0, 0, presentationTimeUs,
+                    MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+            pumpDecoder(0);
+            return HardwareCodecProtocol.OK;
+        }
+
+        private void pumpDecoder(int timeoutMs) throws RequestException {
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            for (int attempt = 0; attempt < 16 && !encoderEosSignaled; attempt++) {
+                int index = decoder.dequeueOutputBuffer(info,
+                        attempt == 0 ? timeoutMs * 1000L : 0L);
+                if (index == MediaCodec.INFO_TRY_AGAIN_LATER) return;
+                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED
+                        || index == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) continue;
+                if (index < 0) continue;
+                boolean eos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                decoder.releaseOutputBuffer(index, info.size > 0);
+                if (eos) {
+                    try {
+                        encoder.signalEndOfInputStream();
+                        encoderEosSignaled = true;
+                    } catch (RuntimeException e) {
+                        throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
+                                "could not signal transcoder EOS: " + safe(e));
+                    }
+                    return;
+                }
+            }
+        }
+
+        @Override
+        public OutputRecord dequeue(int timeoutMs) throws RequestException {
+            ensureOpen();
+            pumpDecoder(timeoutMs);
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            for (int attempt = 0; attempt < 3; attempt++) {
+                int index = encoder.dequeueOutputBuffer(info, timeoutMs * 1000L);
+                if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    return new OutputRecord(HardwareCodecProtocol.AGAIN, new byte[0]);
+                }
+                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    return new OutputRecord(HardwareCodecProtocol.FORMAT_CHANGED,
+                            CodecSession.outputFormatPayload(encoder.getOutputFormat(), true));
+                }
+                if (index == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) continue;
+                if (index < 0) continue;
+                if (info.size > HardwareCodecProtocol.MAX_MEDIA_PAYLOAD - 16) {
+                    encoder.releaseOutputBuffer(index, false);
+                    throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                            "transcoder output exceeds protocol limit");
+                }
+                ByteBuffer source = encoder.getOutputBuffer(index);
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream(16 + info.size);
+                DataOutputStream output = new DataOutputStream(bytes);
+                try {
+                    output.writeLong(info.presentationTimeUs);
+                    output.writeInt(info.flags);
+                    output.writeInt(info.size);
+                    if (info.size > 0) {
+                        if (source == null) {
+                            throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
+                                    "transcoder returned a null encoder buffer");
+                        }
+                        ByteBuffer copy = source.duplicate();
+                        copy.position(info.offset);
+                        copy.limit(info.offset + info.size);
+                        byte[] chunk = new byte[Math.min(64 * 1024, info.size)];
+                        while (copy.hasRemaining()) {
+                            int count = Math.min(copy.remaining(), chunk.length);
+                            copy.get(chunk, 0, count);
+                            output.write(chunk, 0, count);
+                        }
+                    }
+                    output.flush();
+                    return new OutputRecord(HardwareCodecProtocol.OK,
+                            bytes.toByteArray());
+                } catch (IOException e) {
+                    throw new RequestException(HardwareCodecProtocol.ERROR_IO, safe(e));
+                } finally {
+                    encoder.releaseOutputBuffer(index, false);
+                }
+            }
+            return new OutputRecord(HardwareCodecProtocol.AGAIN, new byte[0]);
+        }
+
+        @Override
+        public void flush() throws RequestException {
+            ensureOpen();
+            try {
+                decoder.flush();
+                encoder.flush();
+                encoderEosSignaled = false;
+            } catch (RuntimeException e) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
+                        "could not flush transcoder: " + safe(e));
+            }
+        }
+
+        private void ensureOpen() throws RequestException {
+            if (closed) throw sessionError("transcoder session is closed");
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            closed = true;
+            releaseCodec(decoder);
+            releaseCodec(encoder);
+            encoderInputSurface.release();
+        }
+    }
+
+    private static final class CodecSession implements CodecBridgeSession {
         final long id;
         final String mime;
         final String codecName;
@@ -588,7 +1084,13 @@ final class HardwareCodecBroker implements Closeable {
                     + "\",\"color_format\":" + colorFormat + "}";
         }
 
-        int queue(ByteBuffer source, long presentationTimeUs, int flags)
+        @Override
+        public long id() {
+            return id;
+        }
+
+        @Override
+        public int queue(ByteBuffer source, long presentationTimeUs, int flags)
                 throws RequestException {
             ensureOpen();
             int index = codec.dequeueInputBuffer(100_000L);
@@ -606,7 +1108,8 @@ final class HardwareCodecBroker implements Closeable {
             return HardwareCodecProtocol.OK;
         }
 
-        int queueEos(long presentationTimeUs) throws RequestException {
+        @Override
+        public int queueEos(long presentationTimeUs) throws RequestException {
             ensureOpen();
             int index = codec.dequeueInputBuffer(100_000L);
             if (index < 0) return HardwareCodecProtocol.AGAIN;
@@ -615,7 +1118,8 @@ final class HardwareCodecBroker implements Closeable {
             return HardwareCodecProtocol.OK;
         }
 
-        OutputRecord dequeue(int timeoutMs) throws RequestException {
+        @Override
+        public OutputRecord dequeue(int timeoutMs) throws RequestException {
             ensureOpen();
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             for (int attempt = 0; attempt < 3; attempt++) {
@@ -700,7 +1204,8 @@ final class HardwareCodecBroker implements Closeable {
             return new OutputRecord(HardwareCodecProtocol.AGAIN, new byte[0]);
         }
 
-        void flush() throws RequestException {
+        @Override
+        public void flush() throws RequestException {
             ensureOpen();
             codec.flush();
         }

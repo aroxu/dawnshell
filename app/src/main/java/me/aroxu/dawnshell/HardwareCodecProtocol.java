@@ -16,6 +16,9 @@ final class HardwareCodecProtocol {
     static final int FLUSH = 6;
     static final int EOS = 7;
     static final int CLOSE = 8;
+    static final int INPUT_SHARED_MEMORY = 9;
+    static final int OUTPUT_SHARED_MEMORY = 10;
+    static final int CREATE_TRANSCODER = 11;
 
     static final int MODE_DECODE = 1;
     static final int MODE_ENCODE = 2;
@@ -37,6 +40,9 @@ final class HardwareCodecProtocol {
     static final int ERROR_IO = -8;
 
     static final int CREATE_PAYLOAD_BYTES = 28;
+    static final int SHARED_INPUT_PAYLOAD_BYTES = 16;
+    static final int SHARED_OUTPUT_PAYLOAD_BYTES = 8;
+    static final int CREATE_TRANSCODER_PAYLOAD_BYTES = 24;
     static final int MAX_CONTROL_PAYLOAD = 1024 * 1024;
     static final int MAX_MEDIA_PAYLOAD = 8 * 1024 * 1024;
     static final int MAX_SESSIONS = 4;

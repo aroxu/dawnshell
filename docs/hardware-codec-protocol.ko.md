@@ -40,6 +40,8 @@ fail-closed합니다. control payload는 1 MiB, media payload는 8 MiB, 전체 s
   backpressure는 별도 status로 반환합니다. decoder의 `YUV_420_888` Image plane은
   crop/row stride/pixel stride를 반영해 packed I420으로 정규화합니다.
 - `FLUSH(6)`, `EOS(7)`, `CLOSE(8)`: session 상태를 제어합니다.
+- `INPUT_SHARED_MEMORY(9)`, `OUTPUT_SHARED_MEMORY(10)`: 64 KiB 이상의 media를
+  `memfd`와 `SCM_RIGHTS`로 전달합니다. metadata와 응답은 기존 socket에 남습니다.
 
 vendor codec 오류와 잘못된 client 입력은 해당 요청 또는 session에서만 실패하며
 Debian PID 1, SSH, Direct Boot supervisor는 종료하지 않습니다. 연결이 끊기면 해당
@@ -54,6 +56,9 @@ dawnshell-codec pipe decode avc 1280 720 30 4000000 < packets.bin > frames.bin
 dawnshell-codec-self-test
 dawnshell-hwdecode input.mp4 output.mkv
 dawnshell-hwdecode input.mp4 output.i420
+dawnshell-hwencode input.mkv output.mp4 4000000
+dawnshell-hwencode input.mkv output.h264
+dawnshell-hwtranscode input-hevc.mkv output-h264.mp4 8000000
 ```
 
 자체 검사는 고정 AVC decode의 frame/PTS/I420 checksum을 확인한 다음 고정 I420
@@ -63,8 +68,15 @@ pattern 10개를 hardware encoder로 처리합니다. encoder 출력의 frame/PT
 
 `pipe`의 stdin/stdout record는 `pts_us:u64`, `flags:u32`, `length:u32`, `data` 순서의
 big-endian framing입니다. 이 framing은 M3 고정 test vector와 이후 FFmpeg adapter가
-공유합니다. 현재 경로는 bounded socket copy이며 shared-memory/`SCM_RIGHTS` 경로는
-후속 성능 단계에서 추가합니다.
+공유합니다. 64 KiB 이상 input과 일반 `pipe` output은 `memfd`/`SCM_RIGHTS`를 먼저
+시도합니다. 커널에 `memfd_create`가 없거나 브로커가 확장 message를 지원하지 않으면
+동일한 8 MiB 상한의 socket copy로 자동 폴백합니다. 문제 진단 시
+`DAWNSHELL_CODEC_DISABLE_SHM=1`로 shared-memory 시도를 끌 수 있습니다.
+
+이 경로는 Unix socket을 통한 대형 payload 복사를 줄이지만 MediaCodec buffer와
+Debian 프로세스 사이의 완전한 zero-copy를 의미하지는 않습니다. 브로커는 받은 FD를
+요청마다 닫고, 정확히 하나가 아닌 ancillary FD, 범위를 벗어난 길이와 capacity를
+거부합니다.
 
 ## FFmpeg 어댑터(M5)
 
@@ -79,3 +91,24 @@ decoder에 전달하며, 반환된 `YUV_420_888` 결과는 packed I420으로 저
 MediaCodec surface와 zero-copy encode는 M6 이후 범위입니다. M5는 H.264, 짝수
 16..4096 해상도, 평균 1..240 FPS만 허용하고 packet 수/크기, PTS 단조 증가와
 I420 frame 크기를 fail-closed로 검사합니다.
+
+`dawnshell-hwencode`는 FFmpeg로 첫 번째 video stream을 packed I420으로 변환한 뒤
+Android 하드웨어 AVC encoder에 전달합니다. `.h264` 출력은 Annex-B 그대로이며,
+그 밖의 컨테이너는 FFmpeg stream-copy로 mux합니다. 이 경로는 소프트웨어 decode와
+하드웨어 encode 조합이고 audio stream은 포함하지 않습니다. 입력·출력 frame 수가
+다르면 결과를 게시하지 않고 실패합니다.
+
+## Surface zero-copy transcode(M6)
+
+`CREATE_TRANSCODER(11)`은 hardware encoder의 `COLOR_FormatSurface` input을 만들고
+그 Surface를 hardware decoder의 output으로 직접 설정합니다. decoder output은
+`releaseOutputBuffer(..., true)`로 Surface에 전달되며 encoder EOS는
+`signalEndOfInputStream()`으로 닫습니다. 따라서 full-size YUV frame은 Debian이나
+Java heap으로 내려오지 않고 압축 packet만 protocol을 통과합니다.
+
+`dawnshell-hwtranscode`는 H.264 또는 HEVC container를 FFmpeg로 demux한 뒤 이
+Surface session에서 H.264로 변환하고 결과를 stream-copy mux합니다. 선택된 decoder와
+encoder canonical name, `transport=surface_zero_copy`가 session 응답에 기록됩니다.
+Surface color format을 광고하는 보수적 hardware pair가 없으면 software로 조용히
+전환하지 않고 명시적으로 실패합니다. audio, 해상도 변경, 영상 filter 및 scaling은
+지원하지 않습니다.

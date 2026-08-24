@@ -3,12 +3,15 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
@@ -25,6 +28,9 @@
 #define DSCB_FLUSH 6u
 #define DSCB_EOS 7u
 #define DSCB_CLOSE 8u
+#define DSCB_INPUT_SHARED_MEMORY 9u
+#define DSCB_OUTPUT_SHARED_MEMORY 10u
+#define DSCB_CREATE_TRANSCODER 11u
 #define DSCB_MODE_DECODE 1u
 #define DSCB_MODE_ENCODE 2u
 #define DSCB_CODEC_AVC 1u
@@ -32,6 +38,7 @@
 #define DSCB_OK 0
 #define DSCB_AGAIN 1
 #define DSCB_FORMAT_CHANGED 2
+#define DSCB_ERROR_UNSUPPORTED (-4)
 #define DSCB_MAX_PAYLOAD (8u * 1024u * 1024u)
 #define DSCB_BUFFER_FLAG_EOS 4u
 #define DSCB_PIXEL_FORMAT_I420 1u
@@ -40,6 +47,11 @@
 #define DSCB_COLOR_YUV420_FLEXIBLE 0x7f420888u
 #define DSCB_BUFFER_FLAG_CODEC_CONFIG 2u
 #define DSCB_SOCKET_NAME "dawnshell.codec.v1"
+#define DSCB_SHARED_MEMORY_THRESHOLD (64u * 1024u)
+
+#ifndef MFD_CLOEXEC
+#define MFD_CLOEXEC 0x0001u
+#endif
 
 struct response {
     uint16_t type;
@@ -51,6 +63,7 @@ struct response {
 };
 
 static uint32_t next_request_id = 1;
+static int shared_memory_supported = 0;
 
 static void put_u16(uint8_t *destination, uint16_t value) {
     value = htons(value);
@@ -107,6 +120,53 @@ static int read_all(int descriptor, void *buffer, size_t length) {
     return 0;
 }
 
+static int pread_all(int descriptor, void *buffer, size_t length) {
+    uint8_t *bytes = buffer;
+    off_t offset = 0;
+    while (length > 0) {
+        ssize_t count = pread(descriptor, bytes, length, offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) return -1;
+        bytes += (size_t)count;
+        length -= (size_t)count;
+        offset += count;
+    }
+    return 0;
+}
+
+static int pwrite_all(int descriptor, const void *buffer, size_t length) {
+    const uint8_t *bytes = buffer;
+    off_t offset = 0;
+    while (length > 0) {
+        ssize_t count = pwrite(descriptor, bytes, length, offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) return -1;
+        bytes += (size_t)count;
+        length -= (size_t)count;
+        offset += count;
+    }
+    return 0;
+}
+
+static int create_shared_memory(const char *name, size_t length) {
+#ifdef __NR_memfd_create
+    int descriptor = (int)syscall(__NR_memfd_create, name, MFD_CLOEXEC);
+    if (descriptor < 0) return -1;
+    if (ftruncate(descriptor, (off_t)length) != 0) {
+        int saved = errno;
+        close(descriptor);
+        errno = saved;
+        return -1;
+    }
+    return descriptor;
+#else
+    (void)name;
+    (void)length;
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
 static int read_record_header(uint8_t header[16]) {
     size_t offset = 0;
     while (offset < 16) {
@@ -150,23 +210,9 @@ static void free_response(struct response *response) {
     memset(response, 0, sizeof(*response));
 }
 
-static int rpc(int descriptor, uint16_t type, uint64_t session_id,
-               const void *payload, uint32_t payload_length,
-               struct response *response) {
+static int read_response(int descriptor, uint16_t type, uint32_t request_id,
+                         struct response *response) {
     uint8_t header[DSCB_HEADER_BYTES];
-    memset(header, 0, sizeof(header));
-    const uint32_t request_id = next_request_id++;
-    put_u32(header, DSCB_MAGIC);
-    put_u16(header + 4, DSCB_VERSION);
-    put_u16(header + 6, type);
-    put_u64(header + 12, session_id);
-    put_u32(header + 20, payload_length);
-    put_u32(header + 24, request_id);
-    if (write_all(descriptor, header, sizeof(header)) != 0
-            || (payload_length > 0
-            && write_all(descriptor, payload, payload_length) != 0)) {
-        return -1;
-    }
     if (read_all(descriptor, header, sizeof(header)) != 0) return -1;
     if (get_u32(header) != DSCB_MAGIC || get_u16(header + 4) != DSCB_VERSION
             || get_u16(header + 6) != (uint16_t)(type | DSCB_RESPONSE_BIT)
@@ -197,6 +243,74 @@ static int rpc(int descriptor, uint16_t type, uint64_t session_id,
     return 0;
 }
 
+static void make_request_header(uint8_t header[DSCB_HEADER_BYTES], uint16_t type,
+                                uint64_t session_id, uint32_t payload_length,
+                                uint32_t request_id) {
+    memset(header, 0, DSCB_HEADER_BYTES);
+    put_u32(header, DSCB_MAGIC);
+    put_u16(header + 4, DSCB_VERSION);
+    put_u16(header + 6, type);
+    put_u64(header + 12, session_id);
+    put_u32(header + 20, payload_length);
+    put_u32(header + 24, request_id);
+}
+
+static int rpc(int descriptor, uint16_t type, uint64_t session_id,
+               const void *payload, uint32_t payload_length,
+               struct response *response) {
+    uint8_t header[DSCB_HEADER_BYTES];
+    const uint32_t request_id = next_request_id++;
+    make_request_header(header, type, session_id, payload_length, request_id);
+    if (write_all(descriptor, header, sizeof(header)) != 0
+            || (payload_length > 0
+            && write_all(descriptor, payload, payload_length) != 0)) return -1;
+    return read_response(descriptor, type, request_id, response);
+}
+
+static int rpc_with_fd(int descriptor, uint16_t type, uint64_t session_id,
+                       const void *payload, uint32_t payload_length,
+                       int shared_descriptor, struct response *response) {
+    const size_t request_length = DSCB_HEADER_BYTES + (size_t)payload_length;
+    uint8_t *request = malloc(request_length);
+    if (request == NULL) return -1;
+    const uint32_t request_id = next_request_id++;
+    make_request_header(request, type, session_id, payload_length, request_id);
+    if (payload_length > 0) {
+        memcpy(request + DSCB_HEADER_BYTES, payload, payload_length);
+    }
+    struct iovec vector = {.iov_base = request, .iov_len = request_length};
+    char control[CMSG_SPACE(sizeof(int))];
+    memset(control, 0, sizeof(control));
+    struct msghdr message;
+    memset(&message, 0, sizeof(message));
+    message.msg_iov = &vector;
+    message.msg_iovlen = 1;
+    message.msg_control = control;
+    message.msg_controllen = sizeof(control);
+    struct cmsghdr *control_header = CMSG_FIRSTHDR(&message);
+    control_header->cmsg_level = SOL_SOCKET;
+    control_header->cmsg_type = SCM_RIGHTS;
+    control_header->cmsg_len = CMSG_LEN(sizeof(int));
+    memcpy(CMSG_DATA(control_header), &shared_descriptor, sizeof(int));
+    ssize_t sent;
+    do {
+        sent = sendmsg(descriptor, &message, MSG_NOSIGNAL);
+    } while (sent < 0 && errno == EINTR);
+    if (sent <= 0 || (size_t)sent > request_length) {
+        free(request);
+        return -1;
+    }
+    int result = 0;
+    if ((size_t)sent < request_length
+            && write_all(descriptor, request + sent, request_length - (size_t)sent) != 0) {
+        result = -1;
+    } else {
+        result = read_response(descriptor, type, request_id, response);
+    }
+    free(request);
+    return result;
+}
+
 static int report_error(const char *operation, const struct response *response) {
     fprintf(stderr, "dawnshell-codec: %s failed: status=%" PRId32,
             operation, response->status);
@@ -212,7 +326,15 @@ static int hello(int descriptor) {
     struct response response;
     if (rpc(descriptor, DSCB_HELLO, 0, NULL, 0, &response) != 0) return -1;
     int result = 0;
-    if (response.status != DSCB_OK) result = report_error("hello", &response);
+    if (response.status != DSCB_OK) {
+        result = report_error("hello", &response);
+    } else if ((getenv("DAWNSHELL_CODEC_DISABLE_SHM") == NULL
+            || strcmp(getenv("DAWNSHELL_CODEC_DISABLE_SHM"), "1") != 0)
+            && response.payload != NULL
+            && strstr((const char *)response.payload,
+                      "memfd_scm_rights_with_socket_fallback") != NULL) {
+        shared_memory_supported = 1;
+    }
     free_response(&response);
     return result;
 }
@@ -303,6 +425,33 @@ static int create_session(int descriptor, uint32_t mode, uint32_t codec,
     return result;
 }
 
+static int create_transcode_session(int descriptor, uint32_t input_codec,
+                                    uint32_t output_codec, uint32_t width,
+                                    uint32_t height, uint32_t frame_rate,
+                                    uint32_t bitrate, uint64_t *session_id) {
+    uint8_t payload[24];
+    put_u32(payload, input_codec);
+    put_u32(payload + 4, output_codec);
+    put_u32(payload + 8, width);
+    put_u32(payload + 12, height);
+    put_u32(payload + 16, frame_rate);
+    put_u32(payload + 20, bitrate);
+    struct response response;
+    if (rpc(descriptor, DSCB_CREATE_TRANSCODER, 0, payload, sizeof(payload),
+            &response) != 0) return -1;
+    int result = 0;
+    if (response.status != DSCB_OK || response.session_id == 0) {
+        result = report_error("create transcoder", &response);
+    } else {
+        *session_id = response.session_id;
+        fprintf(stderr, "dawnshell-codec: transcoder-session=%" PRIu64 " %.*s\n",
+                *session_id, (int)response.payload_length,
+                response.payload == NULL ? (uint8_t *)"" : response.payload);
+    }
+    free_response(&response);
+    return result;
+}
+
 static int simple_request(int descriptor, uint16_t type, uint64_t session_id,
                           const void *payload, uint32_t payload_length,
                           const char *name) {
@@ -323,6 +472,42 @@ static void close_session(int descriptor, uint64_t session_id) {
 static int queue_input(int descriptor, uint64_t session_id,
                        const uint8_t header[16], const uint8_t *data,
                        uint32_t length) {
+    int shared_descriptor = -1;
+    if (shared_memory_supported && length >= DSCB_SHARED_MEMORY_THRESHOLD) {
+        shared_descriptor = create_shared_memory("dawnshell-codec-input", length);
+        if (shared_descriptor >= 0
+                && pwrite_all(shared_descriptor, data, length) != 0) {
+            close(shared_descriptor);
+            shared_descriptor = -1;
+        }
+    }
+    if (shared_descriptor >= 0) {
+        int result;
+        for (;;) {
+            struct response response;
+            if (rpc_with_fd(descriptor, DSCB_INPUT_SHARED_MEMORY, session_id,
+                    header, 16, shared_descriptor, &response) != 0) {
+                result = -1;
+                break;
+            }
+            if (response.status == DSCB_AGAIN) {
+                free_response(&response);
+                usleep(2000);
+                continue;
+            }
+            if (response.status == DSCB_ERROR_UNSUPPORTED) {
+                shared_memory_supported = 0;
+                result = 2;
+            } else {
+                result = response.status == DSCB_OK
+                        ? 0 : report_error("shared input", &response);
+            }
+            free_response(&response);
+            break;
+        }
+        close(shared_descriptor);
+        if (result != 2) return result;
+    }
     uint8_t *payload = malloc((size_t)length + 16);
     if (payload == NULL) return -1;
     memcpy(payload, header, 16);
@@ -346,6 +531,59 @@ static int queue_input(int descriptor, uint64_t session_id,
     }
     free(payload);
     return result;
+}
+
+static int output_shared_memory(int descriptor, uint64_t session_id,
+                                uint32_t timeout_ms, struct response *response) {
+    if (!shared_memory_supported) return 1;
+    int shared_descriptor = create_shared_memory("dawnshell-codec-output",
+                                                  DSCB_MAX_PAYLOAD);
+    if (shared_descriptor < 0) return 1;
+    uint8_t request[8];
+    put_u32(request, timeout_ms);
+    put_u32(request + 4, DSCB_MAX_PAYLOAD);
+    int result = rpc_with_fd(descriptor, DSCB_OUTPUT_SHARED_MEMORY, session_id,
+                             request, sizeof(request), shared_descriptor, response);
+    if (result != 0) {
+        close(shared_descriptor);
+        return -1;
+    }
+    if (response->status == DSCB_ERROR_UNSUPPORTED) {
+        shared_memory_supported = 0;
+        free_response(response);
+        close(shared_descriptor);
+        return 1;
+    }
+    if (response->status == DSCB_OK) {
+        if (response->payload_length != 4) {
+            free_response(response);
+            close(shared_descriptor);
+            errno = EPROTO;
+            return -1;
+        }
+        uint32_t actual_length = get_u32(response->payload);
+        free(response->payload);
+        response->payload = NULL;
+        response->payload_length = actual_length;
+        if (actual_length > DSCB_MAX_PAYLOAD) {
+            close(shared_descriptor);
+            errno = EOVERFLOW;
+            return -1;
+        }
+        if (actual_length > 0) {
+            response->payload = malloc((size_t)actual_length + 1);
+            if (response->payload == NULL
+                    || pread_all(shared_descriptor, response->payload,
+                                 actual_length) != 0) {
+                free_response(response);
+                close(shared_descriptor);
+                return -1;
+            }
+            response->payload[actual_length] = '\0';
+        }
+    }
+    close(shared_descriptor);
+    return 0;
 }
 
 static int queue_eos(int descriptor, uint64_t session_id, uint64_t pts) {
@@ -372,8 +610,11 @@ static int drain_output(int descriptor, uint64_t session_id, uint32_t timeout_ms
     uint8_t request[4];
     put_u32(request, timeout_ms);
     struct response response;
-    if (rpc(descriptor, DSCB_OUTPUT, session_id, request, sizeof(request),
-            &response) != 0) return -1;
+    int shared_result = output_shared_memory(descriptor, session_id, timeout_ms,
+                                             &response);
+    if (shared_result < 0) return -1;
+    if (shared_result > 0 && rpc(descriptor, DSCB_OUTPUT, session_id, request,
+            sizeof(request), &response) != 0) return -1;
     int result = 0;
     if (response.status == DSCB_AGAIN) {
         result = 1;
@@ -722,6 +963,30 @@ static void fill_i420_pattern(uint8_t *frame, uint32_t width, uint32_t height,
     }
 }
 
+static int convert_i420_for_encoder(uint32_t color_format, uint32_t width,
+                                    uint32_t height, const uint8_t *i420,
+                                    uint8_t *converted,
+                                    const uint8_t **encoder_input) {
+    size_t y_size = (size_t)width * height;
+    size_t chroma_size = y_size / 4;
+    *encoder_input = i420;
+    if (color_format == DSCB_COLOR_YUV420_SEMIPLANAR) {
+        memcpy(converted, i420, y_size);
+        for (size_t index = 0; index < chroma_size; index++) {
+            converted[y_size + index * 2] = i420[y_size + index];
+            converted[y_size + index * 2 + 1] =
+                    i420[y_size + chroma_size + index];
+        }
+        *encoder_input = converted;
+    } else if (color_format != DSCB_COLOR_YUV420_PLANAR
+            && color_format != DSCB_COLOR_YUV420_FLEXIBLE) {
+        fprintf(stderr, "dawnshell-codec: unsupported encoder color format=%" PRIu32
+                "\n", color_format);
+        return 1;
+    }
+    return 0;
+}
+
 static int queue_encoder_frame(int descriptor, uint64_t session_id,
                                uint32_t color_format, uint32_t width,
                                uint32_t height, uint32_t frame_rate,
@@ -730,21 +995,9 @@ static int queue_encoder_frame(int descriptor, uint64_t session_id,
     size_t y_size = (size_t)width * height;
     size_t chroma_size = y_size / 4;
     fill_i420_pattern(i420, width, height, frame_index);
-    const uint8_t *input = i420;
-    if (color_format == DSCB_COLOR_YUV420_SEMIPLANAR) {
-        memcpy(converted, i420, y_size);
-        for (size_t index = 0; index < chroma_size; index++) {
-            converted[y_size + index * 2] = i420[y_size + index];
-            converted[y_size + index * 2 + 1] =
-                    i420[y_size + chroma_size + index];
-        }
-        input = converted;
-    } else if (color_format != DSCB_COLOR_YUV420_PLANAR
-            && color_format != DSCB_COLOR_YUV420_FLEXIBLE) {
-        fprintf(stderr, "dawnshell-codec: unsupported encoder color format=%" PRIu32
-                "\n", color_format);
-        return 1;
-    }
+    const uint8_t *input;
+    if (convert_i420_for_encoder(color_format, width, height, i420, converted,
+                                 &input) != 0) return 1;
     uint8_t header[16];
     put_u64(header, (uint64_t)frame_index * 1000000u / frame_rate);
     put_u32(header + 8, 0);
@@ -854,12 +1107,9 @@ static int run_probe(int descriptor, uint32_t mode, uint32_t codec,
     return result;
 }
 
-static int run_pipe(int descriptor, uint32_t mode, uint32_t codec,
-                    uint32_t width, uint32_t height, uint32_t frame_rate,
-                    uint32_t bitrate) {
-    uint64_t session_id = 0;
-    if (create_session(descriptor, mode, codec, width, height, frame_rate, bitrate,
-                       &session_id, NULL) != 0) return 1;
+static int run_pipe_session(int descriptor, uint64_t session_id, uint32_t mode,
+                            uint32_t color_format, uint32_t width,
+                            uint32_t height) {
     int result = 0;
     uint64_t last_pts = 0;
     for (;;) {
@@ -890,11 +1140,32 @@ static int run_pipe(int descriptor, uint32_t mode, uint32_t codec,
             free(data);
             break;
         }
-        if (queue_input(descriptor, session_id, header, data, length) != 0) {
+        const uint8_t *codec_input = data;
+        uint8_t *converted = NULL;
+        if (mode == DSCB_MODE_ENCODE) {
+            size_t expected = (size_t)width * height * 3u / 2u;
+            if (length != expected) {
+                free(data);
+                fprintf(stderr, "dawnshell-codec: encoder input must be packed I420\n");
+                result = 1;
+                break;
+            }
+            converted = malloc(length);
+            if (converted == NULL || convert_i420_for_encoder(color_format,
+                    width, height, data, converted, &codec_input) != 0) {
+                free(converted);
+                free(data);
+                result = 1;
+                break;
+            }
+        }
+        if (queue_input(descriptor, session_id, header, codec_input, length) != 0) {
+            free(converted);
             free(data);
             result = 1;
             break;
         }
+        free(converted);
         free(data);
         for (;;) {
             int saw_eos = 0;
@@ -924,6 +1195,27 @@ static int run_pipe(int descriptor, uint32_t mode, uint32_t codec,
     return result;
 }
 
+static int run_pipe(int descriptor, uint32_t mode, uint32_t codec,
+                    uint32_t width, uint32_t height, uint32_t frame_rate,
+                    uint32_t bitrate) {
+    uint64_t session_id = 0;
+    uint32_t color_format = 0;
+    if (create_session(descriptor, mode, codec, width, height, frame_rate, bitrate,
+                       &session_id, &color_format) != 0) return 1;
+    return run_pipe_session(descriptor, session_id, mode, color_format,
+                            width, height);
+}
+
+static int run_transcode(int descriptor, uint32_t input_codec,
+                         uint32_t output_codec, uint32_t width, uint32_t height,
+                         uint32_t frame_rate, uint32_t bitrate) {
+    uint64_t session_id = 0;
+    if (create_transcode_session(descriptor, input_codec, output_codec, width,
+            height, frame_rate, bitrate, &session_id) != 0) return 1;
+    return run_pipe_session(descriptor, session_id, DSCB_MODE_DECODE, 0,
+                            width, height);
+}
+
 static void usage(FILE *stream) {
     fprintf(stream,
             "usage:\n"
@@ -933,6 +1225,7 @@ static void usage(FILE *stream) {
             "  dawnshell-codec decode-test FILE WIDTH HEIGHT FPS FRAMES\n"
             "  dawnshell-codec encode-test WIDTH HEIGHT FPS FRAMES BITRATE\n"
             "  dawnshell-codec pipe MODE CODEC WIDTH HEIGHT FPS BITRATE\n\n"
+            "  dawnshell-codec transcode INPUT_CODEC OUTPUT_CODEC WIDTH HEIGHT FPS BITRATE\n\n"
             "MODE is decode or encode; CODEC is avc/h264 or hevc/h265.\n"
             "pipe stdin/stdout records are: pts_us:u64, flags:u32, length:u32, data; big-endian.\n");
 }
@@ -983,6 +1276,19 @@ int main(int argc, char **argv) {
                 && parse_u32(argv[7], 1000, 100000000, &bitrate) == 0) {
             result = run_pipe(descriptor, mode, codec, width, height,
                               frame_rate, bitrate);
+        } else {
+            usage(stderr);
+        }
+    } else if (strcmp(argv[1], "transcode") == 0 && argc == 8) {
+        uint32_t input_codec, output_codec, width, height, frame_rate, bitrate;
+        if (parse_codec(argv[2], &input_codec) == 0
+                && parse_codec(argv[3], &output_codec) == 0
+                && parse_u32(argv[4], 16, 4096, &width) == 0
+                && parse_u32(argv[5], 16, 4096, &height) == 0
+                && parse_u32(argv[6], 1, 240, &frame_rate) == 0
+                && parse_u32(argv[7], 1000, 100000000, &bitrate) == 0) {
+            result = run_transcode(descriptor, input_codec, output_codec, width,
+                                   height, frame_rate, bitrate);
         } else {
             usage(stderr);
         }

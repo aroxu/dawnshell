@@ -22,6 +22,16 @@ grep -Fq 'HardwareCodecProtocol.OUTPUT' "$broker"
 grep -Fq 'HardwareCodecProtocol.FLUSH' "$broker"
 grep -Fq 'HardwareCodecProtocol.EOS' "$broker"
 grep -Fq 'HardwareCodecProtocol.CLOSE' "$broker"
+grep -Fq 'HardwareCodecProtocol.INPUT_SHARED_MEMORY' "$broker"
+grep -Fq 'HardwareCodecProtocol.OUTPUT_SHARED_MEMORY' "$broker"
+grep -Fq 'HardwareCodecProtocol.CREATE_TRANSCODER' "$broker"
+grep -Fq 'encoder.createInputSurface()' "$broker"
+grep -Fq 'decoder.configure(decoderFormat, inputSurface' "$broker"
+grep -Fq 'decoder.releaseOutputBuffer(index, info.size > 0)' "$broker"
+grep -Fq 'encoder.signalEndOfInputStream()' "$broker"
+grep -Fq 'peer.getAncillaryFileDescriptors()' "$broker"
+grep -Fq 'Os.pread(descriptor' "$broker"
+grep -Fq 'Os.pwrite(descriptor' "$broker"
 grep -Fq 'ensureBrokerStarted()' "$service"
 
 grep -Fq '#define DSCB_MAGIC 0x44534342u' "$client"
@@ -32,18 +42,31 @@ grep -Fq 'pipe stdin/stdout records are:' "$client"
 grep -Fq 'run_decode_test' "$client"
 grep -Fq 'run_encode_test' "$client"
 grep -Fq 'inspect_vector' "$client"
+grep -Fq '#define DSCB_INPUT_SHARED_MEMORY 9u' "$client"
+grep -Fq '#define DSCB_OUTPUT_SHARED_MEMORY 10u' "$client"
+grep -Fq '#define DSCB_CREATE_TRANSCODER 11u' "$client"
+grep -Fq '__NR_memfd_create' "$client"
+grep -Fq 'SCM_RIGHTS' "$client"
+grep -Fq 'DAWNSHELL_CODEC_DISABLE_SHM' "$client"
 
 grep -Fq 'codecClientBinary = new File(bin, "dawnshell-codec")' "$runtime"
 grep -Fq 'codecFfmpegAdapterScript = new File(scripts' "$runtime"
 grep -Fq 'hardware_codec_client=/usr/local/bin/dawnshell-codec' "$configurator"
 grep -Fq 'hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test' \
     "$configurator"
+grep -Fq 'hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode' "$configurator"
+grep -Fq 'hardware_codec_encode=/usr/local/bin/dawnshell-hwencode' "$configurator"
+grep -Fq 'hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode' \
+    "$configurator"
 grep -Fq 'ffmpeg -hide_banner -loglevel error -f h264' "$configurator"
 grep -Fq 'python3-minimal' "$configurator"
 grep -Fq 'cat > /usr/local/bin/dawnshell-hwdecode' "$configurator"
+grep -Fq 'cat > /usr/local/bin/dawnshell-hwencode' "$configurator"
+grep -Fq 'cat > /usr/local/bin/dawnshell-hwtranscode' "$configurator"
+grep -Fq 'hevc_mp4toannexb' "$configurator"
 grep -Fq 'h264_mp4toannexb' "$configurator"
 grep -Fq '/usr/local/libexec/dawnshell-codec-ffmpeg.py pack' "$configurator"
-test -x "$ffmpeg_adapter"
+test -f "$ffmpeg_adapter"
 python3 - "$ffmpeg_adapter" <<'PYTHON_SYNTAX_CHECK'
 import pathlib
 import sys
@@ -103,5 +126,21 @@ PYTHON_DECODE_RECORD
 python3 "$ffmpeg_adapter" unpack "$adapter_test_dir/decoded.bin" \
     "$adapter_test_dir/decoded.i420" 4 4 | grep -Fqx 2
 test "$(wc -c < "$adapter_test_dir/decoded.i420")" -eq 48
+python3 "$ffmpeg_adapter" pack-i420 "$adapter_test_dir/decoded.i420" \
+    4 4 25/1 "$adapter_test_dir/framed-i420.bin" | grep -Fqx 2
+python3 - "$adapter_test_dir/encoded.bin" <<'PYTHON_ENCODE_RECORD'
+import pathlib
+import struct
+import sys
+
+pathlib.Path(sys.argv[1]).write_bytes(
+    struct.pack(">QII", 0, 2, 4) + b"csd0"
+    + struct.pack(">QII", 0, 0, 3) + b"one"
+    + struct.pack(">QII", 40_000, 4, 3) + b"two"
+)
+PYTHON_ENCODE_RECORD
+python3 "$ffmpeg_adapter" unpack-annexb "$adapter_test_dir/encoded.bin" \
+    "$adapter_test_dir/output.h264" | grep -Fqx 2
+test "$(wc -c < "$adapter_test_dir/output.h264")" -eq 10
 
 echo "Hardware codec broker protocol, client, and three-ABI assets are pinned"

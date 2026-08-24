@@ -11,6 +11,7 @@ import sys
 MAX_MEDIA_PAYLOAD = 8 * 1024 * 1024
 RECORD = struct.Struct(">QII")
 EOS_FLAG = 4
+CODEC_CONFIG_FLAG = 2
 
 
 def load_packets(path):
@@ -104,6 +105,64 @@ def unpack(arguments):
     print(frames)
 
 
+def parse_rate(value):
+    numerator, denominator = value.split("/", 1)
+    rate = decimal.Decimal(numerator) / decimal.Decimal(denominator)
+    if rate < 1 or rate > 240:
+        raise ValueError("frame rate must be within 1..240")
+    return rate
+
+
+def pack_i420(arguments):
+    frame_size = arguments.width * arguments.height * 3 // 2
+    if frame_size <= 0 or frame_size > MAX_MEDIA_PAYLOAD - RECORD.size:
+        raise ValueError("invalid I420 frame size")
+    rate = parse_rate(arguments.frame_rate)
+    raw_size = pathlib.Path(arguments.input).stat().st_size
+    if raw_size == 0 or raw_size % frame_size != 0:
+        raise ValueError("raw I420 input is not an exact number of frames")
+    frames = raw_size // frame_size
+    with open(arguments.input, "rb") as source, open(arguments.output, "wb") as output:
+        for index in range(frames):
+            frame = source.read(frame_size)
+            if len(frame) != frame_size:
+                raise ValueError("short I420 frame")
+            pts = int(decimal.Decimal(index) * decimal.Decimal(1_000_000) / rate)
+            output.write(RECORD.pack(pts, 0, frame_size))
+            output.write(frame)
+    print(frames)
+
+
+def unpack_annex_b(arguments):
+    frames = 0
+    previous_pts = -1
+    with open(arguments.input, "rb") as source, open(arguments.output, "wb") as output:
+        while True:
+            header = source.read(RECORD.size)
+            if not header:
+                break
+            if len(header) != RECORD.size:
+                raise ValueError("truncated encoded record header")
+            pts, flags, size = RECORD.unpack(header)
+            if size > MAX_MEDIA_PAYLOAD - RECORD.size:
+                raise ValueError("encoded record exceeds protocol limit")
+            data = source.read(size)
+            if len(data) != size:
+                raise ValueError("truncated encoded record payload")
+            if size:
+                output.write(data)
+                if not flags & CODEC_CONFIG_FLAG:
+                    if pts < previous_pts:
+                        raise ValueError("encoded PTS is not monotonic")
+                    previous_pts = pts
+                    frames += 1
+            if flags & EOS_FLAG:
+                break
+    if frames == 0:
+        raise ValueError("hardware encoder produced no frames")
+    print(frames)
+
+
 def positive_int(value):
     parsed = int(value)
     if parsed <= 0:
@@ -127,6 +186,17 @@ def main():
     unpack_parser.add_argument("width", type=positive_int)
     unpack_parser.add_argument("height", type=positive_int)
     unpack_parser.set_defaults(handler=unpack)
+    pack_i420_parser = commands.add_parser("pack-i420")
+    pack_i420_parser.add_argument("input")
+    pack_i420_parser.add_argument("width", type=positive_int)
+    pack_i420_parser.add_argument("height", type=positive_int)
+    pack_i420_parser.add_argument("frame_rate")
+    pack_i420_parser.add_argument("output")
+    pack_i420_parser.set_defaults(handler=pack_i420)
+    unpack_annex_b_parser = commands.add_parser("unpack-annexb")
+    unpack_annex_b_parser.add_argument("input")
+    unpack_annex_b_parser.add_argument("output")
+    unpack_annex_b_parser.set_defaults(handler=unpack_annex_b)
     arguments = parser.parse_args()
     try:
         arguments.handler(arguments)
