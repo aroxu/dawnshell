@@ -176,6 +176,9 @@ Docker container must receive the node separately with `--device`; avoid
 
 ## Hardware video codec
 
+For complete commands, automatic integration, audio remuxing, and fallback
+rules, see the [FFmpeg hardware codec guide](ffmpeg-hardware-codec.md).
+
 Debian can run H.264/HEVC encoding and decoding on the device's dedicated video
 codec instead of the CPU. This is not GPU passthrough: Debian only demuxes and
 muxes containers, while the app process performs the codec work and returns the

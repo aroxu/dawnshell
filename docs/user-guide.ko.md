@@ -289,6 +289,9 @@ DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 out.m
 
 ### 확인과 문제 해결
 
+전체 명령표, 자동 연동, 오디오 재결합 및 폴백 조건은
+[FFmpeg 하드웨어 코덱 사용법](ffmpeg-hardware-codec.ko.md)을 참고하세요.
+
 ```sh
 dawnshell-codec health --format json
 dawnshell-codec-self-test

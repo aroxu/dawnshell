@@ -41,6 +41,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.AppCompatTextView;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -266,6 +267,8 @@ public class BootActivity extends AppCompatActivity {
                 runHardwareCodecSelfTest());
         hardwareCodecPerformanceTestButton.setOnClickListener(view ->
                 runHardwareCodecPerformanceTest());
+        findViewById(R.id.open_ffmpeg_codec_guide_button).setOnClickListener(view ->
+                showFfmpegCodecGuide());
         hardwareCodecLongRunStartButton.setOnClickListener(view ->
                 confirmHardwareCodecLongRun());
         hardwareCodecLongRunStopButton.setOnClickListener(view ->
@@ -1265,6 +1268,45 @@ public class BootActivity extends AppCompatActivity {
 
     private void runHardwareCodecPerformanceTest() {
         runHardwareCodecTest(true);
+    }
+
+    private void showFfmpegCodecGuide() {
+        String guide = getString(R.string.dawnshell_codec_ffmpeg_guide_body);
+        TextView content = new AppCompatTextView(this);
+        content.setText(guide);
+        content.setTextIsSelectable(true);
+        content.setTypeface(Typeface.MONOSPACE);
+        content.setTextSize(13f);
+        content.setTextColor(MaterialColors.getColor(content,
+                com.google.android.material.R.attr.colorOnSurface));
+        content.setPadding(dp(20), dp(8), dp(20), dp(20));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dawnshell_codec_ffmpeg_guide_title)
+                .setView(scroll)
+                .setNegativeButton(R.string.dawnshell_codec_ffmpeg_guide_close, null)
+                .setPositiveButton(R.string.dawnshell_codec_ffmpeg_guide_copy,
+                        (dialog, which) -> copyFfmpegCodecGuide(guide))
+                .show();
+    }
+
+    private void copyFfmpegCodecGuide(String guide) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(
+                Context.CLIPBOARD_SERVICE);
+        if (clipboard == null) {
+            DawnShellNotice.show(this, R.string.bfu_clipboard_unavailable);
+            return;
+        }
+        clipboard.setPrimaryClip(ClipData.newPlainText(
+                "DawnShell FFmpeg guide", guide));
+        recordOperation("HARDWARE_CODEC_FFMPEG_GUIDE_COPIED");
+        DawnShellNotice.show(this, R.string.dawnshell_codec_ffmpeg_guide_copied);
     }
 
     private void runHardwareCodecFileSelfTest() {
