@@ -5,6 +5,8 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 java_protocol="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecProtocol.java"
 broker="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecBroker.java"
 service="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecService.java"
+activity="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BootActivity.java"
+file_self_test="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecFileSelfTest.java"
 long_run_control="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecLongRun.java"
 recovery_test="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecRecoveryTest.java"
 su_runner="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuSu.java"
@@ -81,6 +83,19 @@ grep -Fq 'peer.getAncillaryFileDescriptors()' "$broker"
 grep -Fq 'Os.pread(descriptor' "$broker"
 grep -Fq 'Os.pwrite(descriptor' "$broker"
 grep -Fq 'ensureBrokerStarted()' "$service"
+grep -Fq 'ACTION_FILE_SELF_TEST' "$service"
+grep -Fq 'HardwareCodecFileSelfTest.run(this, token)' "$service"
+grep -Fq 'Big_Buck_Bunny_1080_10s_5MB.mp4' "$file_self_test"
+grep -Fq 'MediaExtractor' "$file_self_test"
+grep -Fq 'transport=device_protected_file socket_media_bytes=0' "$file_self_test"
+grep -Fq 'downloaded_by", "debian_wget"' "$file_self_test"
+if grep -Eq 'HttpURLConnection|openConnection\(' "$file_self_test"; then
+    echo "The file self-test must download through Debian wget, not Android" >&2
+    exit 1
+fi
+grep -Fq 'apt-get install -y wget ca-certificates' "$activity"
+grep -Fq 'wget --timeout=30 --tries=3' "$activity"
+grep -Fq 'HardwareCodecService.requestFileSelfTest(this)' "$activity"
 
 grep -Fq '#define DSCB_MAGIC 0x44534342u' "$client"
 grep -Fq '#define DSCB_VERSION 1u' "$client"

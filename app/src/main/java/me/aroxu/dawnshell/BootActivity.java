@@ -44,6 +44,7 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputLayout;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Arrays;
@@ -1259,11 +1260,100 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void runHardwareCodecSelfTest() {
-        runHardwareCodecTest(false);
+        runHardwareCodecFileSelfTest();
     }
 
     private void runHardwareCodecPerformanceTest() {
         runHardwareCodecTest(true);
+    }
+
+    private void runHardwareCodecFileSelfTest() {
+        if (codecSelfTestInProgress) return;
+        if (!hardwareCodecBridge.isChecked()
+                || !BfuPreferences.hardwareCodecBridge(this)) {
+            DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_requires_setup);
+            return;
+        }
+        codecSelfTestInProgress = true;
+        hardwareCodecSelfTestButton.setEnabled(false);
+        hardwareCodecPerformanceTestButton.setEnabled(false);
+        DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_started);
+        codecSelfTestExecutor.execute(() -> {
+            boolean passed = false;
+            long token = -1L;
+            String output = "FAILED stage=debian_download";
+            try {
+                BfuRuntime.Layout layout = BfuRuntime.provision(this);
+                File destination = HardwareCodecFileSelfTest.inputFile(this);
+                String rootTemporary = BfuRootfsProbe.ROOTFS_PATH
+                        + "/var/tmp/dawnshell-codec-file-self-test.mp4";
+                String debianScript = "set -eu; "
+                        + "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
+                        + "if ! command -v wget >/dev/null 2>&1; then "
+                        + "apt-get -o Acquire::Retries=3 update; "
+                        + "DEBIAN_FRONTEND=noninteractive apt-get install -y wget ca-certificates; "
+                        + "fi; "
+                        + "wget --timeout=30 --tries=3 -O /var/tmp/dawnshell-codec-file-self-test.mp4 "
+                        + BfuSu.shellQuote(HardwareCodecFileSelfTest.TEST_URL);
+                String toolbox = BfuSu.shellQuote(layout.toolboxBinary.getAbsolutePath());
+                String staged = destination.getAbsolutePath() + ".new";
+                String command = toolbox + " chroot "
+                        + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
+                        + " /bin/sh -c " + BfuSu.shellQuote(debianScript)
+                        + " && " + toolbox + " cp " + BfuSu.shellQuote(rootTemporary)
+                        + " " + BfuSu.shellQuote(staged)
+                        + " && " + toolbox + " chmod 0600 " + BfuSu.shellQuote(staged)
+                        + " && " + toolbox + " chown "
+                        + android.os.Process.myUid() + ":" + android.os.Process.myUid()
+                        + " " + BfuSu.shellQuote(staged)
+                        + " && " + toolbox + " mv " + BfuSu.shellQuote(staged)
+                        + " " + BfuSu.shellQuote(destination.getAbsolutePath())
+                        + " && " + toolbox + " rm -f " + BfuSu.shellQuote(rootTemporary);
+                BfuSu.Result download = BfuSu.runRaw(command, 240_000L);
+                if (!download.exitedSuccessfully()) {
+                    throw new IOException("Debian wget failed: "
+                            + BfuSu.sanitizeTail(download.output));
+                }
+                token = HardwareCodecService.requestFileSelfTest(this);
+                output = "FAILED token=" + token + " timeout=true";
+                long deadline = android.os.SystemClock.elapsedRealtime() + 90_000L;
+                while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                    Thread.sleep(500L);
+                    String status = HardwareCodecFileSelfTest.readStatus(this);
+                    if (!status.contains("token=" + token)) continue;
+                    if (status.startsWith("PASSED ") || status.startsWith("FAILED ")) {
+                        output = status;
+                        passed = status.startsWith("PASSED ");
+                        break;
+                    }
+                }
+            } catch (IOException e) {
+                output = "FAILED token=" + token + " error="
+                        + BfuSu.sanitize(e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                output = "FAILED token=" + token + " interrupted=true";
+            }
+            final boolean finalPassed = passed;
+            final String finalOutput = output;
+            HardwareCodecProbe.recordBrokerEvent(this,
+                    "SELF_TEST_" + finalOutput);
+            try {
+                BfuOperationLog.append(this, "HARDWARE_CODEC_FILE_SELF_TEST_"
+                        + finalOutput);
+            } catch (IOException e) {
+                Log.w(TAG, "Could not persist file-backed codec self-test", e);
+            }
+            runOnUiThread(() -> {
+                codecSelfTestInProgress = false;
+                hardwareCodecSelfTestButton.setEnabled(true);
+                hardwareCodecPerformanceTestButton.setEnabled(true);
+                refreshHardwareCodecStatus();
+                DawnShellNotice.show(this, getString(finalPassed
+                        ? R.string.dawnshell_codec_self_test_passed
+                        : R.string.dawnshell_codec_self_test_failed));
+            });
+        });
     }
 
     private void confirmHardwareCodecLongRun() {

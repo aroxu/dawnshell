@@ -244,7 +244,7 @@
     <string name="dawnshell_codec_scope">OpenGL/Vulkan이나 범용 GPU 패스스루가 아니라 영상 코덱 가속 기능입니다. root 인증 로컬 Unix socket을 통해 Debian에서 제한된 하드웨어 AVC/HEVC 세션을 사용합니다. 큰 프레임은 socket 폴백이 있는 공유 메모리로 전송하며, 호환 코덱 조합은 전체 YUV 프레임을 Debian으로 복사하지 않고 Android Surface를 통해 트랜스코딩할 수 있습니다. 소프트웨어 코덱을 조용히 선택하지 않습니다. Android 10 이상은 플랫폼 하드웨어/벤더 플래그를 사용하고 Android 7~9는 명시적으로 표시되는 보수적인 벤더 이름 추정을 사용합니다. Debian 구성 후 고정 벡터 자체 검사를 실행하세요. BFU에서 미디어 서비스가 준비되지 않으면 이 기능만 실패합니다.</string>
     <string name="dawnshell_codec_apply_probe">저장하고 하드웨어 코덱 검사</string>
     <string name="dawnshell_codec_view_log">하드웨어 코덱 보고서 보기</string>
-    <string name="dawnshell_codec_run_self_test">하드웨어 AVC 디코드 + 인코드 + Surface 트랜스코드 자체 검사</string>
+    <string name="dawnshell_codec_run_self_test">파일 기반 하드웨어 AVC 디코드 자체 검사 다운로드 및 실행</string>
     <string name="dawnshell_codec_run_performance_test">컨테이너·성능·오류·동시 세션 회귀 검사</string>
     <string name="dawnshell_codec_self_test_started">고정 10프레임 하드웨어 AVC 디코드, 인코드 및 Surface 트랜스코드 검사를 실행 중입니다…</string>
     <string name="dawnshell_codec_self_test_passed">하드웨어 AVC 자체 검사를 통과했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>

@@ -30,6 +30,9 @@ public final class HardwareCodecService extends Service {
             "me.aroxu.dawnshell.action.START_HARDWARE_CODEC_BRIDGE";
     private static final String ACTION_PROBE =
             "me.aroxu.dawnshell.action.PROBE_HARDWARE_CODECS";
+    private static final String ACTION_FILE_SELF_TEST =
+            "me.aroxu.dawnshell.action.FILE_HARDWARE_CODEC_SELF_TEST";
+    private static final String EXTRA_TEST_TOKEN = "test_token";
     private static final String CHANNEL_ID = "dawnshell_hardware_codec";
     private static final int NOTIFICATION_ID = 2223;
     private static final long[] BOOT_RETRY_DELAYS_MS = {
@@ -38,6 +41,7 @@ public final class HardwareCodecService extends Service {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean probeRunning = new AtomicBoolean(false);
+    private final AtomicBoolean fileSelfTestRunning = new AtomicBoolean(false);
     private HardwareCodecBroker broker;
 
     static void ensureStarted(Context context, boolean bootRetry) {
@@ -52,6 +56,19 @@ public final class HardwareCodecService extends Service {
 
     static void stop(Context context) {
         context.stopService(new Intent(context, HardwareCodecService.class));
+    }
+
+    static long requestFileSelfTest(Context context) {
+        long token = System.currentTimeMillis();
+        Intent intent = new Intent(context, HardwareCodecService.class)
+                .setAction(ACTION_FILE_SELF_TEST)
+                .putExtra(EXTRA_TEST_TOKEN, token);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+        return token;
     }
 
     @Override
@@ -80,13 +97,35 @@ public final class HardwareCodecService extends Service {
             HardwareCodecProbe.recordBrokerEvent(this,
                     "START_FAILED error=" + BfuSu.sanitize(e.getMessage()));
         }
-        boolean retry = ACTION_BOOT.equals(action);
-        if (probeRunning.compareAndSet(false, true)) {
-            executor.execute(() -> runProbe(retry));
+        if (ACTION_FILE_SELF_TEST.equals(action)) {
+            long token = intent == null ? System.currentTimeMillis()
+                    : intent.getLongExtra(EXTRA_TEST_TOKEN, System.currentTimeMillis());
+            if (fileSelfTestRunning.compareAndSet(false, true)) {
+                executor.execute(() -> runFileSelfTest(token));
+            } else {
+                HardwareCodecProbe.recordBrokerEvent(this,
+                        "FILE_SELF_TEST_REJECTED already_running=true token=" + token);
+            }
         } else {
-            Log.i(TAG, "MediaCodec probe already running; duplicate request ignored");
+            boolean retry = ACTION_BOOT.equals(action);
+            if (probeRunning.compareAndSet(false, true)) {
+                executor.execute(() -> runProbe(retry));
+            } else {
+                Log.i(TAG, "MediaCodec probe already running; duplicate request ignored");
+            }
         }
         return START_STICKY;
+    }
+
+    private void runFileSelfTest(long token) {
+        try {
+            HardwareCodecFileSelfTest.Result result =
+                    HardwareCodecFileSelfTest.run(this, token);
+            Log.i(TAG, "File-backed hardware codec self-test finished: "
+                    + result.summary);
+        } finally {
+            fileSelfTestRunning.set(false);
+        }
     }
 
     private void runProbe(boolean retry) {

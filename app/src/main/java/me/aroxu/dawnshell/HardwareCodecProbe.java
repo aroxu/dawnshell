@@ -433,11 +433,16 @@ final class HardwareCodecProbe {
             String line = "[" + utcTimestamp() + "] " + clean(value) + "\n";
             synchronized (FILE_LOCK) {
                 rotateLogIfNeeded(log);
+                boolean created = !log.isFile();
                 try (FileOutputStream output = new FileOutputStream(log, true)) {
                     output.write(line.getBytes(StandardCharsets.UTF_8));
                     output.getFD().sync();
                 }
-                setOwnerOnly(log);
+                // The broker runs in a separate process, so FILE_LOCK does not
+                // serialise it against the app. Re-applying the mode on every
+                // append raced with the other process and could leave the file
+                // with no permissions at all, silencing this log.
+                if (created || !log.canRead() || !log.canWrite()) setOwnerOnly(log);
             }
             Log.i(TAG, clean(value));
         } catch (IOException | RuntimeException e) {

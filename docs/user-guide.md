@@ -198,6 +198,18 @@ Configuration installs these commands in Debian.
 | `dawnshell-hwtranscode` | Re-encodes H.264/HEVC to H.264 |
 | `dawnshell-codec-self-test` | Verifies the bridge |
 
+The app's **file-backed hardware AVC decode self-test** installs `wget` and
+`ca-certificates` with Debian `apt` when needed, then downloads the 1920x1080
+H.264 Big Buck Bunny sample from test-videos.co.uk inside Debian. Android reads
+the staged DE file directly with `MediaExtractor` and a conservatively selected
+hardware `MediaCodec`. Video bytes never cross the Unix socket; the report must
+show `socket_media_bytes=0`. The first run can take longer because it installs
+packages and downloads about 5 MB.
+
+`dawnshell-codec-self-test` remains the separate advanced streaming-bridge
+test. If the file-backed test passes while that command fails, the failure is
+isolated to the socket/shared-memory transport rather than the hardware codec.
+
 ### Automatic integration
 
 `dawnshell-ffmpeg` takes the same arguments as `ffmpeg`. Commands the bridge can

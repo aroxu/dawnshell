@@ -209,6 +209,13 @@ Wi-Fi, 모바일 데이터, USB Ethernet, VPN, Tailscale과 SSH가 유지되는�
 
 실제 frame 경로는 Debian에서 `dawnshell-codec-self-test`를 실행해 decode checksum,
 encode keyframe/PTS/EOS, FFmpeg 재검증과 Surface zero-copy 통계를 확인합니다.
+
+그 전에 앱의 파일 기반 검사를 실행합니다. 이 검사는 Debian이 `apt`로 `wget`과
+`ca-certificates`를 준비하고 Big Buck Bunny 1080p H.264 MP4를 내려받은 뒤,
+Android `MediaExtractor`/하드웨어 `MediaCodec`이 DE 파일을 직접 읽습니다. 성공
+로그에는 `transport=device_protected_file socket_media_bytes=0`, 1920x1080,
+100개 이상의 입력 sample과 EOS가 모두 있어야 합니다. 이 검사는 소켓 프레이밍과
+독립적이므로 하드웨어 디코더와 스트리밍 전송 계층을 분리 진단합니다.
 `dawnshell-codec health --format json`은 `broker_state=listening`과 session 정리를,
 `dawnshell-codec negative-test`는 잘못된 요청 뒤 broker 생존을 확인합니다. 최종 5회
 시험은 `BFU_REQUIRE_HARDWARE_CODEC=1 BFU_CYCLES=5 scripts/test-final-bfu.sh`로
