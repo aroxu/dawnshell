@@ -159,13 +159,10 @@ IPC 네임스페이스 생성 자체를 차단합니다. 따라서 `docker compo
 `/usr/local/bin/docker` 래퍼가 `run`과 `create`에 `--ipc=host`를 자동으로
 추가해, 컨테이너가 차단된 호출을 시도하지 않고 처음부터 정상 실행되게 합니다.
 
-Compose를 사용할 때는 서비스에 `ipc: host`를 직접 지정하세요.
-
-```yaml
-services:
-  app:
-    ipc: host
-```
+`docker compose`도 자동으로 처리됩니다. Compose는 IPC 설정을 YAML에서 읽으므로
+래퍼가 임시 override 파일을 만들어 각 서비스에 `ipc: host`를 적용합니다.
+compose 파일마다 직접 추가할 필요가 없습니다. 이미 `ipc:`를 지정한 서비스는
+그 값이 유지됩니다.
 
 호스트 IPC는 컨테이너가 Android 및 Debian의 IPC 객체를 공유하므로 격리가
 약해집니다. 사용자가 명시한 `--ipc=...`는 언제나 우선합니다. 변경 후에는

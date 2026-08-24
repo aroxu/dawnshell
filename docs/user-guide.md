@@ -118,13 +118,10 @@ permission error instead.
 `/usr/local/bin/docker` wrapper adds `--ipc=host` to `run` and `create` so a
 container never attempts the blocked call in the first place.
 
-With Compose, set it per service:
-
-```yaml
-services:
-  app:
-    ipc: host
-```
+`docker compose` is handled automatically too. Because Compose reads the IPC
+setting from YAML, the wrapper generates a temporary override file that applies
+`ipc: host` to each service, so no compose file needs editing. A service that
+already declares `ipc:` keeps its own value.
 
 Host IPC lets containers share Android and Debian IPC objects, which reduces
 isolation. An explicit `--ipc=...` always takes priority. Apply the Docker
