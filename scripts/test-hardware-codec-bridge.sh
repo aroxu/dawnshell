@@ -511,4 +511,29 @@ python3 "$adapter_test_dir/error-vectors.py" "$vector_720" \
 test -s "$adapter_test_dir/missing-hevc-config.records"
 test -s "$adapter_test_dir/truncated-hevc.records"
 
+# The committed launcher must stay dynamically linked against Android's
+# linker. A static-pie launcher segfaults immediately on the target device,
+# while the codec client must stay static so Debian can run it directly.
+python3 - "$repo_dir" <<'PYTHON_VERIFY_LINKAGE'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1]) / "app/src/main/assets/bfu/bin"
+interpreters = {
+    "arm64-v8a": b"/system/bin/linker64",
+    "armeabi-v7a": b"/system/bin/linker",
+    "x86_64": b"/system/bin/linker64",
+}
+for abi, interpreter in interpreters.items():
+    launcher = (root / abi / "bfu-namespace-probe").read_bytes()
+    if interpreter not in launcher:
+        raise SystemExit(
+            f"{abi} launcher must be dynamically linked against {interpreter.decode()}"
+        )
+    client = (root / abi / "dawnshell-codec").read_bytes()
+    if b"/system/bin/linker" in client:
+        raise SystemExit(f"{abi} codec client must stay statically linked")
+print("launcher is dynamically linked and codec client is static for all ABIs")
+PYTHON_VERIFY_LINKAGE
+
 echo "Hardware codec broker protocol, client, and three-ABI assets are pinned"
