@@ -194,5 +194,8 @@ echo "Running namespace poweroff/reboot/shutdown isolation checks..."
 cp "$summary" "$results_dir/summary.tsv"
 echo "============================================================"
 echo "PASS: $cycles BFU cold cycles plus poweroff/reboot/shutdown isolation completed."
+if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
+  echo "Hardware codec decode, encode, and Surface transcode passed before and after unlock in every cycle."
+fi
 echo "Evidence directory: $results_dir"
 cat "$summary"

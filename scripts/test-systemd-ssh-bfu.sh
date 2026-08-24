@@ -180,6 +180,23 @@ locked_identity="$(printf '%s\n' "$locked_health" \
 
 echo "PASS: SSH :${ssh_port}, systemd PID 1, D-Bus, and ssh.service were live before unlock."
 
+codec_command='set -eu
+[ -x /usr/local/bin/dawnshell-codec ]
+[ -x /usr/local/bin/dawnshell-codec-self-test ]
+dawnshell-codec capabilities
+timeout 120 /usr/local/bin/dawnshell-codec-self-test'
+if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
+  echo "Running BFU hardware decode, encode, and Surface transcode self-test..."
+  # Fixed command is intentionally executed by the remote Debian shell.
+  # shellcheck disable=SC2029
+  locked_codec_result="$(ssh "${ssh_args[@]}" \
+    "$ssh_user@$BFU_PHONE_HOST" "$codec_command")"
+  printf 'BFU codec result:\n%s\n' "$locked_codec_result"
+  grep -Fq 'hardware AVC decode passed' <<<"$locked_codec_result"
+  grep -Fq 'hardware AVC encode passed' <<<"$locked_codec_result"
+  grep -Fq 'Surface zero-copy AVC transcode passed' <<<"$locked_codec_result"
+fi
+
 if [[ "${BFU_SKIP_UNLOCK_CONTINUITY:-}" == "1" ]]; then
   exit 0
 fi
@@ -209,6 +226,15 @@ unlocked_health="$(ssh "${ssh_args[@]}" \
 printf 'AFU health: %s\n' "$unlocked_health"
 unlocked_identity="$(printf '%s\n' "$unlocked_health" \
   | sed -n 's/.*start_ticks=\([^ ]*\).*machine_id=\([^ ]*\).*/\1:\2/p')"
+
+if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
+  echo "Re-running hardware codec self-test after USER_UNLOCKED..."
+  # shellcheck disable=SC2029
+  unlocked_codec_result="$(ssh "${ssh_args[@]}" \
+    "$ssh_user@$BFU_PHONE_HOST" "$codec_command")"
+  printf 'AFU codec result:\n%s\n' "$unlocked_codec_result"
+  grep -Fq 'Surface zero-copy AVC transcode passed' <<<"$unlocked_codec_result"
+fi
 
 [[ "$unlocked_identity" = "$locked_identity" ]] || {
   echo "FAIL: Debian PID 1 identity changed across USER_UNLOCKED" >&2

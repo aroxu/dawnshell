@@ -112,3 +112,13 @@ encoder canonical name, `transport=surface_zero_copy`가 session 응답에 기�
 Surface color format을 광고하는 보수적 hardware pair가 없으면 software로 조용히
 전환하지 않고 명시적으로 실패합니다. audio, 해상도 변경, 영상 filter 및 scaling은
 지원하지 않습니다.
+
+최종 BFU 5회 회귀 시험에서 코덱까지 강제하려면 호스트에서 다음처럼 실행합니다.
+
+```sh
+BFU_REQUIRE_HARDWARE_CODEC=1 BFU_CYCLES=5 scripts/test-final-bfu.sh
+```
+
+각 cold boot의 unlock 전과 `USER_UNLOCKED` 후에 decode, encode, Surface transcode
+자체 검사를 각각 실행합니다. 이 검사는 ADB가 BFU에서 연결되지 않는 ROM에서도 SSH
+경로만으로 잠금 해제 전 코덱 동작을 판정합니다.
