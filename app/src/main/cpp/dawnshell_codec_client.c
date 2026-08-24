@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,7 @@
 #define DSCB_AGAIN 1
 #define DSCB_FORMAT_CHANGED 2
 #define DSCB_ERROR_PROTOCOL (-1)
+#define DSCB_ERROR_VERSION (-2)
 #define DSCB_ERROR_UNSUPPORTED (-4)
 #define DSCB_ERROR_LIMIT (-5)
 #define DSCB_ERROR_SESSION (-7)
@@ -489,6 +491,9 @@ static int simple_request(int descriptor, uint16_t type, uint64_t session_id,
 
 static void close_session(int descriptor, uint64_t session_id);
 static int queue_eos(int descriptor, uint64_t session_id, uint64_t pts);
+static int queue_input(int descriptor, uint64_t session_id,
+                       const uint8_t header[16], const uint8_t *data,
+                       uint32_t length);
 
 static int request_keyframe(int descriptor, uint64_t session_id) {
     return simple_request(descriptor, DSCB_REQUEST_KEYFRAME, session_id,
@@ -532,6 +537,112 @@ static int expect_status(int descriptor, uint16_t type, uint64_t session_id,
     return result;
 }
 
+static int expect_header_rejection(size_t offset, uint32_t value,
+                                   int32_t expected, const char *name) {
+    int descriptor = connect_broker();
+    if (descriptor < 0) {
+        fprintf(stderr, "dawnshell-codec: negative-test %s connect failed: %s\n",
+                name, strerror(errno));
+        return 1;
+    }
+    uint8_t header[DSCB_HEADER_BYTES];
+    uint32_t request_id = next_request_id++;
+    make_request_header(header, DSCB_HELLO, 0, 0, request_id);
+    if (offset == 4) {
+        put_u16(header + offset, (uint16_t)value);
+    } else {
+        put_u32(header + offset, value);
+    }
+    struct response response;
+    int result = 0;
+    if (write_all(descriptor, header, sizeof(header)) != 0
+            || read_response(descriptor, DSCB_HELLO,
+                             offset == 24 ? value : request_id,
+                             &response) != 0) {
+        fprintf(stderr,
+                "dawnshell-codec: negative-test %s framing transport failed: %s\n",
+                name, strerror(errno));
+        result = 1;
+    } else {
+        if (response.status != expected) {
+            fprintf(stderr,
+                    "dawnshell-codec: negative-test %s status=%" PRId32
+                    " expected=%" PRId32 "\n",
+                    name, response.status, expected);
+            result = 1;
+        }
+        free_response(&response);
+    }
+    close(descriptor);
+    usleep(20000);
+    return result;
+}
+
+static int expect_truncated_payload_rejection(void) {
+    int descriptor = connect_broker();
+    if (descriptor < 0) return 1;
+    uint8_t header[DSCB_HEADER_BYTES];
+    make_request_header(header, DSCB_HEALTH, 0, 1, next_request_id++);
+    int result = 0;
+    if (write_all(descriptor, header, sizeof(header)) != 0
+            || shutdown(descriptor, SHUT_WR) != 0) {
+        result = 1;
+    } else {
+        uint8_t byte;
+        ssize_t count;
+        do {
+            count = read(descriptor, &byte, 1);
+        } while (count < 0 && errno == EINTR);
+        if (count != 0) result = 1;
+    }
+    close(descriptor);
+    usleep(20000);
+    if (result != 0) {
+        fprintf(stderr,
+                "dawnshell-codec: negative-test truncated-protocol-payload was not closed\n");
+    }
+    return result;
+}
+
+static int run_peer_limit_test(void) {
+    int peers[3] = {-1, -1, -1};
+    int overflow = -1;
+    int result = 0;
+    for (size_t index = 0; index < 3; index++) {
+        peers[index] = connect_broker();
+        if (peers[index] < 0 || hello(peers[index]) != 0) {
+            fprintf(stderr,
+                    "dawnshell-codec: peer-limit-test could not reserve peer %zu\n",
+                    index + 2);
+            result = 1;
+            goto cleanup;
+        }
+    }
+    overflow = connect_broker();
+    if (overflow < 0) {
+        fprintf(stderr,
+                "dawnshell-codec: peer-limit-test overflow connect failed too early\n");
+        result = 1;
+        goto cleanup;
+    }
+    if (hello(overflow) == 0) {
+        fprintf(stderr,
+                "dawnshell-codec: peer-limit-test fifth peer was not rejected\n");
+        result = 1;
+        goto cleanup;
+    }
+    fprintf(stderr,
+            "dawnshell-codec: peer-limit-test passed max_peers=4 overflow=rejected\n");
+
+cleanup:
+    if (overflow >= 0) close(overflow);
+    for (size_t index = 0; index < 3; index++) {
+        if (peers[index] >= 0) close(peers[index]);
+    }
+    usleep(100000);
+    return result;
+}
+
 static int run_negative_test(int descriptor) {
     const uint8_t unexpected_payload = 0;
     if (expect_status(descriptor, DSCB_HEALTH, 0, &unexpected_payload, 1,
@@ -541,7 +652,20 @@ static int run_negative_test(int descriptor) {
                              "unknown-keyframe-session") != 0
             || expect_status(descriptor, DSCB_SESSION_STATS, UINT64_MAX,
                              NULL, 0, DSCB_ERROR_SESSION,
-                             "unknown-statistics-session") != 0) {
+                             "unknown-statistics-session") != 0
+            || expect_status(descriptor, 0x1234u, 0, NULL, 0,
+                             DSCB_ERROR_UNSUPPORTED, "unknown-message-type") != 0
+            || expect_header_rejection(0, DSCB_MAGIC ^ 1u,
+                                       DSCB_ERROR_PROTOCOL, "invalid-magic") != 0
+            || expect_header_rejection(4, DSCB_VERSION + 1u,
+                                       DSCB_ERROR_VERSION, "invalid-version") != 0
+            || expect_header_rejection(8, 1u,
+                                       DSCB_ERROR_PROTOCOL, "invalid-header-flags") != 0
+            || expect_header_rejection(24, 0u,
+                                       DSCB_ERROR_PROTOCOL, "zero-request-id") != 0
+            || expect_header_rejection(20, DSCB_MAX_PAYLOAD + 1u,
+                                       DSCB_ERROR_LIMIT, "oversized-payload") != 0
+            || expect_truncated_payload_rejection() != 0) {
         return 1;
     }
     uint8_t invalid_create[28];
@@ -599,9 +723,52 @@ static int run_negative_test(int descriptor) {
         return 1;
     }
     close_session(descriptor, session_id);
+
+    uint64_t encoder_session_id = 0;
+    uint32_t selected_color_format = 0;
+    const uint32_t frame_length = 128u * 96u * 3u / 2u;
+    uint8_t *frame = calloc(frame_length, 1);
+    uint8_t *reversed_input = calloc(16u + frame_length, 1);
+    if (frame == NULL || reversed_input == NULL
+            || create_session(descriptor, DSCB_MODE_ENCODE, DSCB_CODEC_AVC,
+                              128, 96, 10, 1000000, &encoder_session_id,
+                              &selected_color_format) != 0) {
+        free(frame);
+        free(reversed_input);
+        close_session(descriptor, encoder_session_id);
+        return 1;
+    }
+    uint8_t frame_header[16];
+    put_u64(frame_header, 100000u);
+    put_u32(frame_header + 8, 0);
+    put_u32(frame_header + 12, frame_length);
+    if (queue_input(descriptor, encoder_session_id, frame_header, frame,
+                    frame_length) != 0) {
+        free(frame);
+        free(reversed_input);
+        close_session(descriptor, encoder_session_id);
+        return 1;
+    }
+    put_u64(reversed_input, 50000u);
+    put_u32(reversed_input + 8, 0);
+    put_u32(reversed_input + 12, frame_length);
+    memcpy(reversed_input + 16, frame, frame_length);
+    int reversed_result = expect_status(descriptor, DSCB_INPUT,
+            encoder_session_id, reversed_input, 16u + frame_length,
+            DSCB_ERROR_PROTOCOL, "nonmonotonic-encoder-pts");
+    free(frame);
+    free(reversed_input);
+    if (reversed_result != 0
+            || simple_request(descriptor, DSCB_FLUSH, encoder_session_id,
+                              NULL, 0, "post-PTS-error flush") != 0) {
+        close_session(descriptor, encoder_session_id);
+        return 1;
+    }
+    close_session(descriptor, encoder_session_id);
+    if (run_peer_limit_test() != 0) return 1;
     if (print_health(descriptor) != 0) return 1;
     fprintf(stderr,
-            "dawnshell-codec: negative-test passed rejected=8"
+            "dawnshell-codec: negative-test passed rejected=16"
             " session=responsive broker=responsive\n");
     return 0;
 }
@@ -1690,6 +1857,11 @@ static void usage(FILE *stream) {
 }
 
 int main(int argc, char **argv) {
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+        fprintf(stderr, "dawnshell-codec: could not ignore SIGPIPE: %s\n",
+                strerror(errno));
+        return 3;
+    }
     if (argc < 2) {
         usage(stderr);
         return 2;

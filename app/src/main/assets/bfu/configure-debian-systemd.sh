@@ -676,7 +676,7 @@ export LC_ALL=C
 
 usage() {
     echo "usage: dawnshell-hwdecode INPUT OUTPUT" >&2
-    echo "OUTPUT ending in .i420 or .yuv keeps raw I420; other outputs use FFmpeg/libx264." >&2
+    echo "H.264 and HEVC inputs are hardware decoded. Raw I420 uses .i420/.yuv." >&2
     exit 2
 }
 
@@ -697,7 +697,7 @@ trap cleanup EXIT HUP INT TERM
 
 stream_info="$temporary/stream.txt"
 input_packets="$temporary/input-packets.json"
-annex_b="$temporary/input.h264"
+annex_b="$temporary/input.es"
 raw_packets="$temporary/raw-packets.json"
 framed_input="$temporary/framed-input.bin"
 client_log="$temporary/client.log"
@@ -713,10 +713,22 @@ height="$(sed -n 's/^height=//p' "$stream_info" | head -n 1)"
 frame_rate="$(sed -n 's/^avg_frame_rate=//p' "$stream_info" | head -n 1)"
 bit_rate="$(sed -n 's/^bit_rate=//p' "$stream_info" | head -n 1)"
 
-[ "$codec" = h264 ] || {
-    echo "dawnshell-hwdecode: M5 supports H.264 input only; got ${codec:-unknown}" >&2
-    exit 3
-}
+case "$codec" in
+    h264)
+        input_codec=avc
+        bitstream_filter=h264_mp4toannexb
+        elementary_format=h264
+        ;;
+    hevc)
+        input_codec=hevc
+        bitstream_filter=hevc_mp4toannexb
+        elementary_format=hevc
+        ;;
+    *)
+        echo "dawnshell-hwdecode: input codec must be H.264 or HEVC; got ${codec:-unknown}" >&2
+        exit 3
+        ;;
+esac
 case "$width:$height" in
     *[!0-9:]*|:*|*:)
         echo "dawnshell-hwdecode: invalid video dimensions" >&2
@@ -747,19 +759,19 @@ if [ "$bit_rate" -lt 1000 ] || [ "$bit_rate" -gt 1000000000 ]; then
     bit_rate=4000000
 fi
 
-echo "DawnShell hardware decode: codec=avc size=${width}x${height} rate=$frame_rate"
+echo "DawnShell hardware decode: codec=$input_codec size=${width}x${height} rate=$frame_rate"
 ffprobe -v error -select_streams v:0 -show_packets \
     -show_entries packet=pts_time,dts_time -of json "$input" > "$input_packets"
 ffmpeg -hide_banner -loglevel error -y -i "$input" -map 0:v:0 -an \
-    -c:v copy -bsf:v h264_mp4toannexb -f h264 "$annex_b"
-ffprobe -v error -f h264 -show_packets -show_entries packet=pos,size \
+    -c:v copy -bsf:v "$bitstream_filter" -f "$elementary_format" "$annex_b"
+ffprobe -v error -f "$elementary_format" -show_packets -show_entries packet=pos,size \
     -of json "$annex_b" > "$raw_packets"
 /usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
     "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
 
 case "$output" in
     *.i420|*.I420|*.yuv|*.YUV)
-        if /usr/local/bin/dawnshell-codec pipe decode avc "$width" "$height" \
+        if /usr/local/bin/dawnshell-codec pipe decode "$input_codec" "$width" "$height" \
             "$integer_rate" "$bit_rate" < "$framed_input" 2> "$client_log" \
             | /usr/local/libexec/dawnshell-codec-ffmpeg.py unpack \
                 - "$output" "$width" "$height" > "$frame_count"; then
@@ -772,7 +784,7 @@ case "$output" in
         frames="$(cat "$frame_count")"
         ;;
     *)
-        if /usr/local/bin/dawnshell-codec pipe decode avc "$width" "$height" \
+        if /usr/local/bin/dawnshell-codec pipe decode "$input_codec" "$width" "$height" \
             "$integer_rate" "$bit_rate" < "$framed_input" 2> "$client_log" \
             | /usr/local/libexec/dawnshell-codec-ffmpeg.py unpack \
                 - - "$width" "$height" 2> "$unpack_log" \
@@ -805,15 +817,16 @@ set -euo pipefail
 export LC_ALL=C
 
 usage() {
-    echo "usage: dawnshell-hwencode INPUT OUTPUT [BITRATE]" >&2
-    echo "OUTPUT ending in .h264 keeps Annex-B; other outputs are muxed without re-encoding." >&2
+    echo "usage: dawnshell-hwencode INPUT OUTPUT [BITRATE] [avc|hevc]" >&2
+    echo "Codec defaults from a raw output suffix; otherwise AVC. Containers are stream-copied." >&2
     exit 2
 }
 
-[ "$#" -eq 2 ] || [ "$#" -eq 3 ] || usage
+[ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage
 input="$1"
 output="$2"
 bit_rate="${3:-4000000}"
+codec="${4:-}"
 [ -f "$input" ] || {
     echo "dawnshell-hwencode: input is not a regular file: $input" >&2
     exit 2
@@ -825,6 +838,24 @@ if [ "$bit_rate" -lt 1000 ] || [ "$bit_rate" -gt 100000000 ]; then
     echo "dawnshell-hwencode: bitrate must be within 1000..100000000" >&2
     exit 2
 fi
+if [ -z "$codec" ]; then
+    case "$output" in
+        *.hevc|*.HEVC|*.h265|*.H265|*.265) codec=hevc ;;
+        *) codec=avc ;;
+    esac
+fi
+case "$codec" in
+    avc)
+        elementary_format=h264
+        ;;
+    hevc)
+        elementary_format=hevc
+        ;;
+    *)
+        echo "dawnshell-hwencode: codec must be avc or hevc" >&2
+        exit 2
+        ;;
+esac
 
 temporary="$(mktemp -d /run/dawnshell-hwencode.XXXXXX)"
 cleanup() {
@@ -833,7 +864,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 stream_info="$temporary/stream.txt"
 framed_output="$temporary/framed-output.bin"
-annex_b="$temporary/output.h264"
+annex_b="$temporary/output.es"
 client_log="$temporary/client.log"
 pack_log="$temporary/pack.log"
 ffmpeg_log="$temporary/ffmpeg.log"
@@ -868,12 +899,12 @@ case "$integer_rate" in
         ;;
 esac
 
-echo "DawnShell hardware encode: codec=avc size=${width}x${height} rate=$frame_rate"
+echo "DawnShell hardware encode: codec=$codec size=${width}x${height} rate=$frame_rate"
 if ffmpeg -hide_banner -loglevel error -i "$input" -map 0:v:0 -an \
     -pix_fmt yuv420p -f rawvideo pipe:1 2> "$ffmpeg_log" \
     | /usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 \
         - "$width" "$height" "$frame_rate" - 2> "$pack_log" \
-    | /usr/local/bin/dawnshell-codec pipe encode avc "$width" "$height" \
+    | /usr/local/bin/dawnshell-codec pipe encode "$codec" "$width" "$height" \
         "$integer_rate" "$bit_rate" > "$framed_output" 2> "$client_log"; then
     :
 else
@@ -893,12 +924,18 @@ output_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
     echo "dawnshell-hwencode: frame count mismatch: $input_frames != $output_frames" >&2
     exit 4
 }
-case "$output" in
-    *.h264|*.H264|*.264)
+/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-encoder-stats \
+    "$client_log" "$output_frames" "$integer_rate" "$bit_rate"
+case "$codec:$output" in
+    avc:*.h264|avc:*.H264|avc:*.264|hevc:*.hevc|hevc:*.HEVC|hevc:*.h265|hevc:*.H265|hevc:*.265)
         cp -- "$annex_b" "$output"
         ;;
+    avc:*.hevc|avc:*.HEVC|avc:*.h265|avc:*.H265|avc:*.265|hevc:*.h264|hevc:*.H264|hevc:*.264)
+        echo "dawnshell-hwencode: raw output suffix conflicts with codec $codec" >&2
+        exit 4
+        ;;
     *)
-        ffmpeg -hide_banner -loglevel error -y -r "$frame_rate" -f h264 \
+        ffmpeg -hide_banner -loglevel error -y -r "$frame_rate" -f "$elementary_format" \
             -i "$annex_b" -map 0:v:0 -an -c:v copy "$output"
         ;;
 esac

@@ -41,8 +41,12 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,6 +60,7 @@ final class HardwareCodecBroker implements Closeable {
     private final Context context;
     private final ExecutorService acceptExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService peerExecutor = Executors.newFixedThreadPool(4);
+    private final Set<LocalSocket> peerSockets = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicInteger activeSessions = new AtomicInteger(0);
     private final AtomicInteger activeTranscoders = new AtomicInteger(0);
@@ -105,9 +110,12 @@ final class HardwareCodecBroker implements Closeable {
         while (!closed.get()) {
             try {
                 LocalSocket socket = server.accept();
+                if (closed.get()) {
+                    socket.close();
+                    break;
+                }
                 Credentials credentials = socket.getPeerCredentials();
-                if (credentials == null || (credentials.getUid() != 0
-                        && credentials.getUid() != Process.myUid())) {
+                if (credentials == null || credentials.getUid() != 0) {
                     int rejectedUid = credentials == null ? -1 : credentials.getUid();
                     int rejectedPid = credentials == null ? -1 : credentials.getPid();
                     rejectedPeers.incrementAndGet();
@@ -116,8 +124,25 @@ final class HardwareCodecBroker implements Closeable {
                     socket.close();
                     continue;
                 }
+                if (!reservePeer()) {
+                    rejectedPeers.incrementAndGet();
+                    HardwareCodecProbe.recordBrokerEvent(context,
+                            "PEER_REJECTED uid=" + credentials.getUid()
+                                    + " pid=" + credentials.getPid()
+                                    + " reason=peer_limit");
+                    socket.close();
+                    continue;
+                }
                 acceptedPeers.incrementAndGet();
-                peerExecutor.execute(() -> handlePeer(socket, credentials));
+                peerSockets.add(socket);
+                try {
+                    peerExecutor.execute(() -> handlePeer(socket, credentials));
+                } catch (RejectedExecutionException e) {
+                    peerSockets.remove(socket);
+                    activePeers.decrementAndGet();
+                    socket.close();
+                    if (!closed.get()) throw e;
+                }
             } catch (IOException e) {
                 if (!closed.get()) {
                     HardwareCodecProbe.recordBrokerEvent(context,
@@ -132,18 +157,14 @@ final class HardwareCodecBroker implements Closeable {
 
     private void handlePeer(LocalSocket socket, Credentials credentials) {
         Map<Long, CodecBridgeSession> sessions = new HashMap<>();
-        int uid = -1;
-        int pid = -1;
+        int uid = credentials.getUid();
+        int pid = credentials.getPid();
         try (LocalSocket peer = socket;
              DataInputStream input = new DataInputStream(new BufferedInputStream(
                      peer.getInputStream()));
              DataOutputStream output = new DataOutputStream(new BufferedOutputStream(
                      peer.getOutputStream()))) {
             peer.setSoTimeout(PEER_TIMEOUT_MS);
-            uid = credentials.getUid();
-            pid = credentials.getPid();
-            int peers = activePeers.incrementAndGet();
-            updateMaximum(peakActivePeers, peers);
             HardwareCodecProbe.recordBrokerEvent(context, "PEER_CONNECTED uid="
                     + uid + " pid=" + pid);
             while (!closed.get()) {
@@ -170,7 +191,8 @@ final class HardwareCodecBroker implements Closeable {
             }
         } finally {
             for (CodecBridgeSession session : sessions.values()) closeSession(session);
-            if (uid >= 0) activePeers.decrementAndGet();
+            peerSockets.remove(socket);
+            activePeers.decrementAndGet();
             HardwareCodecProbe.recordBrokerEvent(context, "PEER_CLOSED uid="
                     + uid + " pid=" + pid);
         }
@@ -424,7 +446,7 @@ final class HardwareCodecBroker implements Closeable {
                     "input payload length mismatch");
         }
         requireInputFlags(flags);
-        int status = session.queue(values.slice(), presentationTimeUs, flags);
+        int status = timedQueue(session, values.slice(), presentationTimeUs, flags);
         session.recordSocketInput(length);
         writeResponse(output, request.type, request.sessionId, request.requestId,
                 status, new byte[0]);
@@ -441,7 +463,7 @@ final class HardwareCodecBroker implements Closeable {
             throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
                     "output timeout must be 0..1000ms");
         }
-        OutputRecord record = session.dequeue(timeoutMs);
+        OutputRecord record = timedDequeue(session, timeoutMs);
         if (record.status == HardwareCodecProtocol.OK) {
             session.recordSocketOutput(record.payload.length);
         }
@@ -469,7 +491,8 @@ final class HardwareCodecBroker implements Closeable {
         session.recordSharedInput(length);
         totalSharedInputBytes.addAndGet(length);
         updateMaximum(peakSharedTransferBytes, length);
-        int status = session.queue(ByteBuffer.wrap(media), presentationTimeUs, flags);
+        int status = timedQueue(session, ByteBuffer.wrap(media),
+                presentationTimeUs, flags);
         writeResponse(output, request.type, request.sessionId, request.requestId,
                 status, new byte[0]);
     }
@@ -492,7 +515,7 @@ final class HardwareCodecBroker implements Closeable {
             throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
                     "shared output capacity exceeds limit");
         }
-        OutputRecord record = session.dequeue(timeoutMs);
+        OutputRecord record = timedDequeue(session, timeoutMs);
         if (record.status != HardwareCodecProtocol.OK) {
             writeResponse(output, request.type, request.sessionId, request.requestId,
                     record.status, record.payload);
@@ -582,12 +605,48 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
+    private static int timedQueue(CodecBridgeSession session, ByteBuffer source,
+                                  long presentationTimeUs, int flags)
+            throws RequestException {
+        long started = SystemClock.elapsedRealtimeNanos();
+        try {
+            return session.queue(source, presentationTimeUs, flags);
+        } finally {
+            session.counters().recordInputCallLatency(elapsedMicros(started));
+        }
+    }
+
+    private static OutputRecord timedDequeue(CodecBridgeSession session, int timeoutMs)
+            throws RequestException {
+        long started = SystemClock.elapsedRealtimeNanos();
+        try {
+            return session.dequeue(timeoutMs);
+        } finally {
+            session.counters().recordOutputCallLatency(elapsedMicros(started));
+        }
+    }
+
+    private static long elapsedMicros(long startedNanos) {
+        return Math.max(0L, (SystemClock.elapsedRealtimeNanos() - startedNanos) / 1_000L);
+    }
+
     private boolean reserveGlobalSession() {
         while (true) {
             int current = activeSessions.get();
             if (current >= HardwareCodecProtocol.MAX_SESSIONS) return false;
             if (activeSessions.compareAndSet(current, current + 1)) {
                 updateMaximum(peakActiveSessions, current + 1);
+                return true;
+            }
+        }
+    }
+
+    private boolean reservePeer() {
+        while (true) {
+            int current = activePeers.get();
+            if (current >= HardwareCodecProtocol.MAX_PEERS) return false;
+            if (activePeers.compareAndSet(current, current + 1)) {
+                updateMaximum(peakActivePeers, current + 1);
                 return true;
             }
         }
@@ -637,6 +696,7 @@ final class HardwareCodecBroker implements Closeable {
             root.put("protocol", HardwareCodecProtocol.VERSION);
             root.put("socket", "@" + HardwareCodecProtocol.SOCKET_NAME);
             root.put("peer_policy", "uid_0");
+            root.put("max_peers", HardwareCodecProtocol.MAX_PEERS);
             root.put("max_sessions", HardwareCodecProtocol.MAX_SESSIONS);
             root.put("max_sessions_per_peer", HardwareCodecProtocol.MAX_SESSIONS_PER_PEER);
             root.put("max_media_payload", HardwareCodecProtocol.MAX_MEDIA_PAYLOAD);
@@ -794,11 +854,34 @@ final class HardwareCodecBroker implements Closeable {
             server = null;
         }
         acceptExecutor.shutdownNow();
+        awaitExecutor(acceptExecutor, "accept loop");
+        for (LocalSocket peer : peerSockets) {
+            try {
+                peer.close();
+            } catch (IOException e) {
+                Log.w(TAG, "Could not close hardware codec peer socket", e);
+            }
+        }
         peerExecutor.shutdownNow();
+        awaitExecutor(peerExecutor, "peer cleanup");
         HardwareCodecProbe.writeBrokerStatus(context, "STOPPED protocol="
                 + HardwareCodecProtocol.VERSION + " socket=@"
-                + HardwareCodecProtocol.SOCKET_NAME);
-        HardwareCodecProbe.recordBrokerEvent(context, "STOPPED");
+                + HardwareCodecProtocol.SOCKET_NAME + " active_sessions="
+                + activeSessions.get() + " active_peers=" + activePeers.get());
+        HardwareCodecProbe.recordBrokerEvent(context, "STOPPED active_sessions="
+                + activeSessions.get() + " active_peers=" + activePeers.get());
+    }
+
+    private static void awaitExecutor(ExecutorService executor, String label) {
+        try {
+            if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
+                Log.w(TAG, "Hardware codec " + label
+                        + " did not finish within 2 seconds");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            Log.w(TAG, "Interrupted while waiting for hardware codec " + label);
+        }
     }
 
     private static final class Request {
@@ -890,6 +973,24 @@ final class HardwareCodecBroker implements Closeable {
         long maxInputPayloadBytes;
         long maxOutputPayloadBytes;
         long queueDepthHighWater;
+        long inputCallLatencySamples;
+        long inputCallLatencyTotalUs;
+        long inputCallLatencyMaxUs;
+        long outputCallLatencySamples;
+        long outputCallLatencyTotalUs;
+        long outputCallLatencyMaxUs;
+
+        void recordInputCallLatency(long latencyUs) {
+            inputCallLatencySamples++;
+            inputCallLatencyTotalUs += latencyUs;
+            inputCallLatencyMaxUs = Math.max(inputCallLatencyMaxUs, latencyUs);
+        }
+
+        void recordOutputCallLatency(long latencyUs) {
+            outputCallLatencySamples++;
+            outputCallLatencyTotalUs += latencyUs;
+            outputCallLatencyMaxUs = Math.max(outputCallLatencyMaxUs, latencyUs);
+        }
 
         String json(long id, String kind, String inputCodec, String outputCodec,
                     String transport) {
@@ -933,6 +1034,14 @@ final class HardwareCodecBroker implements Closeable {
                     + ",\"peak_input_payload_bytes\":" + maxInputPayloadBytes
                     + ",\"peak_output_payload_bytes\":" + maxOutputPayloadBytes
                     + ",\"queue_depth_high_water\":" + queueDepthHighWater
+                    + ",\"input_call_latency_samples\":" + inputCallLatencySamples
+                    + ",\"input_call_latency_avg_us\":"
+                    + average(inputCallLatencyTotalUs, inputCallLatencySamples)
+                    + ",\"input_call_latency_max_us\":" + inputCallLatencyMaxUs
+                    + ",\"output_call_latency_samples\":" + outputCallLatencySamples
+                    + ",\"output_call_latency_avg_us\":"
+                    + average(outputCallLatencyTotalUs, outputCallLatencySamples)
+                    + ",\"output_call_latency_max_us\":" + outputCallLatencyMaxUs
                     + ",\"format_changes\":" + formatChanges
                     + ",\"input_eos\":" + inputEos
                     + ",\"output_eos\":" + outputEos
@@ -942,6 +1051,10 @@ final class HardwareCodecBroker implements Closeable {
                     + ",\"surface_frames\":" + surfaceFrames
                     + ",\"queue_model\":\"synchronous_bounded_backpressure\"}"
                     ;
+        }
+
+        private static long average(long total, long samples) {
+            return samples == 0 ? 0L : total / samples;
         }
     }
 
@@ -1358,6 +1471,7 @@ final class HardwareCodecBroker implements Closeable {
         private final MediaCodec codec;
         private final SessionCounters counters = new SessionCounters();
         private boolean inputEosQueued;
+        private long lastEncoderInputPresentationTimeUs = -1L;
         private boolean closed;
 
         private CodecSession(long id, String mime, String codecName,
@@ -1490,6 +1604,14 @@ final class HardwareCodecBroker implements Closeable {
                 throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
                         "codec PTS must be non-negative");
             }
+            int inputLength = source.remaining();
+            boolean frame = inputLength > 0
+                    && (flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0;
+            if (encoder && frame && lastEncoderInputPresentationTimeUs >= 0
+                    && presentationTimeUs <= lastEncoderInputPresentationTimeUs) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
+                        "encoder frame PTS must increase monotonically");
+            }
             int index = codec.dequeueInputBuffer(100_000L);
             if (index < 0) {
                 counters.inputAgain++;
@@ -1501,7 +1623,6 @@ final class HardwareCodecBroker implements Closeable {
                 throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
                         "input packet exceeds codec buffer capacity");
             }
-            int inputLength = source.remaining();
             destination.clear();
             destination.put(source);
             codec.queueInputBuffer(index, 0, destination.position(), presentationTimeUs,
@@ -1511,9 +1632,11 @@ final class HardwareCodecBroker implements Closeable {
             counters.maxInputPayloadBytes = Math.max(
                     counters.maxInputPayloadBytes, inputLength);
             counters.queueDepthHighWater = Math.max(counters.queueDepthHighWater, 1);
-            if (inputLength > 0
-                    && (flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+            if (frame) {
                 counters.inputFrames++;
+                if (encoder) {
+                    lastEncoderInputPresentationTimeUs = presentationTimeUs;
+                }
             }
             return HardwareCodecProtocol.OK;
         }
@@ -1527,6 +1650,11 @@ final class HardwareCodecBroker implements Closeable {
             if (presentationTimeUs < 0) {
                 throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
                         "codec EOS PTS must be non-negative");
+            }
+            if (encoder && lastEncoderInputPresentationTimeUs >= 0
+                    && presentationTimeUs < lastEncoderInputPresentationTimeUs) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
+                        "encoder EOS PTS precedes the last frame");
             }
             int index = codec.dequeueInputBuffer(100_000L);
             if (index < 0) {
@@ -1649,6 +1777,7 @@ final class HardwareCodecBroker implements Closeable {
             try {
                 codec.flush();
                 inputEosQueued = false;
+                lastEncoderInputPresentationTimeUs = -1L;
             } catch (RuntimeException e) {
                 throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
                         "could not flush codec: " + safe(e));

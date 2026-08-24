@@ -3,8 +3,8 @@
 `dawnshell-codec`은 Debian chroot에서 Android의 별도 `:codec` 프로세스에
 접속하는 정적 실행 파일입니다. 연결은 외부 TCP가 아닌 Android abstract Unix
 socket `@dawnshell.codec.v1`을 사용합니다. 브로커는 `SO_PEERCRED`의 UID가 0인
-Debian 프로세스만 허용합니다. 앱 내부 진단을 위해 동일 앱 UID도 허용하지만 다른
-앱 UID는 요청 본문을 읽기 전에 연결을 끊습니다.
+Debian 프로세스만 허용합니다. 앱 UID를 포함한 다른 UID는 요청 본문을 읽기 전에
+연결을 끊습니다. 앱 내부 검사도 사전 승인된 root를 통해 같은 경계를 사용합니다.
 
 abstract socket에는 파일 권한 비트가 없으므로 `0600`인 것처럼 표현하지 않습니다.
 대신 UID 검사를 접근 제어로 사용하며, DE의
@@ -27,7 +27,8 @@ abstract socket에는 파일 권한 비트가 없으므로 `0600`인 것처럼 �
 
 잘못된 magic/version/flags/request ID, 알 수 없는 type, 길이 불일치와 상한 초과는
 fail-closed합니다. control payload는 1 MiB, media payload는 8 MiB, 전체 session은
-4개, peer당 session은 2개로 제한합니다. peer 연결은 30초 idle timeout을 둡니다.
+4개, peer당 session은 2개, 동시 peer는 4개로 제한합니다. peer 연결은 30초 idle
+timeout을 두며 초과 연결은 executor queue에 쌓지 않고 즉시 거부합니다.
 
 ## 메시지
 
@@ -49,11 +50,13 @@ fail-closed합니다. control payload는 1 MiB, media payload는 8 MiB, 전체 s
   payload/queue high-water, CPU/RSS/FD/heap, thermal 및 battery temperature를
   JSON으로 반환합니다.
 - `SESSION_STATS(14)`: session별 frame, EOS, 오류, transport와 CPU YUV copy 통계를
-  JSON으로 반환합니다.
+  JSON으로 반환합니다. 입력 queue 및 출력 dequeue 호출의 평균/최대 지연시간도
+  microsecond 단위로 기록합니다.
 
 vendor codec 오류와 잘못된 client 입력은 해당 요청 또는 session에서만 실패하며
 Debian PID 1, SSH, Direct Boot supervisor는 종료하지 않습니다. 연결이 끊기면 해당
-peer가 만든 모든 session을 자동 release합니다.
+peer가 만든 모든 session을 자동 release합니다. bridge 중지 시 listening socket뿐
+아니라 추적 중인 peer socket도 닫고 session 정리를 제한 시간 동안 기다립니다.
 
 ## Debian CLI
 
@@ -77,6 +80,7 @@ dawnshell-hwdecode input.mp4 output.mkv
 dawnshell-hwdecode input.mp4 output.i420
 dawnshell-hwencode input.mkv output.mp4 4000000
 dawnshell-hwencode input.mkv output.h264
+dawnshell-hwencode input.mkv output.hevc 4000000 hevc
 dawnshell-hwtranscode input-hevc.mkv output-h264.mp4 8000000
 ```
 
@@ -100,8 +104,9 @@ Debian 프로세스 사이의 완전한 zero-copy를 의미하지는 않습니�
 ## FFmpeg 어댑터(M5)
 
 `dawnshell-hwdecode`는 FFprobe로 첫 번째 영상 스트림의 packet PTS와 형식을 읽고,
-FFmpeg의 `h264_mp4toannexb` bitstream filter로 MP4/MKV의 H.264 packet을 Annex-B로
-정규화합니다. 원본 packet PTS를 protocol record에 보존한 뒤 Android 하드웨어
+H.264에는 `h264_mp4toannexb`, HEVC에는 `hevc_mp4toannexb` bitstream filter를 적용해
+MP4/MKV packet을 Annex-B로 정규화합니다. 원본 packet PTS를 protocol record에
+보존한 뒤 Android 하드웨어
 decoder에 전달하며, 반환된 `YUV_420_888` 결과는 packed I420으로 저장합니다. raw
 output과 일반 컨테이너 출력 모두 codec client→adapter→FFmpeg 파이프를 사용하므로
 1080p raw frame 전체를 작은 `/run` tmpfs에 중복 저장하지 않습니다.
@@ -109,15 +114,20 @@ output과 일반 컨테이너 출력 모두 codec client→adapter→FFmpeg 파�
 출력 확장자가 `.i420` 또는 `.yuv`이면 하드웨어 decode 결과를 그대로 보존합니다.
 그 밖의 출력은 Debian FFmpeg와 `libx264`로 다시 encode/mux합니다. 따라서 현재
 일반 파일 명령은 **하드웨어 decode + 소프트웨어 encode/mux** 경로이며, Android
-MediaCodec surface와 zero-copy encode는 M6 이후 범위입니다. M5는 H.264, 짝수
-16..4096 해상도, 평균 1..240 FPS만 허용하고 packet 수/크기, PTS 단조 증가와
-I420 frame 크기를 fail-closed로 검사합니다.
+MediaCodec surface와 zero-copy encode는 M6 이후 범위입니다. 파일 decode는 H.264와
+HEVC, 짝수
+16..4096 해상도, 평균 1..240 FPS만 허용하고 packet 수/크기, 음수 PTS 및 출력
+I420 frame 크기를 fail-closed로 검사합니다. B-frame 입력 packet은 decode 순서로
+보내므로 PTS 역행을 허용하되 decoded frame의 표시 PTS는 단조 증가해야 합니다.
 
 `dawnshell-hwencode`는 FFmpeg로 첫 번째 video stream을 packed I420으로 변환한 뒤
-Android 하드웨어 AVC encoder에 전달합니다. `.h264` 출력은 Annex-B 그대로이며,
-그 밖의 컨테이너는 FFmpeg stream-copy로 mux합니다. 이 경로는 소프트웨어 decode와
+Android 하드웨어 AVC 또는 HEVC encoder에 전달합니다. codec 인수를 생략하면
+`.hevc`, `.h265`, `.265` 출력은 HEVC, 그 밖은 AVC를 선택합니다. raw 확장자는
+Annex-B 그대로이며, 그 밖의 컨테이너는 FFmpeg stream-copy로 mux합니다. 이 경로는 소프트웨어 decode와
 하드웨어 encode 조합이고 audio stream은 포함하지 않습니다. 입력·출력 frame 수가
-다르면 결과를 게시하지 않고 실패합니다.
+다르면 결과를 게시하지 않고 실패합니다. 완료 시 실제 압축 byte 수와 frame rate로
+평균 bitrate를 계산해 목표값과의 비율을 출력합니다. 기기별 rate-control 특성이
+확인되기 전에는 이 비율을 임의의 공통 threshold로 실패 처리하지 않습니다.
 
 ## Surface zero-copy transcode(M6)
 
@@ -137,10 +147,16 @@ Surface color format을 광고하는 보수적 hardware pair가 없으면 softwa
 각 encode/transcode 시작 시 keyframe을 요청하며 첫 실제 출력 frame의 keyframe
 flag를 검사합니다. Surface wrapper는 종료 전에 session 통계를 읽어 입력·출력·Surface
 frame 수, EOS, `cpu_yuv_frames=0`, 오류 0을 확인한 뒤에만 결과 파일을 게시합니다.
-`negative-test`는 잘못된 health payload와 존재하지 않는 session 요청을 의도적으로
-거부시키고, 생성한 session에 허용되지 않은 buffer flag를 보낸 뒤 같은 session의
-flush와 broker health가 유지되는지 확인합니다. `orphan-test`는 CLOSE를 보내지 않고
+`negative-test`는 잘못된 magic/version/header/request ID/type/길이, 중간에 끊긴
+payload와 존재하지 않는 session 요청을 의도적으로 거부시키고, 생성한 session에
+허용되지 않은 buffer flag와 역행하는 encoder PTS를
+보낸 뒤 같은 session의 flush와 broker health가 유지되는지 확인합니다. decoder는
+B-frame 표시 순서 때문에 packet PTS 역행을 허용하며 demux 순서(DTS)대로 전달합니다.
+`orphan-test`는 CLOSE를 보내지 않고
 client를 종료해 peer EOF 정리가 codec 및 Surface를 회수하는지 시험합니다.
+같은 검사에서 동시 peer 4개를 유지한 채 다섯 번째 연결이 즉시 거부되는지도
+확인합니다. 끊어진 peer에 쓰는 경우 client는 `SIGPIPE`로 종료되지 않고 오류를
+반환합니다.
 `dawnshell-codec-error-test`는 H.264와 HEVC의 설정 누락/절단, record framing 오류,
 EOS 상태 전이, parameter 상한과 출력을 읽지 않는 client의 bounded backpressure를
 검사합니다. 30초 idle socket 종료도 기본으로 확인하며, 긴 검사를 생략해야 할 때만

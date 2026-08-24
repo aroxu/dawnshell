@@ -245,6 +245,11 @@ BFU_CYCLES=5 \
 scripts/test-final-bfu.sh
 ```
 
+결과 `summary.tsv`에는 cycle별 Android boot ID와 systemd PID뿐 아니라 BFU/AFU
+codec broker PID 및 설치 APK에 포함된 ABI별 정적 client SHA-256이 기록됩니다.
+BFU와 AFU PID가 다르거나 DE에 provision된 client가 설치 APK와 다르면 즉시
+실패하므로, 단순히 AFU probe 로그만 성공한 결과를 M7 증거로 오인하지 않습니다.
+
 ## 11. 삭제
 
 테스트 데이터가 필요하지 않을 때만 rootfs 삭제를 시험합니다.

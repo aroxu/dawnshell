@@ -235,7 +235,7 @@ dawnshell-codec orphan-test decode >> "$log" 2>&1
 dawnshell-codec orphan-test transcode >> "$log" 2>&1
 sleep 2
 dawnshell-codec health --format json > "$after"
-"$adapter" validate-balanced-health "$before" "$after" 13 | tee -a "$log"
+"$adapter" validate-balanced-health "$before" "$after" 14 | tee -a "$log"
 
 echo "DawnShell codec error isolation test passed"
 echo "Evidence: $result_dir"

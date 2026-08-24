@@ -165,12 +165,14 @@ Surface transcoder peer 강제 종료 2회를 수행합니다. 전후 broker PID
 ## 현재 상태
 
 M0~M6 코드 경로가 구현되어 있습니다. 별도 `:codec` 프로세스의 versioned abstract
-Unix socket broker, `SO_PEERCRED` root 인증, bounded framing, peer 종료 시 session
+Unix socket broker, strict `SO_PEERCRED` UID 0 인증, 동시 peer 4개 상한, bounded
+framing, peer 종료 시 session
 release와 `armeabi-v7a`/`arm64-v8a`/`x86_64` 정적 client를 제공합니다. 64 KiB 이상
 payload는 `memfd`/`SCM_RIGHTS`를 먼저 사용하고 안전한 socket copy로 폴백합니다.
 
-고정 H.264 vector의 Image→I420 checksum decode, 결정적 I420 hardware encode,
-FFmpeg demux/mux wrapper, H.264/HEVC→H.264 Surface transcode가 구현됐습니다. encode와
+고정 H.264 vector의 Image→I420 checksum decode, 결정적 I420 hardware AVC/HEVC
+encode, H.264/HEVC FFmpeg demux/mux wrapper, H.264/HEVC→H.264 Surface transcode가
+구현됐습니다. encode와
 transcode는 keyframe을 요청하고 첫 frame flag를 확인합니다. broker health 및 session
 통계로 frame/EOS/error/shared-memory와 Surface 경로의 `cpu_yuv_frames=0`을 검사하며
 잘못된 요청 뒤에도 broker가 응답하는지 확인합니다.
@@ -182,15 +184,18 @@ hardware encode PSNR/SSIM, 실시간 Surface transcode와 peer 강제 종료 자
 `scripts/generate-codec-performance-vectors.sh`로 재생성할 수 있으며 프로젝트가
 CC0-1.0으로 제공합니다.
 
-오류 회귀는 H.264/HEVC 설정 누락과 절단, framing 길이 불일치, EOS 중복, EOS 이후
-입력, 범위 초과와 비정상 peer 종료를 session 단위로 격리합니다. 동시성 회귀는
+오류 회귀는 protocol magic/version/header/type/길이, H.264/HEVC 설정 누락과 절단,
+framing 길이 불일치, EOS 중복, EOS 이후 입력, encoder PTS 역행, peer 상한,
+범위 초과와 비정상 peer 종료를 session 단위로 격리합니다. 끊어진 socket의
+`SIGPIPE`도 process 종료 대신 오류로 처리합니다. 동시성 회귀는
 decoder+encoder, decoder 2개, transcoder+decoder 조합을 시도하며 vendor resource
 한계는 명시적 skip으로 기록하되 최소 한 조합은 성공해야 합니다.
 
 앱에서 시작하는 장시간 검사는 720p decode, 1080p decode/encode, AVC/HEVC transcode를
 각 10분씩 실행합니다. client user/system CPU 및 최대 RSS, broker CPU/RSS/FD/heap,
-queue timeout/high-water, battery temperature와 Android thermal 상태를 증거 디렉터리에
-기록합니다. software 대비 CPU 감소율은 첫 실기기 결과를 수집하되 아직 임의의 수치
+queue timeout/high-water, queue/dequeue 평균·최대 호출 latency, 실제 encode bitrate,
+battery temperature와 Android thermal 상태를 증거 디렉터리에 기록합니다. software
+대비 CPU 감소율과 bitrate 편차는 첫 실기기 결과를 수집하되 아직 임의의 수치
 threshold로 통과/실패시키지 않습니다.
 
 제공된 Android 16 AFU 로그에서는 Exynos AVC/HEVC encoder와 decoder 인스턴스 생성이

@@ -48,6 +48,7 @@ final class HardwareCodecProtocol {
     static final int CREATE_TRANSCODER_PAYLOAD_BYTES = 24;
     static final int MAX_CONTROL_PAYLOAD = 1024 * 1024;
     static final int MAX_MEDIA_PAYLOAD = 8 * 1024 * 1024;
+    static final int MAX_PEERS = 4;
     static final int MAX_SESSIONS = 4;
     static final int MAX_SESSIONS_PER_PEER = 2;
     static final String SOCKET_NAME = "dawnshell.codec.v1";

@@ -22,7 +22,21 @@ grep -Fq 'VERSION = 1' "$java_protocol"
 grep -Fq 'MAX_MEDIA_PAYLOAD = 8 * 1024 * 1024' "$java_protocol"
 grep -Fq 'socket.getPeerCredentials()' "$broker"
 grep -Fq 'credentials.getUid() != 0' "$broker"
+if grep -Fq 'credentials.getUid() != Process.myUid()' "$broker"; then
+    echo "Hardware codec broker must not authenticate app-UID socket peers" >&2
+    exit 1
+fi
+grep -Fq 'ConcurrentHashMap.newKeySet()' "$broker"
+grep -Fq 'peerSockets.add(socket)' "$broker"
+grep -Fq 'peerSockets.remove(socket)' "$broker"
+grep -Fq 'peer.close()' "$broker"
+grep -Fq 'awaitExecutor(acceptExecutor, "accept loop")' "$broker"
+grep -Fq 'awaitExecutor(peerExecutor, "peer cleanup")' "$broker"
 grep -Fq 'MAX_SESSIONS_PER_PEER' "$broker"
+grep -Fq 'MAX_PEERS = 4' "$java_protocol"
+grep -Fq 'if (!reservePeer())' "$broker"
+grep -Fq 'reason=peer_limit' "$broker"
+grep -Fq 'root.put("max_peers", HardwareCodecProtocol.MAX_PEERS)' "$broker"
 grep -Fq 'payload length exceeds limit' "$broker"
 grep -Fq 'HardwareCodecProtocol.INPUT' "$broker"
 grep -Fq 'HardwareCodecProtocol.OUTPUT' "$broker"
@@ -63,7 +77,19 @@ grep -Fq '#define DSCB_HEALTH 13u' "$client"
 grep -Fq '#define DSCB_SESSION_STATS 14u' "$client"
 grep -Fq 'first-frame=key' "$client"
 grep -Fq 'session-stats=' "$client"
-grep -Fq 'negative-test passed rejected=8' "$client"
+grep -Fq 'negative-test passed rejected=16' "$client"
+grep -Fq 'nonmonotonic-encoder-pts' "$client"
+grep -Fq 'unknown-message-type' "$client"
+grep -Fq 'invalid-magic' "$client"
+grep -Fq 'invalid-version' "$client"
+grep -Fq 'invalid-header-flags' "$client"
+grep -Fq 'zero-request-id' "$client"
+grep -Fq 'oversized-payload' "$client"
+grep -Fq 'truncated-protocol-payload' "$client"
+grep -Fq 'peer-limit-test passed max_peers=4 overflow=rejected' "$client"
+grep -Fq 'signal(SIGPIPE, SIG_IGN)' "$client"
+grep -Fq 'encoder frame PTS must increase monotonically' "$broker"
+grep -Fq 'encoder EOS PTS precedes the last frame' "$broker"
 grep -Fq 'zero-width-create' "$client"
 grep -Fq 'oversized-frame-create' "$client"
 grep -Fq 'session=responsive broker=responsive' "$client"
@@ -76,7 +102,7 @@ grep -Fq 'slow-output-test' "$client"
 grep -Fq 'slow-output-test passed' "$client"
 grep -Fq 'slow output consumer receives bounded backpressure' "$error_test"
 # shellcheck disable=SC2016 # Assert literal runtime shell source.
-grep -Fq 'validate-balanced-health "$before" "$after" 13' "$error_test"
+grep -Fq 'validate-balanced-health "$before" "$after" 14' "$error_test"
 grep -Fq 'pipe frame count mismatch' "$client"
 grep -Fq 'input contains unsupported buffer flags' "$broker"
 grep -Fq 'Process.getElapsedCpuTime()' "$broker"
@@ -87,6 +113,10 @@ grep -Fq 'peak_active_sessions' "$broker"
 grep -Fq 'input_dequeue_timeouts' "$broker"
 grep -Fq 'output_dequeue_timeouts' "$broker"
 grep -Fq 'queue_depth_high_water' "$broker"
+grep -Fq 'input_call_latency_avg_us' "$broker"
+grep -Fq 'input_call_latency_max_us' "$broker"
+grep -Fq 'output_call_latency_avg_us' "$broker"
+grep -Fq 'output_call_latency_max_us' "$broker"
 grep -Fq 'peak_input_payload_bytes' "$broker"
 grep -Fq 'peak_output_payload_bytes' "$broker"
 grep -Fq 'codec input is closed after EOS' "$broker"
@@ -114,6 +144,19 @@ grep -Fq 'hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode' "$configurato
 grep -Fq 'hardware_codec_encode=/usr/local/bin/dawnshell-hwencode' "$configurator"
 grep -Fq 'hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode' \
     "$configurator"
+grep -Fq 'input codec must be H.264 or HEVC' "$configurator"
+grep -Fq 'bitstream_filter=hevc_mp4toannexb' "$configurator"
+# shellcheck disable=SC2016 # Assert literal generated runtime shell source.
+grep -Fq 'pipe decode "$input_codec"' "$configurator"
+grep -Fq 'usage: dawnshell-hwencode INPUT OUTPUT [BITRATE] [avc|hevc]' \
+    "$configurator"
+# shellcheck disable=SC2016 # Assert literal generated runtime shell source.
+grep -Fq 'pipe encode "$codec"' "$configurator"
+grep -Fq 'elementary_format=hevc' "$configurator"
+grep -Fq 'raw output suffix conflicts with codec' "$configurator"
+grep -Fq 'validate-encoder-stats' "$configurator"
+grep -Fq 'def validate_encoder_stats(arguments):' "$ffmpeg_adapter"
+grep -Fq 'actual_bitrate_bps' "$ffmpeg_adapter"
 grep -Fq 'hardware_codec_performance_test=/usr/local/bin/dawnshell-codec-performance-test' \
     "$configurator"
 grep -Fq 'hardware_codec_long_run_test=/usr/local/bin/dawnshell-codec-long-run' \
@@ -181,6 +224,12 @@ grep -Fq 'dawnshell-codec-unlock-hold.service' \
     "$repo_dir/scripts/test-systemd-ssh-bfu.sh"
 grep -Fq '"user_unlocked":false' "$repo_dir/scripts/test-systemd-ssh-bfu.sh"
 grep -Fq '"user_unlocked":true' "$repo_dir/scripts/test-systemd-ssh-bfu.sh"
+grep -Fq 'embedded_codec_hash=' "$repo_dir/scripts/test-final-bfu.sh"
+grep -Fq 'provisioned codec client does not match' \
+    "$repo_dir/scripts/test-final-bfu.sh"
+grep -Fq 'codec_bfu_pid' "$repo_dir/scripts/test-final-bfu.sh"
+grep -Fq 'one continuous BFU-to-AFU codec PID' \
+    "$repo_dir/scripts/test-final-bfu.sh"
 test -f "$ffmpeg_adapter"
 python3 - "$ffmpeg_adapter" <<'PYTHON_SYNTAX_CHECK'
 import pathlib
@@ -256,6 +305,29 @@ cleanup_adapter_test() {
     rm -rf -- "$adapter_test_dir"
 }
 trap cleanup_adapter_test EXIT
+python3 - "$configurator" "$adapter_test_dir" <<'PYTHON_EXTRACT_WRAPPERS'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+target = pathlib.Path(sys.argv[2])
+wrappers = {
+    "dawnshell-hwdecode": "EOF_CODEC_FFMPEG",
+    "dawnshell-hwencode": "EOF_CODEC_FFMPEG_ENCODE",
+    "dawnshell-hwtranscode": "EOF_CODEC_SURFACE_TRANSCODE",
+}
+for name, marker in wrappers.items():
+    opening = f"cat > /usr/local/bin/{name} <<'{marker}'\n"
+    try:
+        begin = source.index(opening) + len(opening)
+        end = source.index(f"\n{marker}\n", begin)
+    except ValueError as error:
+        raise SystemExit(f"could not extract generated {name}: {error}")
+    (target / name).write_text(source[begin:end] + "\n", encoding="utf-8")
+PYTHON_EXTRACT_WRAPPERS
+bash -n "$adapter_test_dir/dawnshell-hwdecode"
+bash -n "$adapter_test_dir/dawnshell-hwencode"
+bash -n "$adapter_test_dir/dawnshell-hwtranscode"
 printf '\000\000\000\001abc\000\000\001defg' > "$adapter_test_dir/input.h264"
 printf '%s\n' \
     '{"packets":[{"pts_time":"1.000000"},{"pts_time":"1.040000"}]}' \
@@ -310,16 +382,16 @@ python3 "$ffmpeg_adapter" unpack-annexb "$adapter_test_dir/encoded.bin" \
     "$adapter_test_dir/output.h264" --require-keyframe | grep -Fqx 2
 test "$(wc -c < "$adapter_test_dir/output.h264")" -eq 10
 cat > "$adapter_test_dir/client.log" <<'EOF_SESSION_STATS'
-dawnshell-codec: session-stats={"session_id":7,"kind":"surface_transcoder","input_codec":"OMX.Exynos.avc.dec","output_codec":"OMX.Exynos.AVC.Encoder","transport":"surface_zero_copy","input_frames":2,"output_frames":2,"surface_frames":2,"cpu_yuv_frames":0,"input_eos":1,"output_eos":1,"errors":0,"dropped_frames":0}
+dawnshell-codec: session-stats={"session_id":7,"kind":"surface_transcoder","input_codec":"OMX.Exynos.avc.dec","output_codec":"OMX.Exynos.AVC.Encoder","transport":"surface_zero_copy","input_frames":2,"output_frames":2,"surface_frames":2,"cpu_yuv_frames":0,"input_eos":1,"output_eos":1,"errors":0,"dropped_frames":0,"input_call_latency_samples":2,"input_call_latency_avg_us":100,"input_call_latency_max_us":150,"output_call_latency_samples":2,"output_call_latency_avg_us":200,"output_call_latency_max_us":300}
 EOF_SESSION_STATS
 python3 "$ffmpeg_adapter" validate-stats "$adapter_test_dir/client.log" 2 \
     | grep -Eq '^surface_zero_copy=verified frames=2 cpu_yuv_frames=0 runtime_ms='
 
 cat > "$adapter_test_dir/decode-shared.log" <<'EOF_SHARED_STATS'
-dawnshell-codec: session-stats={"session_id":8,"kind":"bytebuffer_decoder","transport":"bytebuffer","media_transport":"mixed","input_frames":2,"output_frames":2,"cpu_yuv_frames":2,"socket_input_bytes":10,"socket_output_bytes":0,"shared_input_bytes":0,"shared_output_bytes":48,"input_eos":1,"output_eos":1,"errors":0,"uptime_ms":10,"process_cpu_time_ms":4}
+dawnshell-codec: session-stats={"session_id":8,"kind":"bytebuffer_decoder","transport":"bytebuffer","media_transport":"mixed","input_frames":2,"output_frames":2,"cpu_yuv_frames":2,"socket_input_bytes":10,"socket_output_bytes":0,"shared_input_bytes":0,"shared_output_bytes":48,"input_eos":1,"output_eos":1,"errors":0,"uptime_ms":10,"process_cpu_time_ms":4,"input_call_latency_samples":2,"input_call_latency_avg_us":100,"input_call_latency_max_us":150,"output_call_latency_samples":2,"output_call_latency_avg_us":200,"output_call_latency_max_us":300}
 EOF_SHARED_STATS
 cat > "$adapter_test_dir/decode-socket.log" <<'EOF_SOCKET_STATS'
-dawnshell-codec: session-stats={"session_id":9,"kind":"bytebuffer_decoder","transport":"bytebuffer","media_transport":"socket","input_frames":2,"output_frames":2,"cpu_yuv_frames":2,"socket_input_bytes":10,"socket_output_bytes":48,"shared_input_bytes":0,"shared_output_bytes":0,"input_eos":1,"output_eos":1,"errors":0,"uptime_ms":12,"process_cpu_time_ms":6}
+dawnshell-codec: session-stats={"session_id":9,"kind":"bytebuffer_decoder","transport":"bytebuffer","media_transport":"socket","input_frames":2,"output_frames":2,"cpu_yuv_frames":2,"socket_input_bytes":10,"socket_output_bytes":48,"shared_input_bytes":0,"shared_output_bytes":0,"input_eos":1,"output_eos":1,"errors":0,"uptime_ms":12,"process_cpu_time_ms":6,"input_call_latency_samples":2,"input_call_latency_avg_us":110,"input_call_latency_max_us":160,"output_call_latency_samples":2,"output_call_latency_avg_us":210,"output_call_latency_max_us":310}
 EOF_SOCKET_STATS
 python3 "$ffmpeg_adapter" compare-decode-transports \
     "$adapter_test_dir/decode-shared.log" "$adapter_test_dir/decode-socket.log" 2 \
@@ -327,6 +399,14 @@ python3 "$ffmpeg_adapter" compare-decode-transports \
 python3 "$ffmpeg_adapter" validate-decoder-stats \
     "$adapter_test_dir/decode-shared.log" 2 \
     | grep -Fq 'hardware_decode_statistics=verified frames=2'
+cat > "$adapter_test_dir/encode.log" <<'EOF_ENCODER_STATS'
+dawnshell-codec: session-stats={"session_id":10,"kind":"bytebuffer_encoder","transport":"bytebuffer","input_frames":2,"output_frames":2,"output_bytes":12500,"input_eos":1,"output_eos":1,"errors":0,"dropped_frames":0,"input_call_latency_samples":2,"input_call_latency_avg_us":120,"input_call_latency_max_us":170,"output_call_latency_samples":2,"output_call_latency_avg_us":220,"output_call_latency_max_us":320}
+EOF_ENCODER_STATS
+python3 "$ffmpeg_adapter" validate-encoder-stats \
+    "$adapter_test_dir/encode.log" 2 25 1000000 \
+    --output "$adapter_test_dir/encoder-metrics.json" \
+    | grep -Fq 'hardware_encode_statistics=verified frames=2 actual_bitrate_bps=1250000'
+grep -Fq '"target_ratio": 1.25' "$adapter_test_dir/encoder-metrics.json"
 printf '%s\n' '{"broker_state":"listening","pid":77,"uptime_ms":100,"active_sessions":0,"active_transcoders":0,"sessions_created":3,"sessions_closed":3}' \
     > "$adapter_test_dir/health-before.json"
 printf '%s\n' '{"broker_state":"listening","pid":77,"uptime_ms":200,"active_sessions":0,"active_transcoders":0,"sessions_created":13,"sessions_closed":13}' \
@@ -344,7 +424,7 @@ python3 "$ffmpeg_adapter" validate-concurrency-health \
     | grep -Fqx 'codec_concurrency=verified active_sessions=2 active_transcoders=1'
 cat > "$adapter_test_dir/health.jsonl" <<'EOF_HEALTH_SAMPLES'
 {"broker_state":"listening","pid":77,"uptime_ms":100,"active_sessions":0,"active_transcoders":0,"sessions_created":3,"sessions_closed":3,"process_rss_kb":10000,"open_fd_count":20,"java_heap_used_bytes":1000000,"process_cpu_time_ms":500,"thermal_status":1,"battery_temperature_deci_c":320,"user_unlocked":false,"input_records":10,"output_records":10,"input_bytes":1000,"output_bytes":2000,"input_dequeue_timeouts":1,"output_dequeue_timeouts":2,"queue_depth_high_water":1,"peak_input_payload_bytes":100,"peak_output_payload_bytes":200}
-{"broker_state":"listening","pid":77,"uptime_ms":200,"active_sessions":0,"active_transcoders":0,"sessions_created":13,"sessions_closed":13,"process_rss_kb":11000,"open_fd_count":21,"java_heap_used_bytes":1200000,"process_cpu_time_ms":900,"thermal_status":2,"battery_temperature_deci_c":350,"user_unlocked":true,"input_records":30,"output_records":30,"input_bytes":5000,"output_bytes":9000,"input_dequeue_timeouts":3,"output_dequeue_timeouts":7,"queue_depth_high_water":1,"peak_input_payload_bytes":150,"peak_output_payload_bytes":300}
+{"broker_state":"listening","pid":77,"uptime_ms":200,"active_sessions":0,"active_transcoders":0,"sessions_created":14,"sessions_closed":14,"process_rss_kb":11000,"open_fd_count":21,"java_heap_used_bytes":1200000,"process_cpu_time_ms":900,"thermal_status":2,"battery_temperature_deci_c":350,"user_unlocked":true,"input_records":30,"output_records":30,"input_bytes":5000,"output_bytes":9000,"input_dequeue_timeouts":3,"output_dequeue_timeouts":7,"queue_depth_high_water":1,"peak_input_payload_bytes":150,"peak_output_payload_bytes":300}
 EOF_HEALTH_SAMPLES
 python3 "$ffmpeg_adapter" summarize-health "$adapter_test_dir/health.jsonl" \
     "$adapter_test_dir/health-summary.json" \

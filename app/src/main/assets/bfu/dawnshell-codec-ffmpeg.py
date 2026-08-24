@@ -200,8 +200,21 @@ def load_last_stats(path):
     return stats
 
 
+def require_call_latency(stats, label):
+    for direction in ("input", "output"):
+        samples = int(stats.get(f"{direction}_call_latency_samples", -1))
+        average = int(stats.get(f"{direction}_call_latency_avg_us", -1))
+        maximum = int(stats.get(f"{direction}_call_latency_max_us", -1))
+        if samples <= 0 or average < 0 or maximum < 0 or average > maximum:
+            raise ValueError(
+                f"{label} has invalid {direction} call latency metrics: "
+                f"samples={samples} average_us={average} max_us={maximum}"
+            )
+
+
 def validate_stats(arguments):
     stats = load_last_stats(arguments.input)
+    require_call_latency(stats, "transcoder")
     expected = arguments.frames
     checks = {
         "kind": "surface_transcoder",
@@ -239,6 +252,7 @@ def compare_decode_transports(arguments):
     shared = load_last_stats(arguments.shared_log)
     socket = load_last_stats(arguments.socket_log)
     for label, stats in (("shared", shared), ("socket", socket)):
+        require_call_latency(stats, f"{label} decoder")
         if stats.get("kind") != "bytebuffer_decoder":
             raise ValueError(f"{label} run is not a decoder session")
         for key in ("input_frames", "output_frames", "cpu_yuv_frames"):
@@ -273,6 +287,7 @@ def compare_decode_transports(arguments):
 
 def validate_decoder_stats(arguments):
     stats = load_last_stats(arguments.input)
+    require_call_latency(stats, "decoder")
     if stats.get("kind") != "bytebuffer_decoder":
         raise ValueError("session is not a bytebuffer decoder")
     for key in ("input_frames", "output_frames", "cpu_yuv_frames"):
@@ -291,6 +306,55 @@ def validate_decoder_stats(arguments):
         f"frames={arguments.frames} transport={stats.get('media_transport')} "
         f"runtime_ms={stats.get('uptime_ms')} "
         f"process_cpu_time_ms={stats.get('process_cpu_time_ms')}"
+    )
+
+
+def validate_encoder_stats(arguments):
+    stats = load_last_stats(arguments.input)
+    require_call_latency(stats, "encoder")
+    if stats.get("kind") != "bytebuffer_encoder":
+        raise ValueError("session is not a bytebuffer encoder")
+    for key in ("input_frames", "output_frames"):
+        if int(stats.get(key, -1)) != arguments.frames:
+            raise ValueError(
+                f"encoder {key}={stats.get(key)!r}; expected {arguments.frames}"
+            )
+    if int(stats.get("input_eos", 0)) < 1 or int(stats.get("output_eos", 0)) < 1:
+        raise ValueError("encoder statistics do not prove EOS completion")
+    if int(stats.get("errors", -1)) != 0 \
+            or int(stats.get("dropped_frames", -1)) != 0:
+        raise ValueError("encoder statistics report an error or dropped frame")
+    output_bytes = int(stats.get("output_bytes", 0))
+    if output_bytes <= 0:
+        raise ValueError("encoder produced no compressed bytes")
+    actual_bitrate = output_bytes * 8 * arguments.frame_rate / arguments.frames
+    target_ratio = actual_bitrate / arguments.target_bitrate
+    result = {
+        "format": "dawnshell-codec-encoder-metrics-1",
+        "frames": arguments.frames,
+        "frame_rate": arguments.frame_rate,
+        "target_bitrate_bps": arguments.target_bitrate,
+        "actual_bitrate_bps": round(actual_bitrate),
+        "target_ratio": target_ratio,
+        "output_bytes": output_bytes,
+        "input_call_latency_avg_us": int(stats["input_call_latency_avg_us"]),
+        "input_call_latency_max_us": int(stats["input_call_latency_max_us"]),
+        "output_call_latency_avg_us": int(stats["output_call_latency_avg_us"]),
+        "output_call_latency_max_us": int(stats["output_call_latency_max_us"]),
+    }
+    if arguments.output:
+        with open(arguments.output, "w", encoding="utf-8") as output:
+            json.dump(result, output, sort_keys=True, indent=2)
+            output.write("\n")
+    print(
+        "hardware_encode_statistics=verified "
+        f"frames={arguments.frames} actual_bitrate_bps={result['actual_bitrate_bps']} "
+        f"target_bitrate_bps={arguments.target_bitrate} "
+        f"target_ratio={target_ratio:.4f} "
+        f"input_latency_avg_us={result['input_call_latency_avg_us']} "
+        f"input_latency_max_us={result['input_call_latency_max_us']} "
+        f"output_latency_avg_us={result['output_call_latency_avg_us']} "
+        f"output_latency_max_us={result['output_call_latency_max_us']}"
     )
 
 
@@ -712,6 +776,13 @@ def main():
     decoder_stats_parser.add_argument("input")
     decoder_stats_parser.add_argument("frames", type=positive_int)
     decoder_stats_parser.set_defaults(handler=validate_decoder_stats)
+    encoder_stats_parser = commands.add_parser("validate-encoder-stats")
+    encoder_stats_parser.add_argument("input")
+    encoder_stats_parser.add_argument("frames", type=positive_int)
+    encoder_stats_parser.add_argument("frame_rate", type=positive_int)
+    encoder_stats_parser.add_argument("target_bitrate", type=positive_int)
+    encoder_stats_parser.add_argument("--output")
+    encoder_stats_parser.set_defaults(handler=validate_encoder_stats)
     cleanup_parser = commands.add_parser("validate-cleanup")
     cleanup_parser.add_argument("before")
     cleanup_parser.add_argument("after")
