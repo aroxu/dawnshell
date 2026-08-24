@@ -26,7 +26,6 @@ import android.graphics.Rect;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -165,8 +164,10 @@ final class HardwareCodecBroker implements Closeable {
         int uid = credentials.getUid();
         int pid = credentials.getPid();
         try (LocalSocket peer = socket;
-             DataInputStream input = new DataInputStream(new BufferedInputStream(
-                     peer.getInputStream(), SOCKET_CHUNK_BYTES));
+             // Reading is deliberately unbuffered. A buffered stream would
+             // pull bytes from the next datagram while the header is parsed,
+             // and its ancillary descriptor would be lost with it.
+             DataInputStream input = new DataInputStream(peer.getInputStream());
              DataOutputStream output = new DataOutputStream(new BufferedOutputStream(
                      peer.getOutputStream(), SOCKET_CHUNK_BYTES))) {
             peer.setSoTimeout(PEER_TIMEOUT_MS);
@@ -224,6 +225,10 @@ final class HardwareCodecBroker implements Closeable {
     private Request readRequest(LocalSocket peer, DataInputStream input)
             throws IOException, ProtocolException {
         int magic = input.readInt();
+        // The ancillary descriptor belongs to the datagram that carried the
+        // header. It must be claimed here, before any further read can let the
+        // buffered stream pull in the next message and drop it.
+        FileDescriptor[] descriptors = peer.getAncillaryFileDescriptors();
         int version = input.readUnsignedShort();
         int type = input.readUnsignedShort();
         int flags = input.readInt();
@@ -232,15 +237,18 @@ final class HardwareCodecBroker implements Closeable {
         int requestId = input.readInt();
         int reserved = input.readInt();
         if (magic != HardwareCodecProtocol.MAGIC) {
+            closeDescriptors(descriptors);
             throw new ProtocolException(type, sessionId, requestId,
                     HardwareCodecProtocol.ERROR_PROTOCOL, "invalid protocol magic");
         }
         if (version != HardwareCodecProtocol.VERSION) {
+            closeDescriptors(descriptors);
             throw new ProtocolException(type, sessionId, requestId,
                     HardwareCodecProtocol.ERROR_VERSION, "unsupported protocol version");
         }
         if ((type & HardwareCodecProtocol.RESPONSE_BIT) != 0 || flags != 0
                 || reserved != 0 || requestId <= 0) {
+            closeDescriptors(descriptors);
             throw new ProtocolException(type, sessionId, requestId,
                     HardwareCodecProtocol.ERROR_PROTOCOL, "invalid request header");
         }
@@ -248,14 +256,10 @@ final class HardwareCodecBroker implements Closeable {
                 ? HardwareCodecProtocol.MAX_MEDIA_PAYLOAD
                 : HardwareCodecProtocol.MAX_CONTROL_PAYLOAD;
         if (payloadLength < 0 || payloadLength > maximum) {
+            closeDescriptors(descriptors);
             throw new ProtocolException(type, sessionId, requestId,
                     HardwareCodecProtocol.ERROR_LIMIT, "payload length exceeds limit");
         }
-        // The ancillary descriptor arrives with the header, so it must be
-        // collected before the payload is drained. A client sends large
-        // payloads separately because one oversized sendmsg() would fail with
-        // EMSGSIZE and lose the descriptor with it.
-        FileDescriptor[] descriptors = peer.getAncillaryFileDescriptors();
         byte[] payload = new byte[payloadLength];
         input.readFully(payload);
         boolean sharedMemoryRequest = type == HardwareCodecProtocol.INPUT_SHARED_MEMORY

@@ -21,6 +21,27 @@ grep -Fq 'MAGIC = 0x44534342' "$java_protocol"
 grep -Fq 'VERSION = 1' "$java_protocol"
 grep -Fq 'MAX_MEDIA_PAYLOAD = 8 * 1024 * 1024' "$java_protocol"
 grep -Fq 'socket.getPeerCredentials()' "$broker"
+# An ancillary descriptor belongs to the datagram carrying the header, so the
+# broker must claim it before any further read and must not buffer input.
+grep -Fq 'FileDescriptor[] descriptors = peer.getAncillaryFileDescriptors();' "$broker"
+python3 - "$broker" <<'PYTHON_VERIFY_ANCILLARY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+if "new BufferedInputStream" in source:
+    raise SystemExit("buffered reads drop the ancillary descriptor")
+start = source.index("private Request readRequest(")
+end = source.index("\n    }\n", start)
+body = source[start:end]
+claim = body.index("getAncillaryFileDescriptors")
+payload = body.index("input.readFully(payload)")
+if claim > payload:
+    raise SystemExit("the descriptor must be claimed before the payload is read")
+if body.count("input.read") > 0 and claim > body.index("readUnsignedShort"):
+    raise SystemExit("the descriptor must be claimed right after the magic word")
+print("broker claims the ancillary descriptor before draining the payload")
+PYTHON_VERIFY_ANCILLARY
 grep -Fq 'credentials.getUid() != 0' "$broker"
 if grep -Fq 'credentials.getUid() != Process.myUid()' "$broker"; then
     echo "Hardware codec broker must not authenticate app-UID socket peers" >&2
