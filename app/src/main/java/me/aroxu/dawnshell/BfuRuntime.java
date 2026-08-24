@@ -42,6 +42,7 @@ final class BfuRuntime {
         final File dockerNetworkConfiguratorScript;
         final File hostUsbConfiguratorScript;
         final File codecFfmpegAdapterScript;
+        final File codecLiveEncodeScript;
         final File codecLongRunScript;
         final File codecConcurrencyTestScript;
         final File codecErrorTestScript;
@@ -91,6 +92,8 @@ final class BfuRuntime {
                     "configure-host-usb.sh");
             codecFfmpegAdapterScript = new File(scripts,
                     "dawnshell-codec-ffmpeg.py");
+            codecLiveEncodeScript = new File(scripts,
+                    "dawnshell-live-encode.sh");
             codecLongRunScript = new File(scripts,
                     "dawnshell-codec-long-run.sh");
             codecConcurrencyTestScript = new File(scripts,
@@ -212,6 +215,8 @@ final class BfuRuntime {
                 layout.hostUsbConfiguratorScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-codec-ffmpeg.py",
                 layout.codecFfmpegAdapterScript, true);
+        copyPrivateAsset(deContext, "bfu/dawnshell-live-encode.sh",
+                layout.codecLiveEncodeScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-codec-long-run.sh",
                 layout.codecLongRunScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-codec-concurrency-test.sh",

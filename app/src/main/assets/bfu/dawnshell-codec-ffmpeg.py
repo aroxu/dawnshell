@@ -147,6 +147,11 @@ def pack_i420(arguments):
             pts = int(decimal.Decimal(frames) * decimal.Decimal(1_000_000) / rate)
             output.write(RECORD.pack(pts, 0, frame_size))
             output.write(frame)
+            # A pipe-backed BufferedWriter must publish each frame promptly;
+            # otherwise a low-frame-rate live source can stall behind Python's
+            # userspace buffer.
+            if arguments.output == "-":
+                output.flush()
             frames += 1
     if frames == 0:
         raise ValueError("raw I420 input has no complete frames")
@@ -157,7 +162,7 @@ def unpack_annex_b(arguments):
     frames = 0
     previous_pts = -1
     first_frame_is_key = False
-    with open(arguments.input, "rb") as source, open(arguments.output, "wb") as output:
+    with binary_input(arguments.input) as source, binary_output(arguments.output) as output:
         while True:
             header = source.read(RECORD.size)
             if not header:
@@ -172,6 +177,8 @@ def unpack_annex_b(arguments):
                 raise ValueError("truncated encoded record payload")
             if size:
                 output.write(data)
+                if arguments.output == "-":
+                    output.flush()
                 if not flags & CODEC_CONFIG_FLAG:
                     if frames == 0:
                         first_frame_is_key = bool(flags & 1)
@@ -185,7 +192,7 @@ def unpack_annex_b(arguments):
         raise ValueError("hardware encoder produced no frames")
     if arguments.require_keyframe and not first_frame_is_key:
         raise ValueError("first hardware-encoded frame is not a keyframe")
-    print(frames)
+    report_count("unpacked_annexb_frames", frames, arguments.output)
 
 
 def load_last_stats(path):

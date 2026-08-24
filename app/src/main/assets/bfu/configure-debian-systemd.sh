@@ -91,6 +91,10 @@ esac
     fail 16 "hardware codec FFmpeg adapter is missing"
 [ ! -L "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
     fail 16 "hardware codec FFmpeg adapter symlinks are forbidden"
+[ -f "$BFU_ROOT/scripts/dawnshell-live-encode.sh" ] || \
+    fail 16 "hardware live encoder is missing"
+[ ! -L "$BFU_ROOT/scripts/dawnshell-live-encode.sh" ] || \
+    fail 16 "hardware live encoder symlinks are forbidden"
 [ -f "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" ] || \
     fail 16 "hardware codec long-run test is missing"
 [ ! -L "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" ] || \
@@ -221,6 +225,12 @@ chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
 chmod 0755 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
 mv "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new" \
     "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py"
+cp "$BFU_ROOT/scripts/dawnshell-live-encode.sh" \
+    "$ROOT/usr/local/bin/dawnshell-live-encode.new"
+chown 0:0 "$ROOT/usr/local/bin/dawnshell-live-encode.new"
+chmod 0755 "$ROOT/usr/local/bin/dawnshell-live-encode.new"
+mv "$ROOT/usr/local/bin/dawnshell-live-encode.new" \
+    "$ROOT/usr/local/bin/dawnshell-live-encode"
 cp "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" \
     "$ROOT/usr/local/bin/dawnshell-codec-long-run.new"
 chown 0:0 "$ROOT/usr/local/bin/dawnshell-codec-long-run.new"
@@ -345,7 +355,7 @@ apt-get -o Acquire::Retries=3 update
 echo "STAGE: Installing Debian systemd, D-Bus, OpenSSH, and diagnostics"
 apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     systemd systemd-sysv dbus openssh-server iproute2 procps ca-certificates \
-    bash passwd mawk time util-linux usbutils ffmpeg python3-minimal
+    bash passwd mawk time util-linux usbutils v4l-utils ffmpeg python3-minimal
 
 cat > /etc/apt/sources.list <<'EOF_APT_HTTPS'
 deb https://deb.debian.org/debian trixie main
@@ -357,7 +367,7 @@ apt-get -o Acquire::Retries=3 update
 for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
     /usr/bin/timeout /usr/bin/ss /usr/bin/mawk /usr/bin/touch \
     /usr/bin/mktemp /usr/bin/sha256sum /usr/bin/sleep /usr/bin/time /usr/bin/flock \
-    /usr/bin/lsusb /usr/bin/ffmpeg /usr/bin/ffprobe /usr/bin/python3 \
+    /usr/bin/lsusb /usr/bin/v4l2-ctl /usr/bin/ffmpeg /usr/bin/ffprobe /usr/bin/python3 \
     /usr/sbin/shutdown; do
     [ -x "$tool" ] || {
         echo "ERROR: required BFU health tool is missing: $tool"
@@ -1331,6 +1341,7 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ -x /usr/local/bin/dawnshell-hwdecode ]
 [ -x /usr/local/bin/dawnshell-hwencode ]
 [ -x /usr/local/bin/dawnshell-hwtranscode ]
+[ -x /usr/local/bin/dawnshell-live-encode ]
 [ -x /usr/local/bin/dawnshell-ffmpeg ]
 [ -x /usr/local/bin/dawnshell-codec-performance-test ]
 [ -x /usr/local/bin/dawnshell-codec-long-run ]
@@ -1356,6 +1367,7 @@ hardware_codec_error_test=/usr/local/bin/dawnshell-codec-error-test
 hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode
 hardware_codec_encode=/usr/local/bin/dawnshell-hwencode
 hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode
+hardware_codec_live_encode=/usr/local/bin/dawnshell-live-encode
 hardware_codec_ffmpeg=/usr/local/bin/dawnshell-ffmpeg
 configured_epoch=$(date +%s)
 EOF_READY

@@ -1008,6 +1008,8 @@ static int drain_output(int descriptor, uint64_t session_id, uint32_t timeout_ms
         } else if (fwrite(response.payload, 1, response.payload_length, stdout)
                 != response.payload_length) {
             result = -1;
+        } else if (fflush(stdout) != 0) {
+            result = -1;
         } else {
             if (length > 0 && (flags & DSCB_BUFFER_FLAG_CODEC_CONFIG) == 0) {
                 state->frames++;
