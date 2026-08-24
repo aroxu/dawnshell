@@ -64,9 +64,20 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [x] Added API 29+ platform classification and conservative API 24–28 fallback.
 - [x] Excluded secure/DRM and silent software fallback while recording AVC/HEVC
   instance creation in DE JSON and logs.
+- [x] Added a root-peer-authenticated binary protocol and static Debian client
+  for all three supported ABIs.
+- [x] Added deterministic AVC decode/I420 checksum and hardware encode/FFmpeg
+  self-tests.
+- [x] Added FFmpeg demux/mux wrappers for hardware decode and encode while
+  preserving bounded packet framing and timestamps.
+- [x] Added `memfd`/`SCM_RIGHTS` media transport with bounded socket fallback.
+- [x] Added H.264/HEVC-to-H.264 Surface transcoding without returning full YUV
+  frames to Debian.
 - [ ] Verify Exynos AVC hardware instance creation on a locked real device.
-- [ ] Implement the local Debian IPC client and frame/packet protocol.
-- [ ] Implement H.264 one-frame decode/encode self-tests and an FFmpeg pipeline.
+- [ ] Verify fixed-vector decode, encode, shared-memory transport, and Surface
+  transcode before and after first unlock.
+- [ ] Verify 1080p realtime performance, timestamp stability, and resource
+  cleanup on the target device.
 
 ## Physical-device validation completed
 
@@ -85,5 +96,7 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [ ] Direct/exclusive USB hot-plug, driver restore, serial, libusb, and storage
   validation on physical devices.
 - [ ] Long-running memory, mount, and cgroup leak observation.
+- [ ] Five-cycle BFU hardware codec regression with
+  `BFU_REQUIRE_HARDWARE_CODEC=1`.
 
 See [testing](testing.md) for the current acceptance procedure.

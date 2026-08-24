@@ -75,9 +75,20 @@ ABI(Application Binary Interface)의 의미는
 - [x] API 29 이상 플랫폼 판정과 API 24~28 보수적 하위 호환 판정을 구현했습니다.
 - [x] secure/DRM 및 software fallback을 제외하고 AVC/HEVC 인스턴스 생성을
   DE JSON/로그로 기록합니다.
+- [x] root peer 인증 binary protocol과 3개 지원 ABI용 정적 Debian client를
+  구현했습니다.
+- [x] 고정 AVC decode/I420 checksum 및 hardware encode/FFmpeg 자체 검사를
+  구현했습니다.
+- [x] bounded packet framing과 timestamp를 유지하는 FFmpeg hardware decode/encode
+  demux/mux wrapper를 구현했습니다.
+- [x] bounded socket 폴백이 있는 `memfd`/`SCM_RIGHTS` media 전송을 구현했습니다.
+- [x] 전체 YUV frame을 Debian으로 반환하지 않는 H.264/HEVC→H.264 Surface
+  transcode를 구현했습니다.
 - [ ] BFU 실기기에서 Exynos AVC hardware instance 생성을 확인합니다.
-- [ ] Debian용 로컬 IPC client와 frame/packet protocol을 구현합니다.
-- [ ] H.264 1-frame decode/encode self-test와 FFmpeg pipeline을 구현합니다.
+- [ ] 최초 잠금 해제 전후에 고정 vector decode, encode, shared-memory 전송과
+  Surface transcode를 검증합니다.
+- [ ] 대상 기기에서 1080p 실시간 성능, timestamp 안정성과 자원 정리를
+  검증합니다.
 
 ### 라이선스와 자동 빌드
 
@@ -106,6 +117,8 @@ ABI(Application Binary Interface)의 의미는
 - [ ] 실기기에서 직접/독점 USB hot-plug, 드라이버 복원, 시리얼, libusb와
   저장장치를 확인합니다.
 - [ ] 장기 실행 시 메모리, 마운트와 cgroup 누적 여부를 관찰합니다.
+- [ ] `BFU_REQUIRE_HARDWARE_CODEC=1`로 BFU hardware codec 5회 회귀 시험을
+  수행합니다.
 
 ## 현재 통과 기준
 
