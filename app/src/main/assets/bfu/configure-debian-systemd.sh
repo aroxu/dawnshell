@@ -87,6 +87,10 @@ esac
 [ -f "$AUTHORIZED_KEYS" ] || fail 16 "save at least one SSH public key first"
 [ ! -L "$AUTHORIZED_KEYS" ] || fail 16 "authorized_keys symlinks are forbidden"
 [ -x "$BIN/dawnshell-codec" ] || fail 16 "source-built hardware codec client is missing"
+[ -f "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.h264" ] || \
+    fail 16 "hardware codec test vector is missing"
+[ -f "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.properties" ] || \
+    fail 16 "hardware codec test metadata is missing"
 
 key_size="$(stat -c '%s' "$AUTHORIZED_KEYS")"
 case "$key_size" in
@@ -163,14 +167,32 @@ chown 0:0 "$ROOT/run/dawnshell-authorized-keys"
 # The client is a static Android ELF, so it remains executable inside the
 # Debian chroot without exposing /system or app-private libraries.
 mkdir -p "$ROOT/usr/local/bin"
-if [ -L "$ROOT/usr/local" ] || [ -L "$ROOT/usr/local/bin" ]; then
-    fail 18 "rootfs codec client destination is a symlink"
-fi
+for destination in "$ROOT/usr/local" "$ROOT/usr/local/bin"; do
+    if [ ! -d "$destination" ] || [ -L "$destination" ]; then
+        fail 18 "rootfs codec client destination is unsafe: $destination"
+    fi
+    [ "$(stat -c '%u:%g' "$destination")" = "0:0" ] || \
+        fail 18 "rootfs codec client destination is not root-owned: $destination"
+done
 cp "$BIN/dawnshell-codec" "$ROOT/usr/local/bin/dawnshell-codec.new"
 chown 0:0 "$ROOT/usr/local/bin/dawnshell-codec.new"
 chmod 0755 "$ROOT/usr/local/bin/dawnshell-codec.new"
 mv "$ROOT/usr/local/bin/dawnshell-codec.new" \
     "$ROOT/usr/local/bin/dawnshell-codec"
+mkdir -p "$ROOT/usr/local/share/dawnshell"
+for destination in "$ROOT/usr/local/share" "$ROOT/usr/local/share/dawnshell"; do
+    if [ ! -d "$destination" ] || [ -L "$destination" ]; then
+        fail 18 "rootfs codec test destination is unsafe: $destination"
+    fi
+    [ "$(stat -c '%u:%g' "$destination")" = "0:0" ] || \
+        fail 18 "rootfs codec test destination is not root-owned: $destination"
+done
+cp "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.h264" \
+    "$ROOT/usr/local/share/dawnshell/avc-baseline-128x96-10fps.h264"
+cp "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.properties" \
+    "$ROOT/usr/local/share/dawnshell/avc-baseline-128x96-10fps.properties"
+chown 0:0 "$ROOT/usr/local/share/dawnshell/"avc-baseline-128x96-10fps.*
+chmod 0644 "$ROOT/usr/local/share/dawnshell/"avc-baseline-128x96-10fps.*
 
 dns="$(getprop net.dns1 2>/dev/null || true)"
 case "$dns" in
@@ -270,6 +292,25 @@ done
     echo "ERROR: DawnShell hardware codec client is missing"
     exit 35
 }
+cat > /usr/local/bin/dawnshell-codec-self-test <<'EOF_CODEC_SELF_TEST'
+#!/bin/sh
+set -eu
+vector=/usr/local/share/dawnshell/avc-baseline-128x96-10fps.h264
+expected=777feb39bd92b899fc9cf7c184396e3ecec4fdbcd7a582fc560fc37011f18053
+temporary="$(mktemp /run/dawnshell-codec-i420.XXXXXX)"
+cleanup() {
+    rm -f "$temporary"
+}
+trap cleanup EXIT HUP INT TERM
+/usr/local/bin/dawnshell-codec decode-test "$vector" 128 96 10 10 > "$temporary"
+actual="$(sha256sum "$temporary" | awk '{print $1}')"
+[ "$actual" = "$expected" ] || {
+    echo "hardware AVC decode checksum mismatch: $actual" >&2
+    exit 1
+}
+echo "DawnShell hardware AVC decode passed: frames=10 pts=exact i420_sha256=$actual"
+EOF_CODEC_SELF_TEST
+chmod 0755 /usr/local/bin/dawnshell-codec-self-test
 
 install -d -m 0755 -o root -g root /usr/local/sbin
 cat > /usr/local/sbin/reboot <<'EOF_HOST_REBOOT'
@@ -455,6 +496,7 @@ ssh_user=debian
 ssh_port=22
 host_reboot_bridge=/usr/local/sbin/reboot
 hardware_codec_client=/usr/local/bin/dawnshell-codec
+hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test
 configured_epoch=$(date +%s)
 EOF_READY
 chown 0:0 "${READY_MARKER}.new"

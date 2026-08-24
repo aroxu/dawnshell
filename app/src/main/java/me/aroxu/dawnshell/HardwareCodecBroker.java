@@ -3,11 +3,13 @@ package me.aroxu.dawnshell;
 import android.content.Context;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
+import android.media.Image;
 import android.net.Credentials;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.Process;
 import android.util.Log;
+import android.graphics.Rect;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -468,16 +470,19 @@ final class HardwareCodecBroker implements Closeable {
         final String codecName;
         final String classification;
         final int colorFormat;
+        final boolean encoder;
         private final MediaCodec codec;
         private boolean closed;
 
         private CodecSession(long id, String mime, String codecName,
-                             String classification, int colorFormat, MediaCodec codec) {
+                             String classification, int colorFormat, boolean encoder,
+                             MediaCodec codec) {
             this.id = id;
             this.mime = mime;
             this.codecName = codecName;
             this.classification = classification;
             this.colorFormat = colorFormat;
+            this.encoder = encoder;
             this.codec = codec;
         }
 
@@ -499,8 +504,11 @@ final class HardwareCodecBroker implements Closeable {
                         "codec must be AVC or HEVC");
             }
             if (width < 16 || width > 4096 || height < 16 || height > 4096
+                    || (width & 1) != 0 || (height & 1) != 0
                     || frameRate < 1 || frameRate > 240 || bitrate < 1_000
-                    || bitrate > 100_000_000) {
+                    || bitrate > 100_000_000
+                    || ((long) width * height * 3L / 2L)
+                    > HardwareCodecProtocol.MAX_MEDIA_PAYLOAD - 16L) {
                 throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
                         "codec parameters exceed bounded limits");
             }
@@ -533,7 +541,8 @@ final class HardwareCodecBroker implements Closeable {
                             ? MediaCodec.CONFIGURE_FLAG_ENCODE : 0);
                     instance.start();
                     return new CodecSession(id, mime, selected.name,
-                            selected.classification, configuredColorFormat, instance);
+                            selected.classification, configuredColorFormat, encoder,
+                            instance);
                 } catch (IOException | RuntimeException | RequestException e) {
                     lastError = safe(e);
                     if (instance != null) {
@@ -616,7 +625,7 @@ final class HardwareCodecBroker implements Closeable {
                 }
                 if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     return new OutputRecord(HardwareCodecProtocol.FORMAT_CHANGED,
-                            textPayload(codec.getOutputFormat().toString()));
+                            outputFormatPayload(codec.getOutputFormat(), encoder));
                 }
                 if (index == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) continue;
                 if (index < 0) continue;
@@ -626,13 +635,44 @@ final class HardwareCodecBroker implements Closeable {
                             "codec output exceeds protocol limit");
                 }
                 ByteBuffer source = codec.getOutputBuffer(index);
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream(16 + info.size);
+                Image image = null;
+                byte[] normalized = null;
+                if (!encoder && info.size > 0) {
+                    try {
+                        image = codec.getOutputImage(index);
+                        if (image == null) {
+                            throw new RequestException(
+                                    HardwareCodecProtocol.ERROR_UNSUPPORTED,
+                                    "hardware decoder does not expose YUV_420_888 Image output");
+                        }
+                        normalized = normalizeI420(image);
+                    } catch (RequestException e) {
+                        if (image != null) image.close();
+                        codec.releaseOutputBuffer(index, false);
+                        throw e;
+                    } catch (RuntimeException e) {
+                        if (image != null) image.close();
+                        codec.releaseOutputBuffer(index, false);
+                        throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
+                                "could not normalize decoder output: " + safe(e));
+                    }
+                }
+                int outputSize = normalized == null ? info.size : normalized.length;
+                if (outputSize > HardwareCodecProtocol.MAX_MEDIA_PAYLOAD - 16) {
+                    if (image != null) image.close();
+                    codec.releaseOutputBuffer(index, false);
+                    throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                            "normalized codec output exceeds protocol limit");
+                }
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream(16 + outputSize);
                 DataOutputStream output = new DataOutputStream(bytes);
                 try {
                     output.writeLong(info.presentationTimeUs);
                     output.writeInt(info.flags);
-                    output.writeInt(info.size);
-                    if (info.size > 0) {
+                    output.writeInt(outputSize);
+                    if (normalized != null) {
+                        output.write(normalized);
+                    } else if (info.size > 0) {
                         if (source == null) {
                             throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
                                     "codec returned a null output buffer");
@@ -653,6 +693,7 @@ final class HardwareCodecBroker implements Closeable {
                 } catch (IOException e) {
                     throw new RequestException(HardwareCodecProtocol.ERROR_IO, safe(e));
                 } finally {
+                    if (image != null) image.close();
                     codec.releaseOutputBuffer(index, false);
                 }
             }
@@ -686,6 +727,86 @@ final class HardwareCodecBroker implements Closeable {
 
         private static String json(String value) {
             return value.replace("\\", "\\\\").replace("\"", "\\\"");
+        }
+
+        private static byte[] outputFormatPayload(MediaFormat format, boolean encoder) {
+            ByteBuffer payload = ByteBuffer.allocate(20).order(ByteOrder.BIG_ENDIAN);
+            int width = integer(format, MediaFormat.KEY_WIDTH, 0);
+            int height = integer(format, MediaFormat.KEY_HEIGHT, 0);
+            payload.putInt(width);
+            payload.putInt(height);
+            payload.putInt(integer(format, "stride", width));
+            payload.putInt(integer(format, "slice-height", height));
+            payload.putInt(encoder ? HardwareCodecProtocol.PIXEL_FORMAT_BITSTREAM
+                    : HardwareCodecProtocol.PIXEL_FORMAT_I420);
+            return payload.array();
+        }
+
+        private static int integer(MediaFormat format, String key, int fallback) {
+            try {
+                return format.containsKey(key) ? format.getInteger(key) : fallback;
+            } catch (RuntimeException e) {
+                return fallback;
+            }
+        }
+
+        private static byte[] normalizeI420(Image image) throws RequestException {
+            if (image.getFormat() != android.graphics.ImageFormat.YUV_420_888) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_UNSUPPORTED,
+                        "decoder output image is not YUV_420_888");
+            }
+            Rect crop = image.getCropRect();
+            int width = crop.width();
+            int height = crop.height();
+            if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
+                        "decoder output crop must have positive even dimensions");
+            }
+            long length = (long) width * height * 3L / 2L;
+            if (length > HardwareCodecProtocol.MAX_MEDIA_PAYLOAD - 16L) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
+                        "decoder frame exceeds protocol limit");
+            }
+            Image.Plane[] planes = image.getPlanes();
+            if (planes.length != 3) {
+                throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
+                        "decoder output must have three YUV planes");
+            }
+            byte[] result = new byte[(int) length];
+            int destination = 0;
+            for (int planeIndex = 0; planeIndex < 3; planeIndex++) {
+                Image.Plane plane = planes[planeIndex];
+                ByteBuffer source = plane.getBuffer().duplicate();
+                int shift = planeIndex == 0 ? 0 : 1;
+                int planeWidth = width >> shift;
+                int planeHeight = height >> shift;
+                int cropLeft = crop.left >> shift;
+                int cropTop = crop.top >> shift;
+                int rowStride = plane.getRowStride();
+                int pixelStride = plane.getPixelStride();
+                int first = source.position() + cropTop * rowStride
+                        + cropLeft * pixelStride;
+                for (int row = 0; row < planeHeight; row++) {
+                    int rowStart = first + row * rowStride;
+                    int last = rowStart + (planeWidth - 1) * pixelStride;
+                    if (rowStart < source.position() || last >= source.limit()) {
+                        throw new RequestException(HardwareCodecProtocol.ERROR_CODEC,
+                                "decoder plane bounds are invalid");
+                    }
+                    if (pixelStride == 1) {
+                        ByteBuffer contiguous = source.duplicate();
+                        contiguous.position(rowStart);
+                        contiguous.get(result, destination, planeWidth);
+                        destination += planeWidth;
+                    } else {
+                        for (int column = 0; column < planeWidth; column++) {
+                            result[destination++] = source.get(
+                                    rowStart + column * pixelStride);
+                        }
+                    }
+                }
+            }
+            return result;
         }
     }
 }

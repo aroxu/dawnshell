@@ -135,6 +135,10 @@ bfuBootstrapAssets.add(file(
 bfuBootstrapAssets.add(file(
         'src/main/assets/bfu/bootstrap/debian-archive-keyring_2025.1_all.deb'))
 bfuBootstrapAssets.add(file('src/main/assets/bfu/bootstrap/SOURCES.lock'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.h264'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.properties'))
 
 def requiredLicenseFiles = [
         'README.md',

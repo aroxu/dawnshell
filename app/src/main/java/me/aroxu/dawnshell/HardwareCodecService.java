@@ -19,9 +19,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Direct-Boot-aware, crash-isolated Android process for MediaCodec access.
  *
- * The first implementation intentionally exposes only the hardware capability
- * probe. The process boundary and lifecycle are the foundation for the local
- * Debian codec protocol without coupling a vendor codec crash to PID 1 or SSH.
+ * The process owns both the bounded hardware capability probe and the
+ * root-authenticated local Debian codec protocol, without coupling a vendor
+ * codec crash to PID 1 or SSH.
  */
 public final class HardwareCodecService extends Service {
 

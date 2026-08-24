@@ -21,6 +21,8 @@ final class HardwareCodecProtocol {
     static final int MODE_ENCODE = 2;
     static final int CODEC_AVC = 1;
     static final int CODEC_HEVC = 2;
+    static final int PIXEL_FORMAT_BITSTREAM = 0;
+    static final int PIXEL_FORMAT_I420 = 1;
 
     static final int OK = 0;
     static final int AGAIN = 1;

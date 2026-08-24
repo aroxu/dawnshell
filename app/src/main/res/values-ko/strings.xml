@@ -241,9 +241,14 @@
     <string name="dawnshell_codec_section_title">하드웨어 영상 가속</string>
     <string name="dawnshell_codec_section_description">H.264/AVC 및 HEVC용 실험적 Android MediaCodec 브리지 기반입니다. 코덱 프로세스는 Debian 및 SSH와 격리되며 최초 잠금 해제 후에도 유지됩니다.</string>
     <string name="dawnshell_codec_enable">다이렉트 부트에서 하드웨어 코덱 브리지 활성화</string>
-    <string name="dawnshell_codec_scope">OpenGL/Vulkan이나 범용 GPU 패스스루가 아니라 영상 코덱 가속 기능입니다. 현재 단계에서는 코덱 목록을 수집하고 명시적으로 하드웨어로 판정된 AVC/HEVC 인스턴스를 생성합니다. 소프트웨어 코덱을 조용히 선택하지 않습니다. Android 10 이상은 플랫폼 API로 하드웨어/벤더 여부를 판정하고 Android 7~9는 보수적인 벤더 이름 추정을 사용하며 결과에 추정임을 표시합니다. 일부 ROM의 BFU에서 미디어 서비스가 준비되지 않으면 이 기능만 실패합니다.</string>
+    <string name="dawnshell_codec_scope">OpenGL/Vulkan이나 범용 GPU 패스스루가 아니라 영상 코덱 가속 기능입니다. root 인증 로컬 Unix socket을 통해 Debian에서 제한된 하드웨어 AVC/HEVC 세션을 사용합니다. 소프트웨어 코덱을 조용히 선택하지 않습니다. Android 10 이상은 플랫폼 하드웨어/벤더 플래그를 사용하고 Android 7~9는 명시적으로 표시되는 보수적인 벤더 이름 추정을 사용합니다. Debian 구성 후 고정 벡터 자체 검사를 실행하세요. BFU에서 미디어 서비스가 준비되지 않으면 이 기능만 실패합니다.</string>
     <string name="dawnshell_codec_apply_probe">저장하고 하드웨어 코덱 검사</string>
     <string name="dawnshell_codec_view_log">하드웨어 코덱 보고서 보기</string>
+    <string name="dawnshell_codec_run_self_test">하드웨어 AVC 디코드 자체 검사</string>
+    <string name="dawnshell_codec_self_test_started">고정 10프레임 하드웨어 AVC 검사를 실행 중입니다…</string>
+    <string name="dawnshell_codec_self_test_passed">하드웨어 AVC 디코드 자체 검사를 통과했습니다.</string>
+    <string name="dawnshell_codec_self_test_failed">하드웨어 AVC 디코드 자체 검사 실패: %1$s</string>
+    <string name="dawnshell_codec_self_test_requires_setup">코덱 브리지를 활성화하고 설정을 저장한 뒤 Debian 구성을 완료하세요.</string>
     <string name="dawnshell_codec_requires_bfu">하드웨어 코덱 브리지를 켜기 전에 다이렉트 부트를 활성화하세요.</string>
     <string name="dawnshell_codec_probe_requested">격리된 코덱 프로세스에서 하드웨어 코덱을 검사하고 있습니다. 몇 초 걸릴 수 있습니다.</string>
     <string name="dawnshell_codec_disabled">하드웨어 코덱 브리지를 비활성화했습니다.</string>

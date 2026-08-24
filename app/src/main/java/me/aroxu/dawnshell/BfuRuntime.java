@@ -46,6 +46,8 @@ final class BfuRuntime {
         final File archiveKeyringPackage;
         final File sourceLock;
         final File runtimeProperties;
+        final File codecTestVector;
+        final File codecTestMetadata;
 
         Layout(File root, BfuArchitecture architecture) {
             this.root = root;
@@ -81,6 +83,10 @@ final class BfuRuntime {
                     "debian-archive-keyring_2025.1_all.deb");
             sourceLock = new File(downloads, "SOURCES.lock");
             runtimeProperties = new File(etc, "bootstrap-runtime.properties");
+            codecTestVector = new File(downloads,
+                    "avc-baseline-128x96-10fps.h264");
+            codecTestMetadata = new File(downloads,
+                    "avc-baseline-128x96-10fps.properties");
         }
     }
 
@@ -130,6 +136,12 @@ final class BfuRuntime {
                 layout.archiveKeyringPackage, false);
         copyPrivateAsset(deContext, "bfu/bootstrap/SOURCES.lock",
                 layout.sourceLock, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/avc-baseline-128x96-10fps.h264",
+                layout.codecTestVector, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/avc-baseline-128x96-10fps.properties",
+                layout.codecTestMetadata, false);
         copyPrivateAsset(deContext, "bfu/install-debian-rootfs.sh",
                 layout.rootfsInstallerScript, true);
         copyPrivateAsset(deContext, "bfu/configure-debian-systemd.sh",

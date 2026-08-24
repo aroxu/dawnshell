@@ -82,6 +82,7 @@ public class BootActivity extends AppCompatActivity {
     private TextView lifecycleStatus;
     private TextView dockerPolicyStatus;
     private TextView hardwareCodecStatus;
+    private Button hardwareCodecSelfTestButton;
     private TextView lifecycleLog;
     private EditText rootPassword;
     private EditText rootPasswordConfirm;
@@ -94,8 +95,11 @@ public class BootActivity extends AppCompatActivity {
             Executors.newSingleThreadExecutor();
     private final ExecutorService passwordExecutor =
             Executors.newSingleThreadExecutor();
+    private final ExecutorService codecSelfTestExecutor =
+            Executors.newSingleThreadExecutor();
     private volatile boolean rootAuthorizationInProgress;
     private volatile boolean passwordUpdateInProgress;
+    private volatile boolean codecSelfTestInProgress;
     private boolean activityResumed;
     private BfuRootAuthorization.Result pendingRootAuthorizationResult;
     private String pendingRootAuthorizationFailure;
@@ -147,6 +151,7 @@ public class BootActivity extends AppCompatActivity {
     protected void onDestroy() {
         rootAuthorizationExecutor.shutdownNow();
         passwordExecutor.shutdownNow();
+        codecSelfTestExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -218,6 +223,8 @@ public class BootActivity extends AppCompatActivity {
         lifecycleStatus = findViewById(R.id.lifecycle_status);
         dockerPolicyStatus = findViewById(R.id.docker_policy_status);
         hardwareCodecStatus = findViewById(R.id.hardware_codec_status);
+        hardwareCodecSelfTestButton = findViewById(
+                R.id.run_hardware_codec_self_test_button);
         rootPassword = findViewById(R.id.root_password);
         rootPasswordConfirm = findViewById(R.id.root_password_confirm);
         debianPassword = findViewById(R.id.debian_password);
@@ -240,6 +247,8 @@ public class BootActivity extends AppCompatActivity {
                 .setOnClickListener(view -> confirmHostUsbPolicy());
         findViewById(R.id.probe_hardware_codecs_button)
                 .setOnClickListener(view -> applyHardwareCodecSetting());
+        hardwareCodecSelfTestButton.setOnClickListener(view ->
+                runHardwareCodecSelfTest());
         findViewById(R.id.open_hardware_codec_log_button).setOnClickListener(view ->
                 startActivity(LogDetailActivity.createIntent(
                         this, DawnShellLogRepository.HARDWARE_CODEC)));
@@ -1251,6 +1260,70 @@ public class BootActivity extends AppCompatActivity {
             Toast.makeText(this, getString(R.string.bfu_provision_failed,
                     e.getMessage()), Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void runHardwareCodecSelfTest() {
+        if (codecSelfTestInProgress) return;
+        if (!hardwareCodecBridge.isChecked()
+                || !BfuPreferences.hardwareCodecBridge(this)) {
+            Toast.makeText(this, R.string.dawnshell_codec_self_test_requires_setup,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        final String chrootTool;
+        try {
+            chrootTool = BfuRuntime.provision(this).toolboxBinary.getAbsolutePath();
+        } catch (IOException | IllegalStateException e) {
+            Toast.makeText(this, getString(
+                    R.string.dawnshell_codec_self_test_failed,
+                    BfuSu.sanitize(e.getMessage())), Toast.LENGTH_LONG).show();
+            return;
+        }
+        codecSelfTestInProgress = true;
+        hardwareCodecSelfTestButton.setEnabled(false);
+        Toast.makeText(this, R.string.dawnshell_codec_self_test_started,
+                Toast.LENGTH_SHORT).show();
+        HardwareCodecService.ensureStarted(this, false);
+        codecSelfTestExecutor.execute(() -> {
+            String output;
+            boolean passed = false;
+            try {
+                Thread.sleep(500L);
+                String command = BfuSu.shellQuote(chrootTool) + " chroot "
+                        + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
+                        + " /usr/local/bin/dawnshell-codec-self-test";
+                BfuSu.Result result = BfuSu.run(command, 30_000L);
+                output = "command=" + result.command + " exit=" + result.exitCode
+                        + " timeout=" + result.timedOut + " output=" + result.output;
+                passed = result.exitedSuccessfully();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                output = "interrupted";
+            } catch (RuntimeException e) {
+                output = BfuSu.sanitize(e.getMessage());
+            }
+            final boolean finalPassed = passed;
+            final String finalOutput = BfuSu.sanitize(output);
+            HardwareCodecProbe.recordBrokerEvent(this,
+                    "SELF_TEST_" + (finalPassed ? "PASSED " : "FAILED ")
+                            + finalOutput);
+            try {
+                BfuOperationLog.append(this, "HARDWARE_CODEC_SELF_TEST_"
+                        + (finalPassed ? "PASSED " : "FAILED ") + finalOutput);
+            } catch (IOException e) {
+                Log.w(TAG, "Could not persist hardware codec self-test operation", e);
+            }
+            runOnUiThread(() -> {
+                codecSelfTestInProgress = false;
+                hardwareCodecSelfTestButton.setEnabled(true);
+                refreshHardwareCodecStatus();
+                Toast.makeText(this, finalPassed
+                                ? getString(R.string.dawnshell_codec_self_test_passed)
+                                : getString(R.string.dawnshell_codec_self_test_failed,
+                                finalOutput),
+                        Toast.LENGTH_LONG).show();
+            });
+        });
     }
 
     private void startDockerNetworkPolicy() {

@@ -37,7 +37,8 @@ fail-closed합니다. control payload는 1 MiB, media payload는 8 MiB, 전체 s
   하드웨어 `MediaCodec`을 configure/start하고 session ID를 반환합니다.
 - `INPUT(4)`: PTS, flags와 한 packet/frame을 queue합니다.
 - `OUTPUT(5)`: bounded timeout으로 output을 dequeue합니다. format change와
-  backpressure는 별도 status로 반환합니다.
+  backpressure는 별도 status로 반환합니다. decoder의 `YUV_420_888` Image plane은
+  crop/row stride/pixel stride를 반영해 packed I420으로 정규화합니다.
 - `FLUSH(6)`, `EOS(7)`, `CLOSE(8)`: session 상태를 제어합니다.
 
 vendor codec 오류와 잘못된 client 입력은 해당 요청 또는 session에서만 실패하며
@@ -50,6 +51,7 @@ peer가 만든 모든 session을 자동 release합니다.
 dawnshell-codec capabilities
 dawnshell-codec probe decode avc 128 128
 dawnshell-codec pipe decode avc 1280 720 30 4000000 < packets.bin > frames.bin
+dawnshell-codec-self-test
 ```
 
 `pipe`의 stdin/stdout record는 `pts_us:u64`, `flags:u32`, `length:u32`, `data` 순서의

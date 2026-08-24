@@ -94,6 +94,22 @@ DE 로그에는 codec 이름, capability와 오류만 저장하고 frame, bitstr
 
 통과: 720p sample의 모든 frame과 timestamp 일치.
 
+첫 회귀 벡터는 프로젝트가 CC0-1.0으로 제공하는 128×96, 10 fps, 10-frame
+Constrained Baseline Annex-B 파일입니다. 다음 설정으로 생성해 저장소에 고정했습니다.
+
+```sh
+ffmpeg -f lavfi -i 'testsrc2=size=128x96:rate=10:duration=1' \
+  -pix_fmt yuv420p -c:v libx264 -profile:v baseline -level:v 3.0 \
+  -preset veryslow -crf 18 \
+  -x264-params 'keyint=10:min-keyint=10:scenecut=0:bframes=0:aud=1:repeat-headers=1' \
+  -an -f h264 avc-baseline-128x96-10fps.h264
+```
+
+`dawnshell-codec-self-test`는 각 AUD access unit에 결정적인 PTS를 부여하고, Android
+broker가 `Image` plane의 row/pixel stride와 crop을 정규화한 I420 frame 10개를
+검사합니다. frame 수와 PTS가 일치한 뒤 software decode 기준 SHA-256
+`777feb39bd92b899fc9cf7c184396e3ecec4fdbcd7a582fc560fc37011f18053`을 비교합니다.
+
 ### M4 — H.264 encode
 
 - 고정 YUV pattern을 hardware encoder로 처리합니다.
@@ -132,5 +148,6 @@ binary framing, 실제 hardware session create/input/output/flush/EOS/close, pee
 제공합니다.
 
 실기기 BFU backend와 session create 통과 조건은 마지막 일괄 기기 시험에서
-검증합니다. M3 고정 H.264 vector 검증, shared-memory 전송, FFmpeg 통합과 zero-copy
-경로는 아직 남아 있습니다.
+검증합니다. M3에는 작은 고정 H.264 smoke vector, Android Image→I420 정규화,
+frame/PTS/SHA-256 자체 검사와 앱 실행 버튼까지 구현됐습니다. M3의 최종 720p
+통과 판정, shared-memory 전송, FFmpeg 통합과 zero-copy 경로는 아직 남아 있습니다.
