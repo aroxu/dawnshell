@@ -87,6 +87,10 @@ esac
 [ -f "$AUTHORIZED_KEYS" ] || fail 16 "save at least one SSH public key first"
 [ ! -L "$AUTHORIZED_KEYS" ] || fail 16 "authorized_keys symlinks are forbidden"
 [ -x "$BIN/dawnshell-codec" ] || fail 16 "source-built hardware codec client is missing"
+[ -f "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
+    fail 16 "hardware codec FFmpeg adapter is missing"
+[ ! -L "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
+    fail 16 "hardware codec FFmpeg adapter symlinks are forbidden"
 [ -f "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.h264" ] || \
     fail 16 "hardware codec test vector is missing"
 [ -f "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.properties" ] || \
@@ -179,6 +183,18 @@ chown 0:0 "$ROOT/usr/local/bin/dawnshell-codec.new"
 chmod 0755 "$ROOT/usr/local/bin/dawnshell-codec.new"
 mv "$ROOT/usr/local/bin/dawnshell-codec.new" \
     "$ROOT/usr/local/bin/dawnshell-codec"
+mkdir -p "$ROOT/usr/local/libexec"
+if [ ! -d "$ROOT/usr/local/libexec" ] || [ -L "$ROOT/usr/local/libexec" ]; then
+    fail 18 "rootfs codec adapter destination is unsafe"
+fi
+[ "$(stat -c '%u:%g' "$ROOT/usr/local/libexec")" = "0:0" ] || \
+    fail 18 "rootfs codec adapter destination is not root-owned"
+cp "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" \
+    "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
+chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
+chmod 0755 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
+mv "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new" \
+    "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py"
 mkdir -p "$ROOT/usr/local/share/dawnshell"
 for destination in "$ROOT/usr/local/share" "$ROOT/usr/local/share/dawnshell"; do
     if [ ! -d "$destination" ] || [ -L "$destination" ]; then
@@ -271,7 +287,7 @@ apt-get -o Acquire::Retries=3 update
 echo "STAGE: Installing Debian systemd, D-Bus, OpenSSH, and diagnostics"
 apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     systemd systemd-sysv dbus openssh-server iproute2 procps ca-certificates \
-    bash passwd mawk usbutils ffmpeg
+    bash passwd mawk usbutils ffmpeg python3-minimal
 
 cat > /etc/apt/sources.list <<'EOF_APT_HTTPS'
 deb https://deb.debian.org/debian trixie main
@@ -282,7 +298,8 @@ apt-get -o Acquire::Retries=3 update
 
 for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
     /usr/bin/timeout /usr/bin/ss /usr/bin/mawk /usr/bin/touch \
-    /usr/bin/lsusb /usr/bin/ffmpeg /usr/bin/ffprobe /usr/sbin/shutdown; do
+    /usr/bin/lsusb /usr/bin/ffmpeg /usr/bin/ffprobe /usr/bin/python3 \
+    /usr/sbin/shutdown; do
     [ -x "$tool" ] || {
         echo "ERROR: required BFU health tool is missing: $tool"
         exit 35
@@ -322,6 +339,116 @@ encoded_frames="$(ffprobe -v error -count_frames -select_streams v:0 \
 echo "DawnShell hardware AVC encode passed: frames=10 pts=exact ffmpeg_decode=passed"
 EOF_CODEC_SELF_TEST
 chmod 0755 /usr/local/bin/dawnshell-codec-self-test
+
+[ -x /usr/local/libexec/dawnshell-codec-ffmpeg.py ] || {
+    echo "ERROR: DawnShell FFmpeg packet adapter is missing"
+    exit 35
+}
+cat > /usr/local/bin/dawnshell-hwdecode <<'EOF_CODEC_FFMPEG'
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: dawnshell-hwdecode INPUT OUTPUT" >&2
+    echo "OUTPUT ending in .i420 or .yuv keeps raw I420; other outputs use FFmpeg/libx264." >&2
+    exit 2
+}
+
+[ "$#" -eq 2 ] || usage
+input="$1"
+output="$2"
+[ -f "$input" ] || {
+    echo "dawnshell-hwdecode: input is not a regular file: $input" >&2
+    exit 2
+}
+[ -n "$output" ] || usage
+
+temporary="$(mktemp -d /run/dawnshell-hwdecode.XXXXXX)"
+cleanup() {
+    rm -rf -- "$temporary"
+}
+trap cleanup EXIT HUP INT TERM
+
+stream_info="$temporary/stream.txt"
+input_packets="$temporary/input-packets.json"
+annex_b="$temporary/input.h264"
+raw_packets="$temporary/raw-packets.json"
+framed_input="$temporary/framed-input.bin"
+framed_output="$temporary/framed-output.bin"
+decoded="$temporary/decoded.i420"
+
+ffprobe -v error -select_streams v:0 \
+    -show_entries stream=codec_name,width,height,avg_frame_rate,bit_rate \
+    -of default=noprint_wrappers=1 "$input" > "$stream_info"
+codec="$(sed -n 's/^codec_name=//p' "$stream_info" | head -n 1)"
+width="$(sed -n 's/^width=//p' "$stream_info" | head -n 1)"
+height="$(sed -n 's/^height=//p' "$stream_info" | head -n 1)"
+frame_rate="$(sed -n 's/^avg_frame_rate=//p' "$stream_info" | head -n 1)"
+bit_rate="$(sed -n 's/^bit_rate=//p' "$stream_info" | head -n 1)"
+
+[ "$codec" = h264 ] || {
+    echo "dawnshell-hwdecode: M5 supports H.264 input only; got ${codec:-unknown}" >&2
+    exit 3
+}
+case "$width:$height" in
+    *[!0-9:]*|:*|*:)
+        echo "dawnshell-hwdecode: invalid video dimensions" >&2
+        exit 3
+        ;;
+esac
+if [ "$width" -lt 16 ] || [ "$height" -lt 16 ] || \
+    [ "$width" -gt 4096 ] || [ "$height" -gt 4096 ] || \
+    [ $((width % 2)) -ne 0 ] || [ $((height % 2)) -ne 0 ]; then
+    echo "dawnshell-hwdecode: dimensions must be even and within 16..4096" >&2
+    exit 3
+fi
+integer_rate="$(printf '%s\n' "$frame_rate" | mawk -F/ '
+    NF == 2 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $2 != 0 {
+        rate = $1 / $2
+        if (rate >= 1 && rate <= 240) printf "%d\n", int(rate + 0.5)
+    }')"
+case "$integer_rate" in
+    ''|*[!0-9]*)
+        echo "dawnshell-hwdecode: invalid average frame rate: ${frame_rate:-unknown}" >&2
+        exit 3
+        ;;
+esac
+case "$bit_rate" in
+    ''|N/A|*[!0-9]*) bit_rate=4000000 ;;
+esac
+if [ "$bit_rate" -lt 1000 ] || [ "$bit_rate" -gt 1000000000 ]; then
+    bit_rate=4000000
+fi
+
+echo "DawnShell hardware decode: codec=avc size=${width}x${height} rate=$frame_rate"
+ffprobe -v error -select_streams v:0 -show_packets \
+    -show_entries packet=pts_time,dts_time -of json "$input" > "$input_packets"
+ffmpeg -hide_banner -loglevel error -y -i "$input" -map 0:v:0 -an \
+    -c:v copy -bsf:v h264_mp4toannexb -f h264 "$annex_b"
+ffprobe -v error -f h264 -show_packets -show_entries packet=pos,size \
+    -of json "$annex_b" > "$raw_packets"
+/usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
+    "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
+/usr/local/bin/dawnshell-codec pipe decode avc "$width" "$height" \
+    "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output"
+frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack \
+    "$framed_output" "$decoded" "$width" "$height")"
+
+case "$output" in
+    *.i420|*.I420|*.yuv|*.YUV)
+        cp -- "$decoded" "$output"
+        ;;
+    *)
+        ffmpeg -hide_banner -loglevel error -y \
+            -f rawvideo -pixel_format yuv420p -video_size "${width}x${height}" \
+            -framerate "$frame_rate" -i "$decoded" -an -c:v libx264 \
+            -pix_fmt yuv420p "$output"
+        ;;
+esac
+echo "DawnShell hardware decode complete: frames=$frames output=$output"
+EOF_CODEC_FFMPEG
+chmod 0755 /usr/local/bin/dawnshell-hwdecode
+chown 0:0 /usr/local/bin/dawnshell-hwdecode
 
 install -d -m 0755 -o root -g root /usr/local/sbin
 cat > /usr/local/sbin/reboot <<'EOF_HOST_REBOOT'

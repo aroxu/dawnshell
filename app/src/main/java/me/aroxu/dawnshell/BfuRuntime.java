@@ -41,6 +41,7 @@ final class BfuRuntime {
         final File systemdConfiguratorScript;
         final File dockerNetworkConfiguratorScript;
         final File hostUsbConfiguratorScript;
+        final File codecFfmpegAdapterScript;
         final File lifecycleLog;
         final File debootstrapArchive;
         final File archiveKeyringPackage;
@@ -77,6 +78,8 @@ final class BfuRuntime {
                     "configure-docker-network.sh");
             hostUsbConfiguratorScript = new File(scripts,
                     "configure-host-usb.sh");
+            codecFfmpegAdapterScript = new File(scripts,
+                    "dawnshell-codec-ffmpeg.py");
             lifecycleLog = new File(run, "debian-lifecycle.log");
             debootstrapArchive = new File(downloads, "debootstrap_1.0.141.tar.gz");
             archiveKeyringPackage = new File(downloads,
@@ -150,6 +153,8 @@ final class BfuRuntime {
                 layout.dockerNetworkConfiguratorScript, true);
         copyPrivateAsset(deContext, "bfu/configure-host-usb.sh",
                 layout.hostUsbConfiguratorScript, true);
+        copyPrivateAsset(deContext, "bfu/dawnshell-codec-ffmpeg.py",
+                layout.codecFfmpegAdapterScript, true);
         ensurePrivateFile(layout.lifecycleLog);
         return layout;
     }

@@ -8,6 +8,7 @@ service="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecService.jav
 client="$repo_dir/app/src/main/cpp/dawnshell_codec_client.c"
 runtime="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuRuntime.java"
 configurator="$repo_dir/app/src/main/assets/bfu/configure-debian-systemd.sh"
+ffmpeg_adapter="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-ffmpeg.py"
 
 grep -Fq 'MAGIC = 0x44534342' "$java_protocol"
 grep -Fq 'VERSION = 1' "$java_protocol"
@@ -33,10 +34,23 @@ grep -Fq 'run_encode_test' "$client"
 grep -Fq 'inspect_vector' "$client"
 
 grep -Fq 'codecClientBinary = new File(bin, "dawnshell-codec")' "$runtime"
+grep -Fq 'codecFfmpegAdapterScript = new File(scripts' "$runtime"
 grep -Fq 'hardware_codec_client=/usr/local/bin/dawnshell-codec' "$configurator"
 grep -Fq 'hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test' \
     "$configurator"
 grep -Fq 'ffmpeg -hide_banner -loglevel error -f h264' "$configurator"
+grep -Fq 'python3-minimal' "$configurator"
+grep -Fq 'cat > /usr/local/bin/dawnshell-hwdecode' "$configurator"
+grep -Fq 'h264_mp4toannexb' "$configurator"
+grep -Fq '/usr/local/libexec/dawnshell-codec-ffmpeg.py pack' "$configurator"
+test -x "$ffmpeg_adapter"
+python3 - "$ffmpeg_adapter" <<'PYTHON_SYNTAX_CHECK'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+compile(source, sys.argv[1], "exec")
+PYTHON_SYNTAX_CHECK
 # shellcheck disable=SC2016 # Assert literal generated shell source.
 grep -Fq 'encoded_frames="$(ffprobe' "$configurator"
 vector="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.h264"
@@ -59,5 +73,35 @@ for abi in armeabi-v7a arm64-v8a x86_64; do
     grep -Fqx 'dawnshell_codec_protocol=1' \
         "$repo_dir/app/src/main/assets/bfu/bin/$abi/runtime.properties"
 done
+
+adapter_test_dir="$(mktemp -d)"
+cleanup_adapter_test() {
+    rm -rf -- "$adapter_test_dir"
+}
+trap cleanup_adapter_test EXIT
+printf '\000\000\000\001abc\000\000\001defg' > "$adapter_test_dir/input.h264"
+printf '%s\n' \
+    '{"packets":[{"pts_time":"1.000000"},{"pts_time":"1.040000"}]}' \
+    > "$adapter_test_dir/input.json"
+printf '%s\n' \
+    '{"packets":[{"pos":"0","size":"7"},{"pos":"7","size":"7"}]}' \
+    > "$adapter_test_dir/raw.json"
+python3 "$ffmpeg_adapter" pack "$adapter_test_dir/input.json" \
+    "$adapter_test_dir/raw.json" "$adapter_test_dir/input.h264" 25/1 \
+    "$adapter_test_dir/framed.bin" | grep -Fqx 'packed_packets=2 pts_shift_us=1000000'
+python3 - "$adapter_test_dir/decoded.bin" <<'PYTHON_DECODE_RECORD'
+import pathlib
+import struct
+import sys
+
+frame = bytes(range(24))
+pathlib.Path(sys.argv[1]).write_bytes(
+    struct.pack(">QII", 0, 0, len(frame)) + frame
+    + struct.pack(">QII", 40_000, 4, len(frame)) + frame
+)
+PYTHON_DECODE_RECORD
+python3 "$ffmpeg_adapter" unpack "$adapter_test_dir/decoded.bin" \
+    "$adapter_test_dir/decoded.i420" 4 4 | grep -Fqx 2
+test "$(wc -c < "$adapter_test_dir/decoded.i420")" -eq 48
 
 echo "Hardware codec broker protocol, client, and three-ABI assets are pinned"

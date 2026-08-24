@@ -139,6 +139,7 @@ bfuBootstrapAssets.add(file(
         'src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.h264'))
 bfuBootstrapAssets.add(file(
         'src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.properties'))
+bfuBootstrapAssets.add(file('src/main/assets/bfu/dawnshell-codec-ffmpeg.py'))
 
 def requiredLicenseFiles = [
         'README.md',

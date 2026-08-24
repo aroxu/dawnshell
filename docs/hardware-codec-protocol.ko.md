@@ -52,6 +52,8 @@ dawnshell-codec capabilities
 dawnshell-codec probe decode avc 128 128
 dawnshell-codec pipe decode avc 1280 720 30 4000000 < packets.bin > frames.bin
 dawnshell-codec-self-test
+dawnshell-hwdecode input.mp4 output.mkv
+dawnshell-hwdecode input.mp4 output.i420
 ```
 
 자체 검사는 고정 AVC decode의 frame/PTS/I420 checksum을 확인한 다음 고정 I420
@@ -63,3 +65,17 @@ pattern 10개를 hardware encoder로 처리합니다. encoder 출력의 frame/PT
 big-endian framing입니다. 이 framing은 M3 고정 test vector와 이후 FFmpeg adapter가
 공유합니다. 현재 경로는 bounded socket copy이며 shared-memory/`SCM_RIGHTS` 경로는
 후속 성능 단계에서 추가합니다.
+
+## FFmpeg 어댑터(M5)
+
+`dawnshell-hwdecode`는 FFprobe로 첫 번째 영상 스트림의 packet PTS와 형식을 읽고,
+FFmpeg의 `h264_mp4toannexb` bitstream filter로 MP4/MKV의 H.264 packet을 Annex-B로
+정규화합니다. 원본 packet PTS를 protocol record에 보존한 뒤 Android 하드웨어
+decoder에 전달하며, 반환된 `YUV_420_888` 결과는 packed I420으로 저장합니다.
+
+출력 확장자가 `.i420` 또는 `.yuv`이면 하드웨어 decode 결과를 그대로 보존합니다.
+그 밖의 출력은 Debian FFmpeg와 `libx264`로 다시 encode/mux합니다. 따라서 현재
+일반 파일 명령은 **하드웨어 decode + 소프트웨어 encode/mux** 경로이며, Android
+MediaCodec surface와 zero-copy encode는 M6 이후 범위입니다. M5는 H.264, 짝수
+16..4096 해상도, 평균 1..240 FPS만 허용하고 packet 수/크기, PTS 단조 증가와
+I420 frame 크기를 fail-closed로 검사합니다.
