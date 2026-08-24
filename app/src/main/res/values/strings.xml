@@ -247,12 +247,12 @@
     <string name="dawnshell_codec_run_self_test">Run hardware AVC decode + encode + Surface transcode self-test</string>
     <string name="dawnshell_codec_run_performance_test">Run container, performance, error, and concurrency regression</string>
     <string name="dawnshell_codec_self_test_started">Running fixed 10-frame hardware AVC decode, encode, and Surface transcode tests…</string>
-    <string name="dawnshell_codec_self_test_passed">Hardware AVC decode, encode, and Surface transcode self-tests passed.</string>
-    <string name="dawnshell_codec_self_test_failed">Hardware AVC self-test failed: %1$s</string>
+    <string name="dawnshell_codec_self_test_passed">Hardware AVC self-test passed. See the hardware video codec log for details.</string>
+    <string name="dawnshell_codec_self_test_failed">Hardware AVC self-test failed. See the hardware video codec log for details.</string>
     <string name="dawnshell_codec_self_test_requires_setup">Enable the codec bridge, save settings, and configure Debian before running the self-test.</string>
     <string name="dawnshell_codec_performance_test_started">Running B-frame/HEVC containers, 720p transport, a 1080p CPU baseline, encode PSNR/SSIM, realtime transcode, malformed-input, concurrency, cleanup, and broker-restart regressions…</string>
-    <string name="dawnshell_codec_performance_test_passed">Hardware container, performance, error-isolation, concurrency, resource-cleanup, and broker-recovery regressions passed.</string>
-    <string name="dawnshell_codec_performance_test_failed">Hardware codec performance test failed: %1$s</string>
+    <string name="dawnshell_codec_performance_test_passed">Hardware codec performance test passed. See the hardware video codec log for details.</string>
+    <string name="dawnshell_codec_performance_test_failed">Hardware codec performance test failed. See the hardware video codec log for details.</string>
     <string name="dawnshell_codec_long_run_title">Long-run stability test</string>
     <string name="dawnshell_codec_long_run_description">Runs five 10-minute workloads in Debian systemd: 720p/1080p AVC decode, 1080p AVC encode, AVC Surface transcode, and HEVC-to-AVC Surface transcode. It records checksums, frame counts, client CPU/RSS, broker CPU/RSS/FD/heap, queue pressure, battery temperature, and thermal state.</string>
     <string name="dawnshell_codec_long_run_warning">The complete suite takes about 50 minutes, consumes substantial battery, and may heat the device. Keep power connected and ventilation unobstructed. Do not run another codec test concurrently. Stop acts immediately through systemd and does not wait in the app operation queue.</string>

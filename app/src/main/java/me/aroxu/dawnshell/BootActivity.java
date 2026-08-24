@@ -1393,9 +1393,18 @@ public class BootActivity extends AppCompatActivity {
             codecLayout = BfuRuntime.provision(this);
             chrootTool = codecLayout.toolboxBinary.getAbsolutePath();
         } catch (IOException | IllegalStateException e) {
-            Toast.makeText(this, getString(
-                    R.string.dawnshell_codec_self_test_failed,
-                    BfuSu.sanitize(e.getMessage())), Toast.LENGTH_LONG).show();
+            String detail = BfuSu.sanitize(e.getMessage());
+            HardwareCodecProbe.recordBrokerEvent(this,
+                    (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
+                            + "FAILED runtime_provisioning " + detail);
+            recordOperation("HARDWARE_CODEC_"
+                    + (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
+                    + "FAILED runtime_provisioning " + detail);
+            Toast.makeText(this, getString(performance
+                            ? R.string.dawnshell_codec_performance_test_failed
+                            : R.string.dawnshell_codec_self_test_failed),
+                    Toast.LENGTH_LONG).show();
+            refreshHardwareCodecStatus();
             return;
         }
         codecSelfTestInProgress = true;
@@ -1461,8 +1470,10 @@ public class BootActivity extends AppCompatActivity {
                 int failedText = performance
                         ? R.string.dawnshell_codec_performance_test_failed
                         : R.string.dawnshell_codec_self_test_failed;
-                Toast.makeText(this, finalPassed ? getString(passedText)
-                                : getString(failedText, finalOutput),
+                // A toast truncates long codec output, so it only reports the
+                // outcome; the full detail stays in the hardware codec log.
+                Toast.makeText(this, getString(
+                                finalPassed ? passedText : failedText),
                         Toast.LENGTH_LONG).show();
             });
         });

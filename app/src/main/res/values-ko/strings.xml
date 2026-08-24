@@ -247,12 +247,12 @@
     <string name="dawnshell_codec_run_self_test">하드웨어 AVC 디코드 + 인코드 + Surface 트랜스코드 자체 검사</string>
     <string name="dawnshell_codec_run_performance_test">컨테이너·성능·오류·동시 세션 회귀 검사</string>
     <string name="dawnshell_codec_self_test_started">고정 10프레임 하드웨어 AVC 디코드, 인코드 및 Surface 트랜스코드 검사를 실행 중입니다…</string>
-    <string name="dawnshell_codec_self_test_passed">하드웨어 AVC 디코드, 인코드 및 Surface 트랜스코드 자체 검사를 통과했습니다.</string>
-    <string name="dawnshell_codec_self_test_failed">하드웨어 AVC 자체 검사 실패: %1$s</string>
+    <string name="dawnshell_codec_self_test_passed">하드웨어 AVC 자체 검사를 통과했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>
+    <string name="dawnshell_codec_self_test_failed">하드웨어 AVC 자체 검사에 실패했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>
     <string name="dawnshell_codec_self_test_requires_setup">코덱 브리지를 활성화하고 설정을 저장한 뒤 Debian 구성을 완료하세요.</string>
     <string name="dawnshell_codec_performance_test_started">B-frame/HEVC 컨테이너, 720p 전송, 1080p CPU 기준선, 인코드 PSNR/SSIM, 실시간 트랜스코드, 잘못된 입력, 동시 세션, 자원 정리 및 브로커 재시작을 검사 중입니다…</string>
-    <string name="dawnshell_codec_performance_test_passed">하드웨어 컨테이너·성능·오류 격리·동시 세션·자원 정리·브로커 복구 회귀 검사를 통과했습니다.</string>
-    <string name="dawnshell_codec_performance_test_failed">하드웨어 코덱 성능 검사 실패: %1$s</string>
+    <string name="dawnshell_codec_performance_test_passed">하드웨어 코덱 성능 검사를 통과했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>
+    <string name="dawnshell_codec_performance_test_failed">하드웨어 코덱 성능 검사에 실패했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>
     <string name="dawnshell_codec_long_run_title">장시간 안정성 검사</string>
     <string name="dawnshell_codec_long_run_description">Debian systemd에서 720p/1080p AVC 디코드, 1080p AVC 인코드, AVC Surface 트랜스코드, HEVC→AVC Surface 트랜스코드의 다섯 작업을 각각 10분간 실행합니다. 체크섬, 프레임 수, client CPU/RSS, 브로커 CPU/RSS/FD/힙, queue pressure, 온도 및 thermal 상태를 기록합니다.</string>
     <string name="dawnshell_codec_long_run_warning">전체 검사는 약 50분이 걸리고 배터리를 많이 사용하며 기기가 뜨거워질 수 있습니다. 전원을 연결하고 통풍을 막지 마세요. 다른 코덱 검사와 동시에 실행하지 마세요. 중지는 앱 작업 큐를 기다리지 않고 systemd에 즉시 전달됩니다.</string>
