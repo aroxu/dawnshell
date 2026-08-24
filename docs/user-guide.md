@@ -155,6 +155,91 @@ controller, and never mount one USB storage filesystem from both systems. A
 Docker container must receive the node separately with `--device`; avoid
 `--privileged`.
 
+## Hardware video codec
+
+Debian can run H.264/HEVC encoding and decoding on the device's dedicated video
+codec instead of the CPU. This is not GPU passthrough: Debian only demuxes and
+muxes containers, while the app process performs the codec work and returns the
+result.
+
+### Enabling it
+
+1. Turn on **Hardware video codec bridge** in the app.
+2. Press **Save and provision BFU runtime**.
+3. Run **Configure Debian 13 systemd + SSH** again.
+4. Press **Run codec self-test** and confirm it passes.
+
+Configuration installs these commands in Debian.
+
+| Command | Purpose |
+| --- | --- |
+| `dawnshell-ffmpeg` | Accepts ordinary FFmpeg command lines and routes them automatically |
+| `dawnshell-hwdecode` | H.264/HEVC decoding |
+| `dawnshell-hwencode` | Encodes raw I420 to H.264/HEVC |
+| `dawnshell-hwtranscode` | Re-encodes H.264/HEVC to H.264 |
+| `dawnshell-codec-self-test` | Verifies the bridge |
+
+### Automatic integration
+
+`dawnshell-ffmpeg` takes the same arguments as `ffmpeg`. Commands the bridge can
+reproduce exactly run on hardware; everything else is handed to the real FFmpeg
+unchanged, so a filter or option is never silently dropped.
+
+```sh
+dawnshell-ffmpeg -i input.mp4 -c:v libx264 -b:v 3M output.mp4
+dawnshell-ffmpeg -i input.mp4 output.yuv
+```
+
+To let existing software use the hardware path without modification, make it
+resolve first as `ffmpeg`.
+
+```sh
+ln -s /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg
+```
+
+Because `/usr/local/bin` precedes `/usr/bin`, applications such as Jellyfin pick
+up the bridge automatically. Remove the symlink to revert.
+
+Override the behaviour with an environment variable.
+
+| Value | Behaviour |
+| --- | --- |
+| `auto` (default) | Hardware when possible, otherwise software |
+| `off` | Always use the real FFmpeg |
+| `require` | Fail instead of falling back to software |
+
+```sh
+DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 out.mp4
+```
+
+Use `require` when benchmarking so a silent software fallback cannot be mistaken
+for a hardware result.
+
+### What runs on hardware
+
+- A single H.264 or HEVC video input.
+- An output codec of `libx264`/`h264`, or a raw `.yuv`/`.i420` output.
+- Even dimensions between 16 and 4096.
+- `-b:v` within 1000..100000000.
+
+These fall back to software: filters such as `-vf`, x264-specific options such as
+`-crf` and `-preset`, multiple inputs, audio handling, `-c:v copy`, and codecs
+such as VP9 or AV1.
+
+### Verification
+
+```sh
+dawnshell-codec health --format json
+dawnshell-codec-self-test
+```
+
+The reported backend names the codec that was actually selected. A software
+codec is never chosen silently; the bridge fails with a clear error instead. A
+codec failure never stops Debian or SSH.
+
+If codec sessions fail during BFU, Android media services may not be ready yet.
+Retry after unlocking to compare.
+
 ## Logs
 
 The Logs screen provides app operations, Debian installation, system

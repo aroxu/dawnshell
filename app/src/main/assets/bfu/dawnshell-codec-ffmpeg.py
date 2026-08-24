@@ -734,7 +734,122 @@ def positive_int(value):
     return parsed
 
 
+HARDWARE_ENCODERS = {
+    "libx264": "avc",
+    "h264": "avc",
+    "libx265": "hevc",
+    "hevc": "hevc",
+}
+RAW_VIDEO_SUFFIXES = (".i420", ".yuv")
+# Options the bridge reproduces exactly. Anything else falls back to plain
+# FFmpeg so a filter, scaler, or muxer flag is never silently dropped.
+PASSTHROUGH_FLAGS = {"-hide_banner", "-y", "-n", "-an", "-nostdin"}
+IGNORED_VALUE_OPTIONS = {"-loglevel", "-v", "-threads", "-stats_period",
+                         "-pix_fmt", "-f", "-r"}
+
+
+class UnsupportedCommand(Exception):
+    """Raised when an FFmpeg command must fall back to plain software."""
+
+
+def parse_bitrate(value):
+    text = value.strip().lower()
+    multiplier = 1
+    if text.endswith("k"):
+        multiplier = 1000
+        text = text[:-1]
+    elif text.endswith("m"):
+        multiplier = 1000000
+        text = text[:-1]
+    if not text or not text.replace(".", "", 1).isdigit():
+        raise UnsupportedCommand("unsupported_bitrate")
+    parsed = int(float(text) * multiplier)
+    if parsed < 1000 or parsed > 100000000:
+        raise UnsupportedCommand("bitrate_out_of_range")
+    return parsed
+
+
+def parse_ffmpeg_command(argv):
+    """Return a bridge plan for an FFmpeg command or raise UnsupportedCommand."""
+    inputs = []
+    output = None
+    video_codec = None
+    bitrate = None
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if not token.startswith("-"):
+            if output is not None:
+                raise UnsupportedCommand("multiple_outputs")
+            output = token
+            index += 1
+            continue
+        if token in PASSTHROUGH_FLAGS:
+            index += 1
+            continue
+        if index + 1 >= len(argv):
+            raise UnsupportedCommand("missing_option_value")
+        value = argv[index + 1]
+        if token == "-i":
+            inputs.append(value)
+        elif token in ("-c:v", "-codec:v", "-vcodec"):
+            video_codec = value
+        elif token == "-b:v":
+            bitrate = parse_bitrate(value)
+        elif token == "-map":
+            if value not in ("0:v:0", "0:v", "0"):
+                raise UnsupportedCommand("unsupported_map")
+        elif token not in IGNORED_VALUE_OPTIONS:
+            raise UnsupportedCommand("unsupported_option")
+        index += 2
+
+    if len(inputs) != 1:
+        raise UnsupportedCommand("requires_single_input")
+    if output is None:
+        raise UnsupportedCommand("missing_output")
+    if video_codec == "copy":
+        raise UnsupportedCommand("stream_copy")
+
+    if video_codec is None:
+        if pathlib.PurePath(output).suffix.lower() in RAW_VIDEO_SUFFIXES:
+            return {"action": "decode", "input": inputs[0], "output": output}
+        raise UnsupportedCommand("no_video_encoder")
+    if video_codec not in HARDWARE_ENCODERS:
+        raise UnsupportedCommand("unsupported_encoder")
+    return {
+        "action": "transcode",
+        "input": inputs[0],
+        "output": output,
+        "codec": HARDWARE_ENCODERS[video_codec],
+        "bitrate": bitrate,
+    }
+
+
+def plan_ffmpeg(argv):
+    try:
+        plan = parse_ffmpeg_command(argv)
+    except UnsupportedCommand as error:
+        print(f"action=passthrough reason={error}")
+        return
+    fields = ["action=" + plan["action"], "input=" + plan["input"],
+              "output=" + plan["output"]]
+    if plan.get("codec"):
+        fields.append("codec=" + plan["codec"])
+    if plan.get("bitrate"):
+        fields.append("bitrate=" + str(plan["bitrate"]))
+    print(" ".join(fields))
+
+
 def main():
+    # The FFmpeg front end forwards a raw command line whose first token is
+    # usually an option, so it must bypass argparse entirely.
+    if len(sys.argv) > 1 and sys.argv[1] == "plan-ffmpeg":
+        try:
+            plan_ffmpeg(sys.argv[2:])
+        except (OSError, ValueError) as error:
+            print(f"dawnshell-codec-ffmpeg: {error}", file=sys.stderr)
+            return 1
+        return 0
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     pack_parser = commands.add_parser("pack")

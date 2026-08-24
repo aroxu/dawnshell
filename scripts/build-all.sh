@@ -27,6 +27,7 @@ fi
 "$root_dir/scripts/test-docker-ipc-wrapper.sh"
 "$root_dir/scripts/test-host-usb-policy.sh"
 "$root_dir/scripts/test-hardware-codec-bridge.sh"
+"$root_dir/scripts/test-ffmpeg-bridge-plan.sh"
 "$root_dir/scripts/test-rootfs-path-resolution.sh"
 "$root_dir/scripts/test-lifecycle-control-policy.sh"
 "$root_dir/gradlew" -p "$root_dir" \

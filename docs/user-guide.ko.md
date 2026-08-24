@@ -195,7 +195,95 @@ USB 시리얼, 저장장치, 카메라, 오디오와 입력 장치는 Android �
 같은 USB 저장장치 파일시스템을 양쪽에서 동시에 마운트하지 마세요. Docker에는
 필요한 노드를 `--device`로 별도 전달하고 `--privileged`는 피하세요.
 
-## 7. 로그 확인
+## 7. 하드웨어 영상 코덱
+
+Debian에서 영상을 인코딩하거나 디코딩할 때 Android의 전용 영상 코덱을 대신
+사용하게 하는 기능입니다. GPU 패스스루가 아닙니다. Debian은 컨테이너 분해와
+재조립만 담당하고, 실제 코덱 작업은 앱 프로세스가 수행한 뒤 결과만 돌려줍니다.
+
+### 켜는 방법
+
+1. 앱에서 **하드웨어 영상 코덱 브리지**를 켭니다.
+2. **BFU 설정 저장 및 런타임 배치**를 누릅니다.
+3. **Debian 13 systemd + SSH 구성**을 다시 실행합니다.
+4. **코덱 자체 검사 실행**을 눌러 통과를 확인합니다.
+
+구성이 끝나면 Debian에 다음 명령이 설치됩니다.
+
+| 명령 | 용도 |
+| --- | --- |
+| `dawnshell-ffmpeg` | 기존 FFmpeg 명령을 그대로 받아 자동으로 하드웨어 처리 |
+| `dawnshell-hwdecode` | H.264/HEVC 디코딩 |
+| `dawnshell-hwencode` | I420 원본 영상을 H.264/HEVC로 인코딩 |
+| `dawnshell-hwtranscode` | H.264/HEVC를 H.264로 재인코딩 |
+| `dawnshell-codec-self-test` | 코덱 브리지 동작 확인 |
+
+### 자동 연동
+
+`dawnshell-ffmpeg`는 일반 `ffmpeg`와 같은 명령줄을 받습니다. 하드웨어로 똑같이
+처리할 수 있으면 코덱 브리지로 보내고, 그렇지 않으면 원래 FFmpeg에 그대로
+넘깁니다. 필터나 옵션이 조용히 무시되는 일은 없습니다.
+
+```sh
+dawnshell-ffmpeg -i input.mp4 -c:v libx264 -b:v 3M output.mp4
+dawnshell-ffmpeg -i input.mp4 output.yuv
+```
+
+기존 프로그램이 수정 없이 이 경로를 타게 하려면 `ffmpeg`라는 이름으로 먼저
+찾히게 하면 됩니다.
+
+```sh
+ln -s /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg
+```
+
+`/usr/local/bin`이 `/usr/bin`보다 앞에 있으므로 Jellyfin 같은 프로그램도 그대로
+하드웨어 경로를 사용합니다. 되돌리려면 이 심볼릭 링크를 지웁니다.
+
+동작 방식은 환경 변수로 바꿀 수 있습니다.
+
+| 값 | 동작 |
+| --- | --- |
+| `auto`(기본값) | 가능하면 하드웨어, 아니면 소프트웨어 |
+| `off` | 항상 원래 FFmpeg 사용 |
+| `require` | 하드웨어로 처리할 수 없으면 오류로 중단 |
+
+```sh
+DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 out.mp4
+```
+
+성능을 비교하거나 문제를 확인하려면 `require`로 실행해 실제로 하드웨어 경로를
+타는지 확인하세요.
+
+### 하드웨어로 처리되는 조건
+
+- 입력이 H.264 또는 HEVC이고 영상 하나만 사용합니다.
+- 출력 코덱이 `libx264`/`h264`이거나, 출력이 `.yuv`/`.i420` 원본입니다.
+- 해상도가 16~4096이고 가로·세로가 짝수입니다.
+- `-b:v`는 1000~100000000 범위입니다.
+
+다음은 소프트웨어로 넘어갑니다.
+
+- `-vf`, `-filter` 등 필터 사용
+- `-crf`, `-preset` 같은 x264 전용 옵션
+- 입력이 여러 개이거나 오디오를 함께 다루는 경우
+- `-c:v copy`처럼 코덱 작업이 필요 없는 경우
+- VP9, AV1 등 지원하지 않는 코덱
+
+### 확인과 문제 해결
+
+```sh
+dawnshell-codec health --format json
+dawnshell-codec-self-test
+```
+
+`backend`에 실제 선택된 코덱 이름이 표시됩니다. 소프트웨어 코덱이 조용히
+선택되는 일은 없으며, 하드웨어를 쓸 수 없으면 명확한 오류를 남깁니다. 코덱
+기능이 실패해도 Debian과 SSH는 계속 동작합니다.
+
+BFU에서 코덱이 실패한다면 Android 미디어 서비스가 아직 준비되지 않았을 수
+있습니다. 잠금 해제 후 다시 시도해 차이를 확인하세요.
+
+## 8. 로그 확인
 
 상단의 **로그**에서 다음 화면을 열 수 있습니다.
 
@@ -210,7 +298,7 @@ USB 시리얼, 저장장치, 카메라, 오디오와 입력 장치는 Android �
 복사할 수 있습니다. 이전 줄을 읽기 위해 위로 스크롤하면 자동 따라가기가
 멈춥니다. 오류를 공유할 때는 개인 키와 비밀번호를 추가하지 마세요.
 
-## 8. 네트워크
+## 9. 네트워크
 
 SSH 서버는 Android 네트워크 주소가 아직 없어도 TCP 22에서 대기합니다. Android가
 나중에 Wi-Fi, 모바일 데이터 또는 USB Ethernet 주소를 준비하면 Debian을 다시
@@ -228,7 +316,7 @@ Tailscale을 커널 네트워크 모드로 사용하면 `tailscale0` 장치와 �
 Android와 공유됩니다. 재사용 인증 키를 BFU rootfs에 저장하지 마세요.
 `tailscaled.state`도 PIN 입력 전 사용할 수 있는 기기 인증 정보로 취급합니다.
 
-## 9. 백업과 제거
+## 10. 백업과 제거
 
 다음 항목을 백업하는 것을 권장합니다.
 

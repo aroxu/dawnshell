@@ -1069,6 +1069,71 @@ EOF_CODEC_SURFACE_TRANSCODE
 chmod 0755 /usr/local/bin/dawnshell-hwtranscode
 chown 0:0 /usr/local/bin/dawnshell-hwtranscode
 
+cat > /usr/local/bin/dawnshell-ffmpeg <<'EOF_CODEC_AUTO_FFMPEG'
+#!/bin/bash
+set -euo pipefail
+export LC_ALL=C
+
+# Transparent front end for ordinary FFmpeg callers. Commands the DawnShell
+# bridge can reproduce exactly run on the Android hardware codec. Everything
+# else is handed to the real FFmpeg unchanged, so behaviour never silently
+# differs from what the caller asked for.
+
+real_ffmpeg=/usr/bin/ffmpeg
+[ -x "$real_ffmpeg" ] || {
+    echo "dawnshell-ffmpeg: /usr/bin/ffmpeg is missing; install ffmpeg" >&2
+    exit 127
+}
+
+run_real_ffmpeg() {
+    exec "$real_ffmpeg" "$@"
+}
+
+if [ "${DAWNSHELL_FFMPEG_BRIDGE:-auto}" = off ]; then
+    run_real_ffmpeg "$@"
+fi
+
+plan="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg "$@" 2>/dev/null || true)"
+action="${plan%% *}"
+action="${action#action=}"
+
+field() {
+    printf '%s\n' "$plan" | tr ' ' '\n' | sed -n "s/^$1=//p" | head -n 1
+}
+
+case "$action" in
+    decode|transcode) ;;
+    *)
+        if [ "${DAWNSHELL_FFMPEG_BRIDGE:-auto}" = require ]; then
+            echo "dawnshell-ffmpeg: hardware bridge required but unavailable: ${plan:-no plan}" >&2
+            exit 3
+        fi
+        run_real_ffmpeg "$@"
+        ;;
+esac
+
+input="$(field input)"
+output="$(field output)"
+[ -n "$input" ] && [ -n "$output" ] || run_real_ffmpeg "$@"
+
+if [ "$action" = decode ]; then
+    exec /usr/local/bin/dawnshell-hwdecode "$input" "$output"
+fi
+
+codec="$(field codec)"
+bitrate="$(field bitrate)"
+if [ "$codec" != avc ]; then
+    if [ "${DAWNSHELL_FFMPEG_BRIDGE:-auto}" = require ]; then
+        echo "dawnshell-ffmpeg: Surface transcode only produces H.264" >&2
+        exit 3
+    fi
+    run_real_ffmpeg "$@"
+fi
+exec /usr/local/bin/dawnshell-hwtranscode "$input" "$output" "${bitrate:-4000000}"
+EOF_CODEC_AUTO_FFMPEG
+chmod 0755 /usr/local/bin/dawnshell-ffmpeg
+chown 0:0 /usr/local/bin/dawnshell-ffmpeg
+
 install -d -m 0755 -o root -g root /usr/local/sbin
 cat > /usr/local/sbin/reboot <<'EOF_HOST_REBOOT'
 #!/bin/sh
@@ -1260,6 +1325,7 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ -x /usr/local/bin/dawnshell-hwdecode ]
 [ -x /usr/local/bin/dawnshell-hwencode ]
 [ -x /usr/local/bin/dawnshell-hwtranscode ]
+[ -x /usr/local/bin/dawnshell-ffmpeg ]
 [ -x /usr/local/bin/dawnshell-codec-performance-test ]
 [ -x /usr/local/bin/dawnshell-codec-long-run ]
 [ -x /usr/local/bin/dawnshell-codec-concurrency-test ]
@@ -1284,6 +1350,7 @@ hardware_codec_error_test=/usr/local/bin/dawnshell-codec-error-test
 hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode
 hardware_codec_encode=/usr/local/bin/dawnshell-hwencode
 hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode
+hardware_codec_ffmpeg=/usr/local/bin/dawnshell-ffmpeg
 configured_epoch=$(date +%s)
 EOF_READY
 chown 0:0 "${READY_MARKER}.new"

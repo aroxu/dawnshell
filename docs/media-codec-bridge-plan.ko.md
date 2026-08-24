@@ -134,6 +134,14 @@ Debian FFmpeg로 출력 Annex-B를 다시 decode해 10 frame임을 확인합니�
 
 통과: 일반 MP4 입력을 hardware decode 또는 encode 경로로 처리.
 
+`dawnshell-ffmpeg`는 기존 FFmpeg 명령줄을 그대로 받아, bridge가 동일하게
+재현할 수 있는 경우에만 hardware 경로로 보내고 나머지는 실제 FFmpeg에
+위임합니다. filter, x264 전용 옵션, 다중 입력, stream copy와 미지원 codec은
+software로 유지하므로 사용자가 요청한 동작이 조용히 달라지지 않습니다.
+`/usr/local/bin/ffmpeg` symlink를 만들면 Jellyfin 같은 기존 프로그램도 수정
+없이 같은 경로를 사용합니다. `DAWNSHELL_FFMPEG_BRIDGE`로 `auto`, `off`,
+`require`를 선택할 수 있으며 `require`는 software fallback을 오류로 만듭니다.
+
 `dawnshell-codec-performance-test`는 720p 결과를 한 번에 하나씩 `/run`에 기록해
 64 MiB tmpfs 상한을 지키고, session의 wall time과 codec broker process CPU time,
 socket/shared-memory byte 수를 함께 보고합니다.
