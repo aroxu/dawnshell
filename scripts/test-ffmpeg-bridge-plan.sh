@@ -130,4 +130,16 @@ if DAWNSHELL_FFMPEG_BRIDGE=require "$runnable" \
     exit 1
 fi
 
+# Every script the build pipeline invokes must stay executable in Git; a
+# non-executable mode fails CI with exit code 126 instead of a real error.
+while IFS= read -r pipeline_script; do
+    mode="$(git -C "$repo_dir" ls-files -s -- "$pipeline_script" | cut -d' ' -f1)"
+    if [[ -n "$mode" && "$mode" != 100755 ]]; then
+        echo "FAIL: $pipeline_script is committed as $mode; run git update-index --chmod=+x" >&2
+        exit 1
+    fi
+done < <(grep -ho 'scripts/[a-z0-9-]*\.sh' \
+    "$repo_dir/.github/workflows/build.yml" "$repo_dir/scripts/build-all.sh" \
+    | sort -u)
+
 echo "PASS: FFmpeg bridge routes supported commands to hardware and falls back otherwise."
