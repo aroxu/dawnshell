@@ -512,7 +512,7 @@ test -s "$adapter_test_dir/missing-hevc-config.records"
 test -s "$adapter_test_dir/truncated-hevc.records"
 
 # The committed launcher must stay dynamically linked against Android's
-# linker. A static-pie launcher segfaults immediately on the target device,
+# linker. A static-pie launcher segfaults immediately on the device,
 # while the codec client must stay static so Debian can run it directly.
 python3 - "$repo_dir" <<'PYTHON_VERIFY_LINKAGE'
 import pathlib

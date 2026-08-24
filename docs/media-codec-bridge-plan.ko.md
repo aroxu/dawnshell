@@ -206,8 +206,9 @@ battery temperature와 Android thermal 상태를 증거 디렉터리에 기록�
 대비 CPU 감소율과 bitrate 편차는 첫 실기기 결과를 수집하되 아직 임의의 수치
 threshold로 통과/실패시키지 않습니다.
 
-제공된 Android 16 AFU 로그에서는 Exynos AVC/HEVC encoder와 decoder 인스턴스 생성이
-모두 성공했습니다. 로그가 `user_unlocked=true`이므로 BFU M0 판정은 아직 아니며,
+제공된 Android 16 AFU 로그에서는 vendor AVC/HEVC encoder와 decoder 인스턴스 생성이
+모두 성공했습니다(확인된 backend: Exynos). 로그가 `user_unlocked=true`이므로
+BFU M0 판정은 아직 아니며,
 BFU backend/session, 720p·1080p 성능과 M7 5회 cold-boot 회귀는 마지막 일괄 실기기
 시험에서 검증합니다.
 

@@ -2346,7 +2346,7 @@ static int wait_for_network_manager(int manager_ready_fd) {
 }
 
 static int set_base_private_namespaces(void) {
-    /* This kernel does not confine a container reboot request to the private
+    /* Some kernels do not confine a container reboot request to the private
        PID namespace; reboot(2) reaches the Android kernel path and restarts
        the phone. Docker's runtime can issue that call while starting or
        cleaning up a container, so the capability is dropped from the bounding
@@ -2369,7 +2369,7 @@ static int set_base_private_namespaces(void) {
     if (unshare(CLONE_NEWUTS) != 0) return fail_errno("unshare_uts", 55);
     dprintf(STDERR_FILENO, "[%lld] BFU_DEBIAN_STAGE uts_namespace_private\n",
             (long long) realtime_seconds());
-    /* Samsung's 4.4 target kernel dereferences a stale mqueue mount pointer in
+    /* Some legacy 4.4-era kernels dereference a stale mqueue mount pointer in
        copy_ipcs()->mq_init_ns()->mqueue_mount() when CLONE_NEWIPC is requested.
        The fault panics Android before userspace can handle an errno. IPC is
        therefore deliberately shared. Networking is also shared intentionally
@@ -2658,9 +2658,9 @@ static int wait_for_start_grace(pid_t init_pid) {
     return kill(init_pid, 0);
 }
 
-/* systemd's halt signal eventually reaches the kernel reboot path. On the
-   Samsung 4.4 kernel used by the target device that path does not terminate
-   this private PID namespace, so a normal stop used to time out and SIGKILL
+/* systemd's halt signal eventually reaches the kernel reboot path. On some
+   legacy 4.4-era kernels that path does not terminate this private PID
+   namespace, so a normal stop used to time out and SIGKILL
    PID 1. `systemctl exit` is systemd's container-manager shutdown API: it
    stops units and then exits PID 1 without asking the Android kernel to halt.
    The supervisor's children already enter the same pending PID namespace as

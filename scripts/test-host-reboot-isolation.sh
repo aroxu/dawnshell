@@ -2,7 +2,7 @@
 # Pins the two reboot paths apart:
 #   1. A deliberate `reboot now` inside Debian must still restart Android.
 #   2. A container runtime must not be able to restart Android by calling
-#      reboot(2) directly, because this kernel does not confine that call to
+#      reboot(2) directly, because some kernels do not confine that call to
 #      the private PID namespace.
 set -euo pipefail
 

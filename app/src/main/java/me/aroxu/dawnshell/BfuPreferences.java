@@ -72,8 +72,8 @@ final class BfuPreferences {
     }
 
     static boolean dockerHostIpcCompatibility(Context context) {
-        // Creating a private IPC namespace panics the target kernel, so host
-        // IPC is the safe default rather than an opt-in compatibility switch.
+        // Creating a private IPC namespace panics some kernels, so host IPC is
+        // the safe default rather than an opt-in compatibility switch.
         return get(context).getBoolean(KEY_DOCKER_HOST_IPC_COMPATIBILITY, true);
     }
 

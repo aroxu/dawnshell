@@ -89,10 +89,10 @@ reboot now
 command.
 
 This `reboot` command is the only way to restart Android. Debian and the
-containers it runs cannot ask the kernel to reboot directly, because this
-kernel does not confine such a request to the container and would restart the
-whole device. That is what previously rebooted the phone when a Docker
-container started or was cleaned up.
+containers it runs cannot ask the kernel to reboot directly, because some
+kernels do not confine such a request to the container and restart the whole
+device instead. That is what can otherwise reboot the phone when a Docker
+container starts or is cleaned up.
 
 ## Kernel and Docker
 
@@ -108,14 +108,14 @@ private cgroup hierarchy. This avoids asking Android's old-kernel systemd
 compatibility environment to create transient container scopes. Confirm it
 with `docker info --format '{{.CgroupDriver}}'`; the result must be `cgroupfs`.
 
-**Use host IPC for containers** is enabled by default. On this device a
+**Use host IPC for containers** is enabled by default. On some kernels a
 container that creates its own IPC namespace panics the kernel during mqueue
 setup and restarts Android. The setting is applied as a Docker daemon default,
 so it also covers `docker compose` and any other API client, not just
 `docker run` and `docker create`.
 
-Turning it off restores stronger container isolation but exposes the kernel
-defect above. Leaving it on lets containers share Android and Debian IPC
+Turning it off restores stronger container isolation but exposes that kernel
+defect. Leaving it on lets containers share Android and Debian IPC
 objects, which reduces isolation. An explicit `--ipc=...` always takes
 priority. Apply the Docker network policy after changing it.
 

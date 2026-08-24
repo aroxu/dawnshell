@@ -108,7 +108,7 @@ grep -Fq \
 
 namespace_source="$repo_dir/app/src/main/cpp/bfu_namespace_probe.c"
 if grep -Eq 'unshare[[:space:]]*\([[:space:]]*CLONE_NEWIPC' "$namespace_source"; then
-    echo "Unsafe CLONE_NEWIPC call is forbidden on the Samsung 4.4 target" >&2
+    echo "Unsafe CLONE_NEWIPC call is forbidden on legacy 4.4-era kernels" >&2
     exit 6
 fi
 for marker in \

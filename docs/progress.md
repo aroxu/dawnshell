@@ -81,13 +81,13 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
   isolation checks.
 - [x] Added a 720p shared-memory/socket comparison, 1080p30 realtime Surface
   transcode gate, and abrupt-peer resource cleanup test path.
-- [x] Verified Exynos AVC/HEVC encoder and decoder instance creation on Android
-  16 after first unlock.
-- [ ] Verify Exynos AVC hardware instance creation on a locked real device.
+- [x] Verified vendor AVC/HEVC encoder and decoder instance creation on Android
+  16 after first unlock (observed backend: Exynos).
+- [ ] Verify vendor AVC hardware instance creation on a locked real device.
 - [ ] Verify fixed-vector decode, encode, shared-memory transport, and Surface
   transcode before and after first unlock.
 - [ ] Verify 1080p realtime performance, timestamp stability, and resource
-  cleanup on the target device.
+  cleanup on a real device.
 
 ## Physical-device validation completed
 

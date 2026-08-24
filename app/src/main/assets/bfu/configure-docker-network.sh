@@ -381,8 +381,8 @@ esac
     echo "WARNING: bridge mode can mutate Android-global firewall, NAT, routes, and forwarding"
 
 temporary="$docker_dir/.daemon.json.dawnshell.$$"
-# This kernel panics in copy_ipcs()->mq_init_ns()->mqueue_mount() when a new
-# IPC namespace is created, so every container must share the host IPC
+# Some kernels panic in copy_ipcs()->mq_init_ns()->mqueue_mount() when a new
+# IPC namespace is created, so every container shares the host IPC
 # namespace. The CLI wrapper only covers `docker run` and `docker create`;
 # setting the daemon default also protects `docker compose`, the API, and any
 # other client. A container can still opt out with an explicit --ipc value.
