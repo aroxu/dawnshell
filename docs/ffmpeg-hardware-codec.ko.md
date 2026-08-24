@@ -85,6 +85,78 @@ sudo dawnshell-hwtranscode input.mp4 output.mp4 4000000
 
 현재 출력 코덱은 AVC입니다. 오디오 stream은 포함하지 않습니다.
 
+## 실시간 HLS·USB 웹캠 인코딩
+
+`dawnshell-live-encode`는 입력을 FFmpeg로 실시간 캡처·디코드하고 I420 frame을
+Android `MediaCodec` AVC 인코더로 보낸 다음, 결과 Annex-B stream을 파일이나
+HLS로 즉시 mux합니다. 전체 입력과 출력을 임시 파일에 모으지 않습니다.
+
+Debian 구성을 다시 실행한 뒤 설치 여부와 실제 실행 계획을 확인합니다.
+
+```sh
+command -v dawnshell-live-encode
+dawnshell-live-encode --print-plan \
+  --input /dev/video0 --input-format v4l2 --input-pixel-format mjpeg \
+  --size 1280x720 --fps 30 --bitrate 4000000 \
+  --output recording.mp4
+```
+
+USB UVC 웹캠을 실시간 AVC MP4로 저장합니다.
+
+```sh
+sudo dawnshell-live-encode \
+  --input /dev/video0 --input-format v4l2 --input-pixel-format mjpeg \
+  --size 1280x720 --fps 30 --bitrate 4000000 \
+  --output recording.mp4
+```
+
+웹캠을 HLS로 송출합니다. 웹 서버가 `/var/www/html/live`를 제공한다고
+가정합니다.
+
+```sh
+sudo install -d -m 0755 /var/www/html/live
+sudo dawnshell-live-encode \
+  --input /dev/video0 --input-format v4l2 --input-pixel-format mjpeg \
+  --size 1280x720 --fps 30 --bitrate 4000000 \
+  --output-mode hls --hls-time 2 --hls-list-size 6 \
+  --hls-delete-segments --output /var/www/html/live/index.m3u8
+```
+
+HLS와 fragmented MP4 녹화를 동시에 생성할 수도 있습니다.
+
+```sh
+sudo dawnshell-live-encode \
+  --input /dev/video0 --input-format v4l2 --input-pixel-format mjpeg \
+  --size 1920x1080 --fps 30 --bitrate 8000000 \
+  --output-mode hls --output /var/www/html/live/index.m3u8 \
+  --record /srv/video/webcam.mp4
+```
+
+HLS·RTSP·일반 파일 입력을 하드웨어 AVC로 다시 인코드할 때는 입력 형식을
+`auto`로 둡니다.
+
+```sh
+sudo dawnshell-live-encode \
+  --input 'https://example.invalid/live/index.m3u8' \
+  --input-format auto --size 1280x720 --fps 30 --bitrate 4000000 \
+  --output-mode hls --output /var/www/html/restream/index.m3u8
+```
+
+이 실시간 경로에서 입력 디코드·색상 변환·크기 변환은 Debian FFmpeg가
+수행하고 **AVC 인코드만 Android 하드웨어**가 수행합니다. 현재 오디오는
+포함하지 않습니다. 인코더의 keyframe 간격은 2초이므로 HLS segment 목표도
+2초가 가장 예측 가능합니다. `Ctrl-C`를 누르면 파이프라인을 종료하고 MP4/HLS
+출력을 정상 마무리합니다.
+
+USB 웹캠은 호스트 커널의 UVC/V4L2 지원, Debian에 노출된 `/dev/videoX`, devices
+cgroup 허용, SELinux 접근 허용이 모두 필요합니다. 먼저 다음으로 지원 형식을
+확인하세요.
+
+```sh
+ls -l /dev/video* 2>/dev/null
+v4l2-ctl --list-formats-ext -d /dev/video0
+```
+
 ## 래퍼가 선택할 명령 미리 보기
 
 다음 명령은 미디어를 실행하지 않고 `dawnshell-ffmpeg`가 선택할 경로만 출력합니다.

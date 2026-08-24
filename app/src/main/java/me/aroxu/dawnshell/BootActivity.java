@@ -269,6 +269,8 @@ public class BootActivity extends AppCompatActivity {
                 runHardwareCodecPerformanceTest());
         findViewById(R.id.open_ffmpeg_codec_guide_button).setOnClickListener(view ->
                 showFfmpegCodecGuide());
+        findViewById(R.id.open_live_codec_guide_button).setOnClickListener(view ->
+                showLiveCodecGuide());
         hardwareCodecLongRunStartButton.setOnClickListener(view ->
                 confirmHardwareCodecLongRun());
         hardwareCodecLongRunStopButton.setOnClickListener(view ->
@@ -1271,7 +1273,17 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void showFfmpegCodecGuide() {
-        String guide = getString(R.string.dawnshell_codec_ffmpeg_guide_body);
+        showCodecGuide(R.string.dawnshell_codec_ffmpeg_guide_title,
+                R.string.dawnshell_codec_ffmpeg_guide_body);
+    }
+
+    private void showLiveCodecGuide() {
+        showCodecGuide(R.string.dawnshell_codec_live_guide_title,
+                R.string.dawnshell_codec_live_guide_body);
+    }
+
+    private void showCodecGuide(int titleResource, int bodyResource) {
+        String guide = getString(bodyResource);
         TextView content = new AppCompatTextView(this);
         content.setText(guide);
         content.setTextIsSelectable(true);
@@ -1288,7 +1300,7 @@ public class BootActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dawnshell_codec_ffmpeg_guide_title)
+                .setTitle(titleResource)
                 .setView(scroll)
                 .setNegativeButton(R.string.dawnshell_codec_ffmpeg_guide_close, null)
                 .setPositiveButton(R.string.dawnshell_codec_ffmpeg_guide_copy,

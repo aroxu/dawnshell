@@ -61,6 +61,60 @@ sudo dawnshell-hwtranscode input.mp4 output.mp4 4000000
 container output makes `/usr/bin/ffmpeg` software-encode the decoded frames.
 `dawnshell-hwtranscode` produces video-only AVC.
 
+## Live HLS and USB-webcam encoding
+
+`dawnshell-live-encode` captures or decodes input with FFmpeg, incrementally
+frames I420 video for the Android `MediaCodec` AVC encoder, and immediately
+muxes the returned Annex-B stream. It does not buffer the complete input or
+output in temporary files.
+
+Preview the pipeline without opening hardware:
+
+```sh
+dawnshell-live-encode --print-plan \
+  --input /dev/video0 --input-format v4l2 --input-pixel-format mjpeg \
+  --size 1280x720 --fps 30 --bitrate 4000000 \
+  --output recording.mp4
+```
+
+Record a USB UVC webcam to fragmented AVC MP4:
+
+```sh
+sudo dawnshell-live-encode \
+  --input /dev/video0 --input-format v4l2 --input-pixel-format mjpeg \
+  --size 1280x720 --fps 30 --bitrate 4000000 \
+  --output recording.mp4
+```
+
+Publish a rolling HLS playlist:
+
+```sh
+sudo install -d -m 0755 /var/www/html/live
+sudo dawnshell-live-encode \
+  --input /dev/video0 --input-format v4l2 --input-pixel-format mjpeg \
+  --size 1280x720 --fps 30 --bitrate 4000000 \
+  --output-mode hls --hls-time 2 --hls-list-size 6 \
+  --hls-delete-segments --output /var/www/html/live/index.m3u8
+```
+
+Add `--record /srv/video/webcam.mp4` to an HLS command to write fragmented MP4
+and HLS simultaneously. A network HLS/RTSP source can be passed with
+`--input URL --input-format auto`.
+
+Input decode, pixel conversion, and scaling currently run in Debian FFmpeg;
+Android hardware performs AVC encoding. Audio is not included. The encoder
+uses a two-second keyframe interval, so a two-second HLS segment target is the
+most predictable setting. Ctrl-C closes the pipeline and finalizes output.
+
+A USB camera additionally requires host UVC/V4L2 support, a visible
+`/dev/videoX`, devices-cgroup permission, and SELinux permission. Inspect it
+with:
+
+```sh
+ls -l /dev/video* 2>/dev/null
+v4l2-ctl --list-formats-ext -d /dev/video0
+```
+
 ## Preview and trace the wrapper expansion
 
 Print the route selected by `dawnshell-ffmpeg` without processing media:

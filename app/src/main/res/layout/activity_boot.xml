@@ -781,6 +781,14 @@
                         android:layout_marginTop="8dp"
                         android:text="@string/dawnshell_codec_ffmpeg_guide_button" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/open_live_codec_guide_button"
+                        style="@style/Widget.DawnShell.Button.Outlined"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/dawnshell_codec_live_guide_button" />
+
                     <com.google.android.material.divider.MaterialDivider
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
