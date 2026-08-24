@@ -110,6 +110,11 @@ broker가 `Image` plane의 row/pixel stride와 crop을 정규화한 I420 frame 1
 검사합니다. frame 수와 PTS가 일치한 뒤 software decode 기준 SHA-256
 `777feb39bd92b899fc9cf7c184396e3ecec4fdbcd7a582fc560fc37011f18053`을 비교합니다.
 
+계획의 720p 통과 조건은 별도 1280×720, 30 fps, 30-frame vector와 software I420
+기준 SHA-256 `7ff494db80cf8a311468f9638384d3d7a7bd320b5b831110076b7c80979af26f`를
+사용합니다. 같은 입력을 기본 shared-memory와 강제 socket fallback으로 각각
+decode해 frame/PTS/checksum이 같고 두 transport가 실제로 사용됐는지 비교합니다.
+
 ### M4 — H.264 encode
 
 - 고정 YUV pattern을 hardware encoder로 처리합니다.
@@ -129,6 +134,10 @@ Debian FFmpeg로 출력 Annex-B를 다시 decode해 10 frame임을 확인합니�
 
 통과: 일반 MP4 입력을 hardware decode 또는 encode 경로로 처리.
 
+`dawnshell-codec-performance-test`는 720p 결과를 한 번에 하나씩 `/run`에 기록해
+64 MiB tmpfs 상한을 지키고, session의 wall time과 codec broker process CPU time,
+socket/shared-memory byte 수를 함께 보고합니다.
+
 ### M6 — zero-copy transcode
 
 - decoder output Surface와 encoder input Surface를 연결합니다.
@@ -136,12 +145,21 @@ Debian FFmpeg로 출력 Annex-B를 다시 decode해 10 frame임을 확인합니�
 
 통과: 불필요한 CPU frame copy 없이 1080p 실시간 처리.
 
+고정 1920×1080, 30 fps, 60-frame AVC vector를 AVC→AVC Surface session에 넣습니다.
+출력 60 frame의 정확한 PTS, 첫 keyframe, EOS와 FFmpeg decode를 확인하고 session
+runtime이 2,000 ms 이하인지 검사합니다. `surface_frames=60`,
+`cpu_yuv_frames=0`, 오류 및 drop 0이어야 통과합니다.
+
 ### M7 — BFU 회귀 시험
 
 - cold boot 5회, unlock 유지, stop/restart와 network 지연을 시험합니다.
 - 중복 process, socket, shared memory와 session 누수를 확인합니다.
 
 통과: 5회 모두 BFU self-test 성공 및 Debian/SSH 영향 없음.
+
+성능 검사는 정상 종료 session 세 개 뒤 decoder peer 강제 종료 5회와 Surface
+transcoder peer 강제 종료 2회를 수행합니다. 전후 broker uptime이 줄지 않고 생성·종료
+session delta가 모두 10이며 active session/transcoder가 0인지 확인합니다.
 
 ## 현재 상태
 
@@ -156,7 +174,19 @@ transcode는 keyframe을 요청하고 첫 frame flag를 확인합니다. broker 
 통계로 frame/EOS/error/shared-memory와 Surface 경로의 `cpu_yuv_frames=0`을 검사하며
 잘못된 요청 뒤에도 broker가 응답하는지 확인합니다.
 
+720p shared-memory/socket 비교, 1080p30 실시간 Surface transcode와 peer 강제 종료
+자원 정리는 별도 성능 검사 및 앱 버튼으로 구현되어 있습니다. 두 성능 vector는
+`scripts/generate-codec-performance-vectors.sh`로 재생성할 수 있으며 프로젝트가
+CC0-1.0으로 제공합니다.
+
 제공된 Android 16 AFU 로그에서는 Exynos AVC/HEVC encoder와 decoder 인스턴스 생성이
 모두 성공했습니다. 로그가 `user_unlocked=true`이므로 BFU M0 판정은 아직 아니며,
 BFU backend/session, 720p·1080p 성능과 M7 5회 cold-boot 회귀는 마지막 일괄 실기기
 시험에서 검증합니다.
+
+성능 vector 생성의 핵심 설정은 다음과 같습니다. 재현성을 위해 x264 assembly와
+병렬 lookahead를 끄고 한 thread로 고정했습니다.
+
+```sh
+scripts/generate-codec-performance-vectors.sh
+```

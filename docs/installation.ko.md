@@ -61,7 +61,7 @@ shasum -a 256 -c SHA256SUMS
 Windows PowerShell에서는 다음 두 결과를 비교합니다.
 
 ```powershell
-Get-FileHash .\dawnshell-0.2.2.apk -Algorithm SHA256
+Get-FileHash .\dawnshell-0.3.0.apk -Algorithm SHA256
 Get-Content .\SHA256SUMS
 ```
 

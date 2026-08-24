@@ -60,9 +60,13 @@ peer가 만든 모든 session을 자동 release합니다.
 dawnshell-codec capabilities
 dawnshell-codec health --format json
 dawnshell-codec negative-test
+dawnshell-codec transcode-test input.h264 1920 1080 30 60 8000000
+dawnshell-codec orphan-test decode
+dawnshell-codec orphan-test transcode
 dawnshell-codec probe decode avc 128 128
 dawnshell-codec pipe decode avc 1280 720 30 4000000 < packets.bin > frames.bin
 dawnshell-codec-self-test
+dawnshell-codec-performance-test
 dawnshell-hwdecode input.mp4 output.mkv
 dawnshell-hwdecode input.mp4 output.i420
 dawnshell-hwencode input.mkv output.mp4 4000000
@@ -126,12 +130,22 @@ Surface color format을 광고하는 보수적 hardware pair가 없으면 softwa
 flag를 검사합니다. Surface wrapper는 종료 전에 session 통계를 읽어 입력·출력·Surface
 frame 수, EOS, `cpu_yuv_frames=0`, 오류 0을 확인한 뒤에만 결과 파일을 게시합니다.
 `negative-test`는 잘못된 health payload와 존재하지 않는 session 요청을 의도적으로
-거부시킨 뒤 같은 연결에서 broker health가 유지되는지 확인합니다.
+거부시키고, 생성한 session에 허용되지 않은 buffer flag를 보낸 뒤 같은 session의
+flush와 broker health가 유지되는지 확인합니다. `orphan-test`는 CLOSE를 보내지 않고
+client를 종료해 peer EOF 정리가 codec 및 Surface를 회수하는지 시험합니다.
+
+통계의 `process_cpu_time_ms`는 session 수명 동안 증가한 격리 `:codec` 프로세스 전체
+CPU 시간입니다. 동시 session이 있으면 해당 작업만의 CPU 시간으로 해석할 수 없으므로
+성능 검사는 단일 session 상태에서 비교합니다. `media_transport`는 실제 byte counter에
+따라 `socket`, `shared_memory`, `mixed`, `none` 중 하나로 기록됩니다.
 
 최종 BFU 5회 회귀 시험에서 코덱까지 강제하려면 호스트에서 다음처럼 실행합니다.
 
 ```sh
-BFU_REQUIRE_HARDWARE_CODEC=1 BFU_CYCLES=5 scripts/test-final-bfu.sh
+BFU_REQUIRE_HARDWARE_CODEC=1 \
+BFU_REQUIRE_CODEC_PERFORMANCE=1 \
+BFU_CYCLES=5 \
+scripts/test-final-bfu.sh
 ```
 
 각 cold boot의 unlock 전과 `USER_UNLOCKED` 후에 decode, encode, Surface transcode

@@ -27,7 +27,7 @@ Main features include:
 - BFU startup of systemd and a public-key-only OpenSSH server;
 - shared Android Wi-Fi, mobile, and USB Ethernet interfaces;
 - optional direct and VID:PID-scoped exclusive USB passthrough;
-- opt-in, isolated Android hardware video codec capability probing during BFU;
+- opt-in, isolated Android hardware AVC/HEVC decode, encode, and Surface transcode during BFU;
 - Material 3 controls for setup, lifecycle, accounts, SSH keys, and logs;
 - source-built bootstrap binaries for `armeabi-v7a`, `arm64-v8a`, and `x86_64`.
 
@@ -105,12 +105,14 @@ Debian restart. SELinux can still deny access; Docker needs an explicit
 ADB, and an abnormal exit can require unplugging the device or rebooting. Never
 mount one removable filesystem from Android and Debian simultaneously.
 
-**Hardware video acceleration** is experimental and disabled by default. The
-current stage isolates Android MediaCodec access in a dedicated process,
-enumerates AVC/HEVC capabilities, and proves explicit hardware codec instance
-creation without silent software fallback. It is not OpenGL/Vulkan or general
-GPU passthrough. Debian frame transport and FFmpeg integration are still under
-development; see [the implementation plan](docs/media-codec-bridge-plan.ko.md).
+**Hardware video acceleration** is experimental and disabled by default. An
+isolated Android `MediaCodec` broker exposes an authenticated local protocol to
+Debian, including AVC/HEVC decode, AVC encode, zero-copy Surface transcode,
+FFmpeg-compatible wrappers, shared-memory frame transport, and socket fallback.
+The regression suite checks a deterministic 720p decode checksum, transport
+selection, a real-time 1080p30 transcode, keyframe/PTS/EOS behavior, and cleanup
+after interrupted clients. It is not OpenGL/Vulkan or general GPU passthrough;
+see [the implementation plan](docs/media-codec-bridge-plan.ko.md).
 
 ## Build
 
@@ -131,7 +133,7 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
 ```
 
 Compilation defaults to `make -j"$(nproc)"`. Set `DAWNSHELL_BUILD_JOBS` to cap
-parallelism. The default output is `dist/dawnshell_0.2.2_debug.apk`.
+parallelism. The default output is `dist/dawnshell-app_v0.3.0+debug.apk`.
 
 The public debug key is for development only. Production APKs require a private
 signing key; see [Google's app-signing guide](https://developer.android.com/studio/publish/app-signing).
@@ -155,8 +157,8 @@ require these Actions secrets:
 - `DAWNSHELL_RELEASE_KEY_PASSWORD`
 
 ```sh
-git tag -s v0.2.2 -m "DawnShell 0.2.2"
-git push origin v0.2.2
+git tag -s v0.3.0 -m "DawnShell 0.3.0"
+git push origin v0.3.0
 ```
 
 DawnShell code is MIT licensed. Bundled tools retain their upstream licenses;

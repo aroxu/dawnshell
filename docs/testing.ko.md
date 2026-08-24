@@ -214,6 +214,23 @@ encode keyframe/PTS/EOS, FFmpeg 재검증과 Surface zero-copy 통계를 확인�
 시험은 `BFU_REQUIRE_HARDWARE_CODEC=1 BFU_CYCLES=5 scripts/test-final-bfu.sh`로
 잠금 해제 전후에 동일한 검사를 실행합니다.
 
+앱의 **720p/1080p 성능 및 자원 정리 검사**는 다음을 한 번에 수행합니다.
+
+- 720p 30-frame decode checksum과 정확한 PTS
+- 공유 메모리와 강제 socket fallback의 실제 byte counter 및 process CPU 시간 비교
+- 1080p30 60-frame Surface transcode가 2초 이내인지 확인
+- 첫 keyframe, EOS, FFmpeg decode, `cpu_yuv_frames=0`
+- decoder 5회 및 Surface transcoder 2회 비정상 client 종료 뒤 자원 회수
+
+최종 5회 시험에는 다음 환경 변수를 함께 사용합니다.
+
+```sh
+BFU_REQUIRE_HARDWARE_CODEC=1 \
+BFU_REQUIRE_CODEC_PERFORMANCE=1 \
+BFU_CYCLES=5 \
+scripts/test-final-bfu.sh
+```
+
 ## 11. 삭제
 
 테스트 데이터가 필요하지 않을 때만 rootfs 삭제를 시험합니다.

@@ -110,6 +110,13 @@ sessions, and `dawnshell-codec negative-test` to prove malformed requests do not
 kill the broker. The final five-cycle test enables these checks with
 `BFU_REQUIRE_HARDWARE_CODEC=1`.
 
+The **720p/1080p performance and cleanup test** button additionally compares
+shared-memory and forced socket decode counters/CPU time, validates a 60-frame
+1080p30 Surface transcode in at most two seconds with no CPU YUV frames, and
+abandons decoder and transcoder clients to prove peer-EOF cleanup. Include it in
+the final five-cycle run with both `BFU_REQUIRE_HARDWARE_CODEC=1` and
+`BFU_REQUIRE_CODEC_PERFORMANCE=1`.
+
 ## Pass criteria
 
 - SSH works before PIN entry.

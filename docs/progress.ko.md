@@ -86,6 +86,8 @@ ABI(Application Binary Interface)의 의미는
   transcode를 구현했습니다.
 - [x] keyframe 요청, broker/session 통계와 잘못된 요청 격리 회귀 검사를
   구현했습니다.
+- [x] 720p shared-memory/socket 비교, 1080p30 실시간 Surface transcode와
+  비정상 peer 자원 정리 성능 검사 경로를 구현했습니다.
 - [x] Android 16 AFU에서 Exynos AVC/HEVC encoder·decoder instance 생성을
   확인했습니다.
 - [ ] BFU 실기기에서 Exynos AVC hardware instance 생성을 확인합니다.

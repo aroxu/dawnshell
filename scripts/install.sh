@@ -2,13 +2,21 @@
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-apk="$root_dir/dist/dawnshell_0.2.2_debug.apk"
+apk="${DAWNSHELL_APK:-}"
+if [[ -z "$apk" ]]; then
+  for candidate in "$root_dir"/dist/dawnshell-app_v*+debug.apk; do
+    [[ -f "$candidate" ]] || continue
+    if [[ -z "$apk" || "$candidate" -nt "$apk" ]]; then
+      apk="$candidate"
+    fi
+  done
+fi
 
-[[ -f "$apk" ]] || {
-  echo "Missing APK: $apk" >&2
+[[ -n "$apk" && -f "$apk" ]] || {
+  echo "Missing debug APK in $root_dir/dist (or set DAWNSHELL_APK)" >&2
   exit 1
 }
 
 echo "This script does not install or uninstall Android packages."
 echo "Pushing the standalone APK to /sdcard/Download for manual installation."
-adb push "$apk" /sdcard/Download/dawnshell_0.2.2_debug.apk
+adb push "$apk" "/sdcard/Download/$(basename "$apk")"
