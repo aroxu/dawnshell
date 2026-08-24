@@ -241,12 +241,12 @@
     <string name="dawnshell_codec_section_title">Hardware video acceleration</string>
     <string name="dawnshell_codec_section_description">Android MediaCodec bridge for hardware H.264/AVC and HEVC processing. The codec process is isolated from Debian and SSH and remains active after the first unlock.</string>
     <string name="dawnshell_codec_enable">Enable hardware codec bridge at Direct Boot</string>
-    <string name="dawnshell_codec_scope">This is video codec acceleration, not OpenGL/Vulkan or general GPU passthrough. A root-authenticated local Unix socket gives Debian bounded access to hardware AVC/HEVC sessions. Large frames use shared memory with a socket fallback, and compatible codec pairs can transcode through an Android Surface without copying full YUV frames into Debian. It never silently selects a software codec. Android 10+ uses platform hardware/vendor flags; Android 7–9 uses a conservative labeled vendor-name heuristic. Run the fixed-vector self-test after configuring Debian. If media services are unavailable during BFU, only this feature fails.</string>
+    <string name="dawnshell_codec_scope">This is video codec acceleration, not OpenGL/Vulkan or general GPU passthrough. A root-authenticated local Unix socket gives Debian bounded access to hardware AVC/HEVC sessions. Large frames use shared memory with a socket fallback, and compatible codec pairs can transcode through an Android Surface without copying full YUV frames into Debian. It never silently selects a software codec. Android 10+ uses platform hardware/vendor flags; Android 7–9 uses a conservative labeled vendor-name heuristic. Run the file-backed self-test after configuring Debian. If media services are unavailable during BFU, only this feature fails.</string>
     <string name="dawnshell_codec_apply_probe">Save and probe hardware codecs</string>
     <string name="dawnshell_codec_view_log">View hardware codec report</string>
     <string name="dawnshell_codec_run_self_test">Download and run file-based hardware AVC decode self-test</string>
     <string name="dawnshell_codec_run_performance_test">Run container, performance, error, and concurrency regression</string>
-    <string name="dawnshell_codec_self_test_started">Running fixed 10-frame hardware AVC decode, encode, and Surface transcode tests…</string>
+    <string name="dawnshell_codec_self_test_started">Preparing the 1080p H.264 sample in Debian and running the file-backed hardware AVC decode test…</string>
     <string name="dawnshell_codec_self_test_passed">Hardware AVC self-test passed. See the hardware video codec log for details.</string>
     <string name="dawnshell_codec_self_test_failed">Hardware AVC self-test failed. See the hardware video codec log for details.</string>
     <string name="dawnshell_codec_self_test_requires_setup">Enable the codec bridge, save settings, and configure Debian before running the self-test.</string>
