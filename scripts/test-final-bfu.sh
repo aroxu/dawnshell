@@ -11,6 +11,12 @@ esac
 : "${BFU_PHONE_HOST:?Set BFU_PHONE_HOST to the phone IP address reachable before unlock}"
 : "${BFU_SSH_KEY:?Set BFU_SSH_KEY to the dedicated BFU SSH private key}"
 
+if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1"
+      && "${BFU_REQUIRE_HARDWARE_CODEC:-0}" != "1" ]]; then
+  echo "BFU_REQUIRE_CODEC_PERFORMANCE=1 requires BFU_REQUIRE_HARDWARE_CODEC=1" >&2
+  exit 2
+fi
+
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cycles="${BFU_CYCLES:-5}"
 results_dir="${BFU_RESULTS_DIR:-$repo_dir/test-results/bfu-$(date -u +%Y%m%dT%H%M%SZ)}"
@@ -76,9 +82,17 @@ target_count="$(grep -Fc 'targetSdk=28' "$preflight" || true)"
   exit 2
 }
 
-bfu_apk="$repo_dir/dist/dawnshell_0.2.2_debug.apk"
-[[ -f "$bfu_apk" ]] || {
-  echo "FAIL: missing staged APK: $bfu_apk" >&2
+bfu_apk="${DAWNSHELL_APK:-}"
+if [[ -z "$bfu_apk" ]]; then
+  for candidate in "$repo_dir"/dist/dawnshell-app_v*+debug.apk; do
+    [[ -f "$candidate" ]] || continue
+    if [[ -z "$bfu_apk" || "$candidate" -nt "$bfu_apk" ]]; then
+      bfu_apk="$candidate"
+    fi
+  done
+fi
+[[ -n "$bfu_apk" && -f "$bfu_apk" ]] || {
+  echo "FAIL: missing staged debug APK in $repo_dir/dist (or set DAWNSHELL_APK)" >&2
   exit 2
 }
 actual_bfu_hash="$(sha256sum "$bfu_apk" | awk '{print toupper($1)}')"
@@ -196,6 +210,9 @@ echo "============================================================"
 echo "PASS: $cycles BFU cold cycles plus poweroff/reboot/shutdown isolation completed."
 if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
   echo "Hardware codec decode, encode, and Surface transcode passed before and after unlock in every cycle."
+  if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1" ]]; then
+    echo "720p shared-memory/socket decode, 1080p30 realtime Surface transcode, and resource cleanup passed in every cycle."
+  fi
 fi
 echo "Evidence directory: $results_dir"
 cat "$summary"

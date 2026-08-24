@@ -168,15 +168,20 @@ def unpack_annex_b(arguments):
     print(frames)
 
 
-def validate_stats(arguments):
+def load_last_stats(path):
     prefix = "dawnshell-codec: session-stats="
     stats = None
-    with open(arguments.input, "r", encoding="utf-8", errors="replace") as source:
+    with open(path, "r", encoding="utf-8", errors="replace") as source:
         for line in source:
             if line.startswith(prefix):
                 stats = json.loads(line[len(prefix):])
     if not isinstance(stats, dict):
         raise ValueError("client log has no session statistics")
+    return stats
+
+
+def validate_stats(arguments):
+    stats = load_last_stats(arguments.input)
     expected = arguments.frames
     checks = {
         "kind": "surface_transcoder",
@@ -195,9 +200,87 @@ def validate_stats(arguments):
             )
     if int(stats.get("input_eos", 0)) < 1 or int(stats.get("output_eos", 0)) < 1:
         raise ValueError("transcoder statistics do not prove EOS completion")
+    if arguments.max_runtime_ms is not None:
+        runtime_ms = int(stats.get("uptime_ms", -1))
+        if runtime_ms < 0 or runtime_ms > arguments.max_runtime_ms:
+            raise ValueError(
+                f"transcoder runtime {runtime_ms}ms exceeds "
+                f"{arguments.max_runtime_ms}ms media duration"
+            )
     print(
         "surface_zero_copy=verified "
-        f"frames={expected} cpu_yuv_frames=0 session_id={stats.get('session_id')}"
+        f"frames={expected} cpu_yuv_frames=0 runtime_ms={stats.get('uptime_ms')} "
+        f"process_cpu_time_ms={stats.get('process_cpu_time_ms')} "
+        f"session_id={stats.get('session_id')}"
+    )
+
+
+def compare_decode_transports(arguments):
+    shared = load_last_stats(arguments.shared_log)
+    socket = load_last_stats(arguments.socket_log)
+    for label, stats in (("shared", shared), ("socket", socket)):
+        if stats.get("kind") != "bytebuffer_decoder":
+            raise ValueError(f"{label} run is not a decoder session")
+        for key in ("input_frames", "output_frames", "cpu_yuv_frames"):
+            if int(stats.get(key, -1)) != arguments.frames:
+                raise ValueError(
+                    f"{label} run {key}={stats.get(key)!r}; expected {arguments.frames}"
+                )
+        if int(stats.get("input_eos", 0)) < 1 or int(stats.get("output_eos", 0)) < 1:
+            raise ValueError(f"{label} run did not complete EOS")
+        if int(stats.get("errors", -1)) != 0:
+            raise ValueError(f"{label} run recorded codec errors")
+    if int(shared.get("shared_output_bytes", 0)) <= 0:
+        raise ValueError("default decoder run did not use shared-memory output")
+    if shared.get("media_transport") not in ("shared_memory", "mixed"):
+        raise ValueError("default decoder run did not report shared-memory transport")
+    if int(socket.get("shared_input_bytes", -1)) != 0 \
+            or int(socket.get("shared_output_bytes", -1)) != 0:
+        raise ValueError("socket fallback run unexpectedly used shared memory")
+    if int(socket.get("socket_output_bytes", 0)) <= 0:
+        raise ValueError("socket fallback run did not transfer decoder output")
+    if socket.get("media_transport") != "socket":
+        raise ValueError("socket fallback run did not report socket transport")
+    print(
+        "decode_transport_comparison=verified "
+        f"frames={arguments.frames} "
+        f"shared_runtime_ms={shared.get('uptime_ms')} "
+        f"shared_process_cpu_ms={shared.get('process_cpu_time_ms')} "
+        f"socket_runtime_ms={socket.get('uptime_ms')} "
+        f"socket_process_cpu_ms={socket.get('process_cpu_time_ms')}"
+    )
+
+
+def load_health(path):
+    with open(path, "r", encoding="utf-8", errors="strict") as source:
+        value = json.load(source)
+    if not isinstance(value, dict) or value.get("broker_state") != "listening":
+        raise ValueError(f"invalid broker health snapshot: {path}")
+    return value
+
+
+def validate_cleanup(arguments):
+    before = load_health(arguments.before)
+    after = load_health(arguments.after)
+    for label, health in (("before", before), ("after", after)):
+        if int(health.get("active_sessions", -1)) != 0 \
+                or int(health.get("active_transcoders", -1)) != 0:
+            raise ValueError(f"{label} snapshot has active codec resources")
+        if int(health.get("sessions_created", -1)) \
+                != int(health.get("sessions_closed", -2)):
+            raise ValueError(f"{label} snapshot has an unclosed session")
+    if int(after.get("uptime_ms", -1)) < int(before.get("uptime_ms", 0)):
+        raise ValueError("codec broker restarted during resource cleanup test")
+    created_delta = int(after["sessions_created"]) - int(before["sessions_created"])
+    closed_delta = int(after["sessions_closed"]) - int(before["sessions_closed"])
+    if created_delta != arguments.sessions or closed_delta != arguments.sessions:
+        raise ValueError(
+            f"cleanup delta created={created_delta} closed={closed_delta}; "
+            f"expected {arguments.sessions}"
+        )
+    print(
+        "codec_resource_cleanup=verified "
+        f"sessions={arguments.sessions} active_sessions=0 active_transcoders=0"
     )
 
 
@@ -239,7 +322,18 @@ def main():
     validate_stats_parser = commands.add_parser("validate-stats")
     validate_stats_parser.add_argument("input")
     validate_stats_parser.add_argument("frames", type=positive_int)
+    validate_stats_parser.add_argument("--max-runtime-ms", type=positive_int)
     validate_stats_parser.set_defaults(handler=validate_stats)
+    compare_transport_parser = commands.add_parser("compare-decode-transports")
+    compare_transport_parser.add_argument("shared_log")
+    compare_transport_parser.add_argument("socket_log")
+    compare_transport_parser.add_argument("frames", type=positive_int)
+    compare_transport_parser.set_defaults(handler=compare_decode_transports)
+    cleanup_parser = commands.add_parser("validate-cleanup")
+    cleanup_parser.add_argument("before")
+    cleanup_parser.add_argument("after")
+    cleanup_parser.add_argument("sessions", type=positive_int)
+    cleanup_parser.set_defaults(handler=validate_cleanup)
     arguments = parser.parse_args()
     try:
         arguments.handler(arguments)

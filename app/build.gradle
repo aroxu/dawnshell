@@ -139,6 +139,14 @@ bfuBootstrapAssets.add(file(
         'src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.h264'))
 bfuBootstrapAssets.add(file(
         'src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.properties'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/avc-baseline-1280x720-30fps-30f.h264'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/avc-baseline-1280x720-30fps-30f.properties'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/avc-high-1920x1080-30fps-60f.h264'))
+bfuBootstrapAssets.add(file(
+        'src/main/assets/bfu/codec-test/avc-high-1920x1080-30fps-60f.properties'))
 bfuBootstrapAssets.add(file('src/main/assets/bfu/dawnshell-codec-ffmpeg.py'))
 
 def requiredLicenseFiles = [

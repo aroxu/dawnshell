@@ -486,6 +486,8 @@ static int simple_request(int descriptor, uint16_t type, uint64_t session_id,
     return result;
 }
 
+static void close_session(int descriptor, uint64_t session_id);
+
 static int request_keyframe(int descriptor, uint64_t session_id) {
     return simple_request(descriptor, DSCB_REQUEST_KEYFRAME, session_id,
                           NULL, 0, "request keyframe");
@@ -540,9 +542,27 @@ static int run_negative_test(int descriptor) {
                              "unknown-statistics-session") != 0) {
         return 1;
     }
+    uint64_t session_id = 0;
+    if (create_session(descriptor, DSCB_MODE_DECODE, DSCB_CODEC_AVC,
+            128, 96, 10, 1000000, &session_id, NULL) != 0) return 1;
+    uint8_t malformed_input[17];
+    put_u64(malformed_input, 0);
+    put_u32(malformed_input + 8, UINT32_MAX);
+    put_u32(malformed_input + 12, 1);
+    malformed_input[16] = 0;
+    if (expect_status(descriptor, DSCB_INPUT, session_id, malformed_input,
+                      sizeof(malformed_input), DSCB_ERROR_PROTOCOL,
+                      "unsupported-input-flags") != 0
+            || simple_request(descriptor, DSCB_FLUSH, session_id, NULL, 0,
+                              "post-error flush") != 0) {
+        close_session(descriptor, session_id);
+        return 1;
+    }
+    close_session(descriptor, session_id);
     if (print_health(descriptor) != 0) return 1;
     fprintf(stderr,
-            "dawnshell-codec: negative-test passed rejected=3 broker=responsive\n");
+            "dawnshell-codec: negative-test passed rejected=4"
+            " session=responsive broker=responsive\n");
     return 0;
 }
 
@@ -750,8 +770,11 @@ static int drain_decode_test(int descriptor, uint64_t session_id,
     uint8_t request[4];
     put_u32(request, timeout_ms);
     struct response response;
-    if (rpc(descriptor, DSCB_OUTPUT, session_id, request, sizeof(request),
-            &response) != 0) return -1;
+    int shared_result = output_shared_memory(descriptor, session_id, timeout_ms,
+                                             &response);
+    if (shared_result < 0) return -1;
+    if (shared_result > 0 && rpc(descriptor, DSCB_OUTPUT, session_id, request,
+            sizeof(request), &response) != 0) return -1;
     int result = 0;
     if (response.status == DSCB_AGAIN) {
         result = 1;
@@ -846,34 +869,44 @@ static int read_file(const char *path, uint8_t **data, size_t *length) {
     return 0;
 }
 
+static int load_access_units(const char *path, uint32_t expected_frames,
+                             uint8_t **vector, size_t *vector_length,
+                             size_t boundaries[1025], size_t *boundary_count) {
+    if (read_file(path, vector, vector_length) != 0) {
+        fprintf(stderr, "dawnshell-codec: read %s failed: %s\n", path,
+                strerror(errno));
+        return 1;
+    }
+    *boundary_count = 0;
+    size_t search = 0;
+    size_t aud;
+    while (*boundary_count < 1024
+            && find_aud(*vector, *vector_length, search, &aud)) {
+        boundaries[(*boundary_count)++] = aud;
+        search = aud + 4;
+    }
+    if (*boundary_count == 0 || *boundary_count != expected_frames) {
+        fprintf(stderr,
+                "dawnshell-codec: Annex-B AUD count=%zu expected=%" PRIu32 "\n",
+                *boundary_count, expected_frames);
+        free(*vector);
+        *vector = NULL;
+        return 1;
+    }
+    if (boundaries[0] != 0) boundaries[0] = 0;
+    boundaries[*boundary_count] = *vector_length;
+    return 0;
+}
+
 static int run_decode_test(int descriptor, const char *path, uint32_t width,
                            uint32_t height, uint32_t frame_rate,
                            uint32_t expected_frames) {
     uint8_t *vector = NULL;
     size_t vector_length = 0;
-    if (read_file(path, &vector, &vector_length) != 0) {
-        fprintf(stderr, "dawnshell-codec: read %s failed: %s\n", path,
-                strerror(errno));
-        return 1;
-    }
     size_t boundaries[1025];
     size_t boundary_count = 0;
-    size_t search = 0;
-    size_t aud;
-    while (boundary_count < 1024
-            && find_aud(vector, vector_length, search, &aud)) {
-        boundaries[boundary_count++] = aud;
-        search = aud + 4;
-    }
-    if (boundary_count == 0 || boundary_count != expected_frames) {
-        fprintf(stderr,
-                "dawnshell-codec: Annex-B AUD count=%zu expected=%" PRIu32 "\n",
-                boundary_count, expected_frames);
-        free(vector);
-        return 1;
-    }
-    if (boundaries[0] != 0) boundaries[0] = 0;
-    boundaries[boundary_count] = vector_length;
+    if (load_access_units(path, expected_frames, &vector, &vector_length,
+                          boundaries, &boundary_count) != 0) return 1;
 
     uint64_t session_id = 0;
     if (create_session(descriptor, DSCB_MODE_DECODE, DSCB_CODEC_AVC, width,
@@ -1099,6 +1132,119 @@ static uint64_t elapsed_microseconds(const struct timespec *start,
     int64_t seconds = end->tv_sec - start->tv_sec;
     int64_t nanoseconds = end->tv_nsec - start->tv_nsec;
     return (uint64_t)(seconds * 1000000 + nanoseconds / 1000);
+}
+
+static int run_transcode_test(int descriptor, const char *path, uint32_t width,
+                              uint32_t height, uint32_t frame_rate,
+                              uint32_t expected_frames, uint32_t bitrate) {
+    uint8_t *vector = NULL;
+    size_t vector_length = 0;
+    size_t boundaries[1025];
+    size_t boundary_count = 0;
+    if (load_access_units(path, expected_frames, &vector, &vector_length,
+                          boundaries, &boundary_count) != 0) return 1;
+
+    uint64_t session_id = 0;
+    if (create_transcode_session(descriptor, DSCB_CODEC_AVC, DSCB_CODEC_AVC,
+            width, height, frame_rate, bitrate, &session_id) != 0) {
+        free(vector);
+        return 1;
+    }
+    if (request_keyframe(descriptor, session_id) != 0) {
+        free(vector);
+        close_session(descriptor, session_id);
+        return 1;
+    }
+    struct encode_test_state state = {
+            .frame_rate = frame_rate,
+            .frame_count = 0,
+            .output_bytes = 0,
+            .format_seen = 0,
+            .saw_eos = 0,
+            .first_frame_key = 0
+    };
+    struct timespec started;
+    struct timespec finished;
+    clock_gettime(CLOCK_MONOTONIC, &started);
+    int result = 0;
+    for (size_t index = 0; index < boundary_count; index++) {
+        size_t packet_length = boundaries[index + 1] - boundaries[index];
+        uint8_t header[16];
+        put_u64(header, (uint64_t)index * 1000000u / frame_rate);
+        put_u32(header + 8, 0);
+        put_u32(header + 12, (uint32_t)packet_length);
+        if (queue_input(descriptor, session_id, header,
+                        vector + boundaries[index],
+                        (uint32_t)packet_length) != 0) {
+            result = 1;
+            break;
+        }
+        for (;;) {
+            int drained = drain_encode_test(descriptor, session_id, 0, &state);
+            if (drained == 1) break;
+            if (drained < 0 || drained > 2) {
+                result = 1;
+                break;
+            }
+        }
+        if (result != 0) break;
+    }
+    free(vector);
+    if (result == 0) {
+        result = queue_eos(descriptor, session_id,
+                (uint64_t)expected_frames * 1000000u / frame_rate);
+    }
+    for (int idle = 0; result == 0 && !state.saw_eos && idle < 50;) {
+        int drained = drain_encode_test(descriptor, session_id, 100, &state);
+        if (drained == 1) idle++;
+        else if (drained < 0 || drained > 2) result = 1;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &finished);
+    uint64_t elapsed_us = elapsed_microseconds(&started, &finished);
+    uint64_t media_duration_us = (uint64_t)expected_frames * 1000000u
+            / frame_rate;
+    if (result == 0 && (!state.format_seen || !state.saw_eos
+            || state.frame_count != expected_frames || state.output_bytes == 0
+            || !state.first_frame_key || elapsed_us > media_duration_us)) {
+        fprintf(stderr,
+                "dawnshell-codec: transcode-test incomplete format=%d eos=%d"
+                " frames=%" PRIu32 "/%" PRIu32 " keyframe=%d bytes=%" PRIu64
+                " elapsed-us=%" PRIu64 " media-us=%" PRIu64 "\n",
+                state.format_seen, state.saw_eos, state.frame_count,
+                expected_frames, state.first_frame_key, state.output_bytes,
+                elapsed_us, media_duration_us);
+        result = 1;
+    }
+    if (result == 0) {
+        fprintf(stderr,
+                "dawnshell-codec: transcode-test passed size=%" PRIu32 "x%" PRIu32
+                " frames=%" PRIu32 " pts=exact first-frame=key"
+                " elapsed-us=%" PRIu64 " media-us=%" PRIu64 " realtime=true\n",
+                width, height, state.frame_count, elapsed_us, media_duration_us);
+    }
+    if (report_session_stats(descriptor, session_id) != 0) result = 1;
+    close_session(descriptor, session_id);
+    return result;
+}
+
+static int run_orphan_test(int descriptor, const char *kind) {
+    uint64_t session_id = 0;
+    int result;
+    if (strcmp(kind, "decode") == 0) {
+        result = create_session(descriptor, DSCB_MODE_DECODE, DSCB_CODEC_AVC,
+                128, 96, 10, 1000000, &session_id, NULL);
+    } else if (strcmp(kind, "transcode") == 0) {
+        result = create_transcode_session(descriptor, DSCB_CODEC_AVC,
+                DSCB_CODEC_AVC, 128, 96, 10, 1000000, &session_id);
+    } else {
+        return 2;
+    }
+    if (result != 0) return 1;
+    fprintf(stderr,
+            "dawnshell-codec: orphan-test abandoning %s session=%" PRIu64 "\n",
+            kind, session_id);
+    fflush(NULL);
+    _exit(0);
 }
 
 static int run_encode_test(int descriptor, uint32_t width, uint32_t height,
@@ -1335,6 +1481,8 @@ static void usage(FILE *stream) {
             "  dawnshell-codec probe MODE CODEC [WIDTH HEIGHT]\n"
             "  dawnshell-codec decode-test FILE WIDTH HEIGHT FPS FRAMES\n"
             "  dawnshell-codec encode-test WIDTH HEIGHT FPS FRAMES BITRATE\n"
+            "  dawnshell-codec transcode-test FILE WIDTH HEIGHT FPS FRAMES BITRATE\n"
+            "  dawnshell-codec orphan-test decode|transcode\n"
             "  dawnshell-codec pipe MODE CODEC WIDTH HEIGHT FPS BITRATE\n"
             "  dawnshell-codec transcode INPUT_CODEC OUTPUT_CODEC WIDTH HEIGHT FPS BITRATE\n\n"
             "MODE is decode or encode; CODEC is avc/h264 or hevc/h265.\n"
@@ -1409,6 +1557,20 @@ int main(int argc, char **argv) {
         } else {
             usage(stderr);
         }
+    } else if (strcmp(argv[1], "transcode-test") == 0 && argc == 8) {
+        uint32_t width, height, frame_rate, frames, bitrate;
+        if (parse_u32(argv[3], 16, 4096, &width) == 0
+                && parse_u32(argv[4], 16, 4096, &height) == 0
+                && parse_u32(argv[5], 1, 240, &frame_rate) == 0
+                && parse_u32(argv[6], 1, 1024, &frames) == 0
+                && parse_u32(argv[7], 1000, 100000000, &bitrate) == 0) {
+            result = run_transcode_test(descriptor, argv[2], width, height,
+                                        frame_rate, frames, bitrate);
+        } else {
+            usage(stderr);
+        }
+    } else if (strcmp(argv[1], "orphan-test") == 0 && argc == 3) {
+        result = run_orphan_test(descriptor, argv[2]);
     } else if (strcmp(argv[1], "decode-test") == 0 && argc == 7) {
         uint32_t width, height, frame_rate, frames;
         if (parse_u32(argv[3], 16, 4096, &width) == 0

@@ -766,6 +766,14 @@
                         android:text="@string/dawnshell_codec_run_self_test" />
 
                     <com.google.android.material.button.MaterialButton
+                        android:id="@+id/run_hardware_codec_performance_test_button"
+                        style="@style/Widget.DawnShell.Button.Outlined"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/dawnshell_codec_run_performance_test" />
+
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/open_hardware_codec_log_button"
                         style="@style/Widget.DawnShell.Button.Outlined"
                         android:layout_width="match_parent"

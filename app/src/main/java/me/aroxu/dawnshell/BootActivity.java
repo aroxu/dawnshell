@@ -83,6 +83,7 @@ public class BootActivity extends AppCompatActivity {
     private TextView dockerPolicyStatus;
     private TextView hardwareCodecStatus;
     private Button hardwareCodecSelfTestButton;
+    private Button hardwareCodecPerformanceTestButton;
     private TextView lifecycleLog;
     private EditText rootPassword;
     private EditText rootPasswordConfirm;
@@ -225,6 +226,8 @@ public class BootActivity extends AppCompatActivity {
         hardwareCodecStatus = findViewById(R.id.hardware_codec_status);
         hardwareCodecSelfTestButton = findViewById(
                 R.id.run_hardware_codec_self_test_button);
+        hardwareCodecPerformanceTestButton = findViewById(
+                R.id.run_hardware_codec_performance_test_button);
         rootPassword = findViewById(R.id.root_password);
         rootPasswordConfirm = findViewById(R.id.root_password_confirm);
         debianPassword = findViewById(R.id.debian_password);
@@ -249,6 +252,8 @@ public class BootActivity extends AppCompatActivity {
                 .setOnClickListener(view -> applyHardwareCodecSetting());
         hardwareCodecSelfTestButton.setOnClickListener(view ->
                 runHardwareCodecSelfTest());
+        hardwareCodecPerformanceTestButton.setOnClickListener(view ->
+                runHardwareCodecPerformanceTest());
         findViewById(R.id.open_hardware_codec_log_button).setOnClickListener(view ->
                 startActivity(LogDetailActivity.createIntent(
                         this, DawnShellLogRepository.HARDWARE_CODEC)));
@@ -1263,6 +1268,14 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void runHardwareCodecSelfTest() {
+        runHardwareCodecTest(false);
+    }
+
+    private void runHardwareCodecPerformanceTest() {
+        runHardwareCodecTest(true);
+    }
+
+    private void runHardwareCodecTest(boolean performance) {
         if (codecSelfTestInProgress) return;
         if (!hardwareCodecBridge.isChecked()
                 || !BfuPreferences.hardwareCodecBridge(this)) {
@@ -1281,7 +1294,10 @@ public class BootActivity extends AppCompatActivity {
         }
         codecSelfTestInProgress = true;
         hardwareCodecSelfTestButton.setEnabled(false);
-        Toast.makeText(this, R.string.dawnshell_codec_self_test_started,
+        hardwareCodecPerformanceTestButton.setEnabled(false);
+        Toast.makeText(this, performance
+                        ? R.string.dawnshell_codec_performance_test_started
+                        : R.string.dawnshell_codec_self_test_started,
                 Toast.LENGTH_SHORT).show();
         HardwareCodecService.ensureStarted(this, false);
         codecSelfTestExecutor.execute(() -> {
@@ -1291,8 +1307,11 @@ public class BootActivity extends AppCompatActivity {
                 Thread.sleep(500L);
                 String command = BfuSu.shellQuote(chrootTool) + " chroot "
                         + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
-                        + " /usr/local/bin/dawnshell-codec-self-test";
-                BfuSu.Result result = BfuSu.run(command, 30_000L);
+                        + (performance
+                        ? " /usr/local/bin/dawnshell-codec-performance-test"
+                        : " /usr/local/bin/dawnshell-codec-self-test");
+                BfuSu.Result result = BfuSu.run(command,
+                        performance ? 180_000L : 30_000L);
                 output = "command=" + result.command + " exit=" + result.exitCode
                         + " timeout=" + result.timedOut + " output=" + result.output;
                 passed = result.exitedSuccessfully();
@@ -1305,10 +1324,12 @@ public class BootActivity extends AppCompatActivity {
             final boolean finalPassed = passed;
             final String finalOutput = BfuSu.sanitize(output);
             HardwareCodecProbe.recordBrokerEvent(this,
-                    "SELF_TEST_" + (finalPassed ? "PASSED " : "FAILED ")
+                    (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
+                            + (finalPassed ? "PASSED " : "FAILED ")
                             + finalOutput);
             try {
-                BfuOperationLog.append(this, "HARDWARE_CODEC_SELF_TEST_"
+                BfuOperationLog.append(this, "HARDWARE_CODEC_"
+                        + (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
                         + (finalPassed ? "PASSED " : "FAILED ") + finalOutput);
             } catch (IOException e) {
                 Log.w(TAG, "Could not persist hardware codec self-test operation", e);
@@ -1316,11 +1337,16 @@ public class BootActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 codecSelfTestInProgress = false;
                 hardwareCodecSelfTestButton.setEnabled(true);
+                hardwareCodecPerformanceTestButton.setEnabled(true);
                 refreshHardwareCodecStatus();
-                Toast.makeText(this, finalPassed
-                                ? getString(R.string.dawnshell_codec_self_test_passed)
-                                : getString(R.string.dawnshell_codec_self_test_failed,
-                                finalOutput),
+                int passedText = performance
+                        ? R.string.dawnshell_codec_performance_test_passed
+                        : R.string.dawnshell_codec_self_test_passed;
+                int failedText = performance
+                        ? R.string.dawnshell_codec_performance_test_failed
+                        : R.string.dawnshell_codec_self_test_failed;
+                Toast.makeText(this, finalPassed ? getString(passedText)
+                                : getString(failedText, finalOutput),
                         Toast.LENGTH_LONG).show();
             });
         });

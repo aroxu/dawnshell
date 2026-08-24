@@ -56,19 +56,29 @@ grep -Fq '#define DSCB_HEALTH 13u' "$client"
 grep -Fq '#define DSCB_SESSION_STATS 14u' "$client"
 grep -Fq 'first-frame=key' "$client"
 grep -Fq 'session-stats=' "$client"
-grep -Fq 'negative-test passed rejected=3 broker=responsive' "$client"
+grep -Fq 'negative-test passed rejected=4' "$client"
+grep -Fq 'session=responsive broker=responsive' "$client"
+grep -Fq 'input contains unsupported buffer flags' "$broker"
+grep -Fq 'Process.getElapsedCpuTime()' "$broker"
+grep -Fq '\"media_transport\"' "$broker"
+grep -Fq 'transcode-test passed size=' "$client"
+grep -Fq 'orphan-test abandoning' "$client"
 grep -Fq '__NR_memfd_create' "$client"
 grep -Fq 'SCM_RIGHTS' "$client"
 grep -Fq 'DAWNSHELL_CODEC_DISABLE_SHM' "$client"
 
 grep -Fq 'codecClientBinary = new File(bin, "dawnshell-codec")' "$runtime"
 grep -Fq 'codecFfmpegAdapterScript = new File(scripts' "$runtime"
+grep -Fq 'codec720pTestVector = new File(downloads' "$runtime"
+grep -Fq 'codec1080pTestVector = new File(downloads' "$runtime"
 grep -Fq 'hardware_codec_client=/usr/local/bin/dawnshell-codec' "$configurator"
 grep -Fq 'hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test' \
     "$configurator"
 grep -Fq 'hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode' "$configurator"
 grep -Fq 'hardware_codec_encode=/usr/local/bin/dawnshell-hwencode' "$configurator"
 grep -Fq 'hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode' \
+    "$configurator"
+grep -Fq 'hardware_codec_performance_test=/usr/local/bin/dawnshell-codec-performance-test' \
     "$configurator"
 grep -Fq 'ffmpeg -hide_banner -loglevel error -f h264' "$configurator"
 grep -Fq 'python3-minimal' "$configurator"
@@ -80,6 +90,9 @@ grep -Fq 'h264_mp4toannexb' "$configurator"
 grep -Fq '/usr/local/libexec/dawnshell-codec-ffmpeg.py pack' "$configurator"
 grep -Fq '/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-stats' "$configurator"
 grep -Fq 'dawnshell-codec health --format json' "$configurator"
+grep -Fq 'cat > /usr/local/bin/dawnshell-codec-performance-test' "$configurator"
+grep -Fq 'compare-decode-transports' "$configurator"
+grep -Fq 'validate-cleanup' "$configurator"
 test -f "$ffmpeg_adapter"
 python3 - "$ffmpeg_adapter" <<'PYTHON_SYNTAX_CHECK'
 import pathlib
@@ -92,18 +105,36 @@ PYTHON_SYNTAX_CHECK
 grep -Fq 'encoded_frames="$(ffprobe' "$configurator"
 vector="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.h264"
 metadata="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.properties"
+vector_720="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-1280x720-30fps-30f.h264"
+metadata_720="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-1280x720-30fps-30f.properties"
+vector_1080="$repo_dir/app/src/main/assets/bfu/codec-test/avc-high-1920x1080-30fps-60f.h264"
+metadata_1080="$repo_dir/app/src/main/assets/bfu/codec-test/avc-high-1920x1080-30fps-60f.properties"
 printf '%s  %s\n' \
     7a9ccdf88db5e89f404a7a15e98e4c57f11c396c880d00fe8ae8d5775f50588e \
     "$vector" | sha256sum -c -
+printf '%s  %s\n' \
+    aa8cb11ff650c98d45b6975947024446e923cf055f3921189571bb8141d9c2a5 \
+    "$vector_720" | sha256sum -c -
+printf '%s  %s\n' \
+    67ee26637911bb0ffc7b84749810b14cc7b3e35677f138be2c43448e33e1421b \
+    "$vector_1080" | sha256sum -c -
 grep -Fqx \
     'decoded_i420_sha256=777feb39bd92b899fc9cf7c184396e3ecec4fdbcd7a582fc560fc37011f18053' \
     "$metadata"
+grep -Fqx \
+    'decoded_i420_sha256=7ff494db80cf8a311468f9638384d3d7a7bd320b5b831110076b7c80979af26f' \
+    "$metadata_720"
+grep -Fqx 'frames=60' "$metadata_1080"
 if [[ "$(uname -s)" == Linux* ]]; then
     temporary_client="$(mktemp)"
     trap 'rm -f -- "$temporary_client"' EXIT
     gcc -std=c17 -O2 -Wall -Wextra -Werror "$client" -o "$temporary_client"
     "$temporary_client" inspect-vector "$vector" 10 \
         | grep -Fqx 'annex_b_bytes=11568 access_units=10'
+    "$temporary_client" inspect-vector "$vector_720" 30 \
+        | grep -Fqx 'annex_b_bytes=374216 access_units=30'
+    "$temporary_client" inspect-vector "$vector_1080" 60 \
+        | grep -Fqx 'annex_b_bytes=971544 access_units=60'
 fi
 for abi in armeabi-v7a arm64-v8a x86_64; do
     test -s "$repo_dir/app/src/main/assets/bfu/bin/$abi/dawnshell-codec"
@@ -160,6 +191,23 @@ cat > "$adapter_test_dir/client.log" <<'EOF_SESSION_STATS'
 dawnshell-codec: session-stats={"session_id":7,"kind":"surface_transcoder","input_codec":"OMX.Exynos.avc.dec","output_codec":"OMX.Exynos.AVC.Encoder","transport":"surface_zero_copy","input_frames":2,"output_frames":2,"surface_frames":2,"cpu_yuv_frames":0,"input_eos":1,"output_eos":1,"errors":0,"dropped_frames":0}
 EOF_SESSION_STATS
 python3 "$ffmpeg_adapter" validate-stats "$adapter_test_dir/client.log" 2 \
-    | grep -Fqx 'surface_zero_copy=verified frames=2 cpu_yuv_frames=0 session_id=7'
+    | grep -Eq '^surface_zero_copy=verified frames=2 cpu_yuv_frames=0 runtime_ms='
+
+cat > "$adapter_test_dir/decode-shared.log" <<'EOF_SHARED_STATS'
+dawnshell-codec: session-stats={"session_id":8,"kind":"bytebuffer_decoder","transport":"bytebuffer","media_transport":"mixed","input_frames":2,"output_frames":2,"cpu_yuv_frames":2,"socket_input_bytes":10,"socket_output_bytes":0,"shared_input_bytes":0,"shared_output_bytes":48,"input_eos":1,"output_eos":1,"errors":0,"uptime_ms":10,"process_cpu_time_ms":4}
+EOF_SHARED_STATS
+cat > "$adapter_test_dir/decode-socket.log" <<'EOF_SOCKET_STATS'
+dawnshell-codec: session-stats={"session_id":9,"kind":"bytebuffer_decoder","transport":"bytebuffer","media_transport":"socket","input_frames":2,"output_frames":2,"cpu_yuv_frames":2,"socket_input_bytes":10,"socket_output_bytes":48,"shared_input_bytes":0,"shared_output_bytes":0,"input_eos":1,"output_eos":1,"errors":0,"uptime_ms":12,"process_cpu_time_ms":6}
+EOF_SOCKET_STATS
+python3 "$ffmpeg_adapter" compare-decode-transports \
+    "$adapter_test_dir/decode-shared.log" "$adapter_test_dir/decode-socket.log" 2 \
+    | grep -Fq 'decode_transport_comparison=verified frames=2'
+printf '%s\n' '{"broker_state":"listening","uptime_ms":100,"active_sessions":0,"active_transcoders":0,"sessions_created":3,"sessions_closed":3}' \
+    > "$adapter_test_dir/health-before.json"
+printf '%s\n' '{"broker_state":"listening","uptime_ms":200,"active_sessions":0,"active_transcoders":0,"sessions_created":13,"sessions_closed":13}' \
+    > "$adapter_test_dir/health-after.json"
+python3 "$ffmpeg_adapter" validate-cleanup "$adapter_test_dir/health-before.json" \
+    "$adapter_test_dir/health-after.json" 10 \
+    | grep -Fqx 'codec_resource_cleanup=verified sessions=10 active_sessions=0 active_transcoders=0'
 
 echo "Hardware codec broker protocol, client, and three-ABI assets are pinned"

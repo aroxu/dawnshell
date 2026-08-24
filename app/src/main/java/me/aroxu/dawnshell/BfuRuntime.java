@@ -49,6 +49,10 @@ final class BfuRuntime {
         final File runtimeProperties;
         final File codecTestVector;
         final File codecTestMetadata;
+        final File codec720pTestVector;
+        final File codec720pTestMetadata;
+        final File codec1080pTestVector;
+        final File codec1080pTestMetadata;
 
         Layout(File root, BfuArchitecture architecture) {
             this.root = root;
@@ -90,6 +94,14 @@ final class BfuRuntime {
                     "avc-baseline-128x96-10fps.h264");
             codecTestMetadata = new File(downloads,
                     "avc-baseline-128x96-10fps.properties");
+            codec720pTestVector = new File(downloads,
+                    "avc-baseline-1280x720-30fps-30f.h264");
+            codec720pTestMetadata = new File(downloads,
+                    "avc-baseline-1280x720-30fps-30f.properties");
+            codec1080pTestVector = new File(downloads,
+                    "avc-high-1920x1080-30fps-60f.h264");
+            codec1080pTestMetadata = new File(downloads,
+                    "avc-high-1920x1080-30fps-60f.properties");
         }
     }
 
@@ -145,6 +157,18 @@ final class BfuRuntime {
         copyPrivateAsset(deContext,
                 "bfu/codec-test/avc-baseline-128x96-10fps.properties",
                 layout.codecTestMetadata, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/avc-baseline-1280x720-30fps-30f.h264",
+                layout.codec720pTestVector, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/avc-baseline-1280x720-30fps-30f.properties",
+                layout.codec720pTestMetadata, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/avc-high-1920x1080-30fps-60f.h264",
+                layout.codec1080pTestVector, false);
+        copyPrivateAsset(deContext,
+                "bfu/codec-test/avc-high-1920x1080-30fps-60f.properties",
+                layout.codec1080pTestMetadata, false);
         copyPrivateAsset(deContext, "bfu/install-debian-rootfs.sh",
                 layout.rootfsInstallerScript, true);
         copyPrivateAsset(deContext, "bfu/configure-debian-systemd.sh",

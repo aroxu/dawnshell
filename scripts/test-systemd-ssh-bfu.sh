@@ -11,6 +11,12 @@ esac
 : "${BFU_PHONE_HOST:?Set BFU_PHONE_HOST to the phone IP address reachable before unlock}"
 : "${BFU_SSH_KEY:?Set BFU_SSH_KEY to the local private key matching the configured public key}"
 
+if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1"
+      && "${BFU_REQUIRE_HARDWARE_CODEC:-0}" != "1" ]]; then
+  echo "BFU_REQUIRE_CODEC_PERFORMANCE=1 requires BFU_REQUIRE_HARDWARE_CODEC=1" >&2
+  exit 2
+fi
+
 ssh_user="${BFU_SSH_USER:-debian}"
 ssh_port="${BFU_SSH_PORT:-22}"
 wait_seconds="${BFU_SSH_WAIT_SECONDS:-120}"
@@ -186,6 +192,9 @@ codec_command='set -eu
 dawnshell-codec health --format json
 dawnshell-codec capabilities
 timeout 120 /usr/local/bin/dawnshell-codec-self-test'
+if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1" ]]; then
+  codec_command+=$'\n[ -x /usr/local/bin/dawnshell-codec-performance-test ]\ntimeout 180 /usr/local/bin/dawnshell-codec-performance-test'
+fi
 if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
   echo "Running BFU hardware decode, encode, and Surface transcode self-test..."
   # Fixed command is intentionally executed by the remote Debian shell.
@@ -197,6 +206,11 @@ if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
   grep -Fq 'hardware AVC decode passed' <<<"$locked_codec_result"
   grep -Fq 'hardware AVC encode passed' <<<"$locked_codec_result"
   grep -Fq 'Surface zero-copy AVC transcode passed' <<<"$locked_codec_result"
+  if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1" ]]; then
+    grep -Fq 'hardware codec performance test passed' <<<"$locked_codec_result"
+    grep -Fq 'decode_transport_comparison=verified' <<<"$locked_codec_result"
+    grep -Fq 'codec_resource_cleanup=verified' <<<"$locked_codec_result"
+  fi
 fi
 
 if [[ "${BFU_SKIP_UNLOCK_CONTINUITY:-}" == "1" ]]; then
@@ -237,6 +251,10 @@ if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
   printf 'AFU codec result:\n%s\n' "$unlocked_codec_result"
   grep -Fq '"broker_state":"listening"' <<<"$unlocked_codec_result"
   grep -Fq 'Surface zero-copy AVC transcode passed' <<<"$unlocked_codec_result"
+  if [[ "${BFU_REQUIRE_CODEC_PERFORMANCE:-0}" == "1" ]]; then
+    grep -Fq 'hardware codec performance test passed' <<<"$unlocked_codec_result"
+    grep -Fq 'realtime=true' <<<"$unlocked_codec_result"
+  fi
 fi
 
 [[ "$unlocked_identity" = "$locked_identity" ]] || {

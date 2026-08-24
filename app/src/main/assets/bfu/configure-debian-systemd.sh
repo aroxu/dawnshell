@@ -95,6 +95,16 @@ esac
     fail 16 "hardware codec test vector is missing"
 [ -f "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.properties" ] || \
     fail 16 "hardware codec test metadata is missing"
+for performance_asset in \
+    avc-baseline-1280x720-30fps-30f.h264 \
+    avc-baseline-1280x720-30fps-30f.properties \
+    avc-high-1920x1080-30fps-60f.h264 \
+    avc-high-1920x1080-30fps-60f.properties; do
+    [ -f "$BFU_ROOT/downloads/$performance_asset" ] || \
+        fail 16 "hardware codec performance asset is missing: $performance_asset"
+    [ ! -L "$BFU_ROOT/downloads/$performance_asset" ] || \
+        fail 16 "hardware codec performance asset symlinks are forbidden"
+done
 
 key_size="$(stat -c '%s' "$AUTHORIZED_KEYS")"
 case "$key_size" in
@@ -209,6 +219,16 @@ cp "$BFU_ROOT/downloads/avc-baseline-128x96-10fps.properties" \
     "$ROOT/usr/local/share/dawnshell/avc-baseline-128x96-10fps.properties"
 chown 0:0 "$ROOT/usr/local/share/dawnshell/"avc-baseline-128x96-10fps.*
 chmod 0644 "$ROOT/usr/local/share/dawnshell/"avc-baseline-128x96-10fps.*
+for performance_asset in \
+    avc-baseline-1280x720-30fps-30f.h264 \
+    avc-baseline-1280x720-30fps-30f.properties \
+    avc-high-1920x1080-30fps-60f.h264 \
+    avc-high-1920x1080-30fps-60f.properties; do
+    cp "$BFU_ROOT/downloads/$performance_asset" \
+        "$ROOT/usr/local/share/dawnshell/$performance_asset"
+    chown 0:0 "$ROOT/usr/local/share/dawnshell/$performance_asset"
+    chmod 0644 "$ROOT/usr/local/share/dawnshell/$performance_asset"
+done
 
 dns="$(getprop net.dns1 2>/dev/null || true)"
 case "$dns" in
@@ -298,6 +318,7 @@ apt-get -o Acquire::Retries=3 update
 
 for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
     /usr/bin/timeout /usr/bin/ss /usr/bin/mawk /usr/bin/touch \
+    /usr/bin/mktemp /usr/bin/sha256sum /usr/bin/sleep \
     /usr/bin/lsusb /usr/bin/ffmpeg /usr/bin/ffprobe /usr/bin/python3 \
     /usr/sbin/shutdown; do
     [ -x "$tool" ] || {
@@ -352,6 +373,110 @@ echo "DawnShell Surface zero-copy AVC transcode passed: frames=10"
 /usr/local/bin/dawnshell-codec health --format json
 EOF_CODEC_SELF_TEST
 chmod 0755 /usr/local/bin/dawnshell-codec-self-test
+
+cat > /usr/local/bin/dawnshell-codec-performance-test <<'EOF_CODEC_PERFORMANCE_TEST'
+#!/bin/sh
+set -eu
+
+adapter=/usr/local/libexec/dawnshell-codec-ffmpeg.py
+vector_720=/usr/local/share/dawnshell/avc-baseline-1280x720-30fps-30f.h264
+vector_1080=/usr/local/share/dawnshell/avc-high-1920x1080-30fps-60f.h264
+expected_720=7ff494db80cf8a311468f9638384d3d7a7bd320b5b831110076b7c80979af26f
+temporary="$(mktemp -d /run/dawnshell-codec-performance.XXXXXX)"
+cleanup() {
+    rm -rf -- "$temporary"
+}
+trap cleanup EXIT HUP INT TERM
+
+before_health="$temporary/health-before.json"
+after_health="$temporary/health-after.json"
+decoded="$temporary/decoded.i420"
+shared_log="$temporary/decode-shared.log"
+socket_log="$temporary/decode-socket.log"
+transcode_log="$temporary/transcode.log"
+encoded="$temporary/transcoded.h264"
+
+dawnshell-codec health --format json > "$before_health"
+
+echo "STAGE: 720p hardware decode through shared memory"
+if dawnshell-codec decode-test "$vector_720" 1280 720 30 30 \
+    > "$decoded" 2> "$shared_log"; then
+    :
+else
+    status=$?
+    cat "$shared_log" >&2
+    exit "$status"
+fi
+actual="$(sha256sum "$decoded" | awk '{print $1}')"
+[ "$actual" = "$expected_720" ] || {
+    cat "$shared_log" >&2
+    echo "720p shared-memory decode checksum mismatch: $actual" >&2
+    exit 1
+}
+rm -f "$decoded"
+
+echo "STAGE: 720p hardware decode through bounded socket fallback"
+if DAWNSHELL_CODEC_DISABLE_SHM=1 \
+    dawnshell-codec decode-test "$vector_720" 1280 720 30 30 \
+    > "$decoded" 2> "$socket_log"; then
+    :
+else
+    status=$?
+    cat "$socket_log" >&2
+    exit "$status"
+fi
+actual="$(sha256sum "$decoded" | awk '{print $1}')"
+[ "$actual" = "$expected_720" ] || {
+    cat "$socket_log" >&2
+    echo "720p socket decode checksum mismatch: $actual" >&2
+    exit 1
+}
+rm -f "$decoded"
+"$adapter" compare-decode-transports "$shared_log" "$socket_log" 30
+
+echo "STAGE: 1080p30 Surface zero-copy realtime transcode"
+if dawnshell-codec transcode-test "$vector_1080" 1920 1080 30 60 8000000 \
+    > "$encoded" 2> "$transcode_log"; then
+    :
+else
+    status=$?
+    cat "$transcode_log" >&2
+    exit "$status"
+fi
+"$adapter" validate-stats "$transcode_log" 60 --max-runtime-ms 2000
+ffmpeg -hide_banner -loglevel error -f h264 -i "$encoded" -f null -
+encoded_frames="$(ffprobe -v error -f h264 -count_frames -select_streams v:0 \
+    -show_entries stream=nb_read_frames \
+    -of default=nokey=1:noprint_wrappers=1 "$encoded")"
+[ "$encoded_frames" = 60 ] || {
+    echo "1080p Surface transcode frame count mismatch: $encoded_frames" >&2
+    exit 1
+}
+
+echo "STAGE: abrupt peer cleanup and Surface resource reuse"
+for iteration in 1 2 3 4 5; do
+    if ! dawnshell-codec orphan-test decode \
+        >> "$temporary/orphan.log" 2>&1; then
+        cat "$temporary/orphan.log" >&2
+        exit 1
+    fi
+    sleep 1
+done
+for iteration in 1 2; do
+    if ! dawnshell-codec orphan-test transcode \
+        >> "$temporary/orphan.log" 2>&1; then
+        cat "$temporary/orphan.log" >&2
+        exit 1
+    fi
+    sleep 1
+done
+dawnshell-codec health --format json > "$after_health"
+"$adapter" validate-cleanup "$before_health" "$after_health" 10
+
+echo "DawnShell hardware codec performance test passed: 720p checksum/PTS, shared-memory/socket comparison, 1080p30 Surface transcode realtime=true, cleanup"
+EOF_CODEC_PERFORMANCE_TEST
+chmod 0755 /usr/local/bin/dawnshell-codec-performance-test
+chown 0:0 /usr/local/bin/dawnshell-codec-performance-test
 
 [ -x /usr/local/libexec/dawnshell-codec-ffmpeg.py ] || {
     echo "ERROR: DawnShell FFmpeg packet adapter is missing"
@@ -865,6 +990,7 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ -x /usr/local/bin/dawnshell-hwdecode ]
 [ -x /usr/local/bin/dawnshell-hwencode ]
 [ -x /usr/local/bin/dawnshell-hwtranscode ]
+[ -x /usr/local/bin/dawnshell-codec-performance-test ]
 
 cat > "${READY_MARKER}.new" <<EOF_READY
 format=1
@@ -878,6 +1004,7 @@ ssh_port=22
 host_reboot_bridge=/usr/local/sbin/reboot
 hardware_codec_client=/usr/local/bin/dawnshell-codec
 hardware_codec_self_test=/usr/local/bin/dawnshell-codec-self-test
+hardware_codec_performance_test=/usr/local/bin/dawnshell-codec-performance-test
 hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode
 hardware_codec_encode=/usr/local/bin/dawnshell-hwencode
 hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode

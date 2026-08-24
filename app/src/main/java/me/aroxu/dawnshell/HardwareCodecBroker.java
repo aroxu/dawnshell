@@ -398,10 +398,11 @@ final class HardwareCodecBroker implements Closeable {
         long presentationTimeUs = values.getLong();
         int flags = values.getInt();
         int length = values.getInt();
-        if (length < 0 || length != values.remaining()) {
+        if (length <= 0 || length != values.remaining()) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
                     "input payload length mismatch");
         }
+        requireInputFlags(flags);
         int status = session.queue(values.slice(), presentationTimeUs, flags);
         session.recordSocketInput(length);
         writeResponse(output, request.type, request.sessionId, request.requestId,
@@ -438,10 +439,11 @@ final class HardwareCodecBroker implements Closeable {
         long presentationTimeUs = values.getLong();
         int flags = values.getInt();
         int length = values.getInt();
-        if (length < 0 || length > HardwareCodecProtocol.MAX_MEDIA_PAYLOAD - 16) {
+        if (length <= 0 || length > HardwareCodecProtocol.MAX_MEDIA_PAYLOAD - 16) {
             throw new RequestException(HardwareCodecProtocol.ERROR_LIMIT,
                     "shared input length exceeds limit");
         }
+        requireInputFlags(flags);
         byte[] media = readSharedMemory(request.singleDescriptor(), length);
         session.recordSharedInput(length);
         totalSharedInputBytes.addAndGet(length);
@@ -550,6 +552,13 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
+    private static void requireInputFlags(int flags) throws RequestException {
+        if ((flags & ~MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+            throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
+                    "input contains unsupported buffer flags");
+        }
+    }
+
     private boolean reserveGlobalSession() {
         while (true) {
             int current = activeSessions.get();
@@ -612,6 +621,7 @@ final class HardwareCodecBroker implements Closeable {
                 + ",\"request_errors\":" + totalRequestErrors.get()
                 + ",\"shared_input_bytes\":" + totalSharedInputBytes.get()
                 + ",\"shared_output_bytes\":" + totalSharedOutputBytes.get()
+                + ",\"process_cpu_time_ms\":" + Process.getElapsedCpuTime()
                 + ",\"software_fallback\":false}"
                 ;
         return textPayload(value);
@@ -746,6 +756,7 @@ final class HardwareCodecBroker implements Closeable {
 
     private static final class SessionCounters {
         final long createdElapsedRealtime = SystemClock.elapsedRealtime();
+        final long createdProcessCpuTimeMs = Process.getElapsedCpuTime();
         long inputRecords;
         long inputBytes;
         long inputFrames;
@@ -769,12 +780,27 @@ final class HardwareCodecBroker implements Closeable {
                     String transport) {
             long uptimeMs = Math.max(0L,
                     SystemClock.elapsedRealtime() - createdElapsedRealtime);
+            long cpuTimeMs = Math.max(0L,
+                    Process.getElapsedCpuTime() - createdProcessCpuTimeMs);
+            String mediaTransport;
+            if (sharedInputBytes + sharedOutputBytes > 0
+                    && socketInputBytes + socketOutputBytes > 0) {
+                mediaTransport = "mixed";
+            } else if (sharedInputBytes + sharedOutputBytes > 0) {
+                mediaTransport = "shared_memory";
+            } else if (socketInputBytes + socketOutputBytes > 0) {
+                mediaTransport = "socket";
+            } else {
+                mediaTransport = "none";
+            }
             return "{\"session_id\":" + id
                     + ",\"kind\":\"" + CodecSession.json(kind) + "\""
                     + ",\"input_codec\":\"" + CodecSession.json(inputCodec) + "\""
                     + ",\"output_codec\":\"" + CodecSession.json(outputCodec) + "\""
                     + ",\"transport\":\"" + CodecSession.json(transport) + "\""
                     + ",\"uptime_ms\":" + uptimeMs
+                    + ",\"process_cpu_time_ms\":" + cpuTimeMs
+                    + ",\"media_transport\":\"" + mediaTransport + "\""
                     + ",\"input_records\":" + inputRecords
                     + ",\"input_bytes\":" + inputBytes
                     + ",\"input_frames\":" + inputFrames
