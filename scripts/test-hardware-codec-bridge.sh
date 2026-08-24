@@ -106,11 +106,20 @@ grep -Fq 'copyFfmpegCodecGuide(guide)' "$activity"
 grep -Fq 'open_ffmpeg_codec_guide_button' "$boot_layout"
 grep -Fq 'dawnshell_codec_ffmpeg_guide_body' "$english_strings"
 grep -Fq 'dawnshell_codec_ffmpeg_guide_body' "$korean_strings"
-grep -Fq 'DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg' "$english_strings"
-grep -Fq 'DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg' "$korean_strings"
+grep -Fq 'sudo env DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg' "$english_strings"
+grep -Fq 'sudo env DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg' "$korean_strings"
+grep -Fq 'sudo bash -x /usr/local/bin/dawnshell-hwtranscode' "$english_strings"
+grep -Fq 'sudo bash -x /usr/local/bin/dawnshell-hwtranscode' "$korean_strings"
 grep -Fq 'socket/shared-memory streaming' "$ffmpeg_guide"
 grep -Fq 'socket/공유' "$ffmpeg_guide_ko"
 grep -Fq 'sudo ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg' \
+    "$ffmpeg_guide" "$ffmpeg_guide_ko"
+grep -Fq 'plan-ffmpeg' "$ffmpeg_guide" "$ffmpeg_guide_ko"
+grep -Fq 'sudo bash -x /usr/local/bin/dawnshell-hwtranscode' \
+    "$ffmpeg_guide" "$ffmpeg_guide_ko"
+grep -Fq '/usr/local/bin/dawnshell-codec transcode' \
+    "$ffmpeg_guide" "$ffmpeg_guide_ko"
+grep -Fq 'sudo env DAWNSHELL_FFMPEG_BRIDGE=require' \
     "$ffmpeg_guide" "$ffmpeg_guide_ko"
 
 grep -Fq '#define DSCB_MAGIC 0x44534342u' "$client"

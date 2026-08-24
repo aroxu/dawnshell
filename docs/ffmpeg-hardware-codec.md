@@ -23,7 +23,7 @@ bridge and must be tested separately.
 
 ```sh
 command -v dawnshell-ffmpeg dawnshell-hwdecode dawnshell-hwencode dawnshell-hwtranscode
-dawnshell-codec health --format json
+sudo dawnshell-codec health --format json
 ```
 
 `broker_state` must be `listening`.
@@ -34,7 +34,7 @@ This video-only command hardware-decodes H.264/HEVC through an Android Surface
 and hardware-encodes AVC. `require` prevents silent fallback.
 
 ```sh
-DAWNSHELL_FFMPEG_BRIDGE=require \
+sudo env DAWNSHELL_FFMPEG_BRIDGE=require \
   dawnshell-ffmpeg -hide_banner -y \
   -i input.mp4 -map 0:v:0 -an \
   -c:v libx264 -b:v 4M output.mp4
@@ -47,19 +47,113 @@ The successful log reports the selected Android codec names,
 
 ```sh
 # Hardware-decode H.264/HEVC to packed I420.
-dawnshell-hwdecode input.mp4 output.i420
+sudo dawnshell-hwdecode input.mp4 output.i420
 
 # Convert the input to I420 in FFmpeg, then hardware-encode AVC or HEVC.
-dawnshell-hwencode input.mp4 output.mp4 4000000 avc
-dawnshell-hwencode input.mp4 output.hevc 4000000 hevc
+sudo dawnshell-hwencode input.mp4 output.mp4 4000000 avc
+sudo dawnshell-hwencode input.mp4 output.hevc 4000000 hevc
 
 # Surface hardware decode followed by AVC hardware encode.
-dawnshell-hwtranscode input.mp4 output.mp4 4000000
+sudo dawnshell-hwtranscode input.mp4 output.mp4 4000000
 ```
 
 `dawnshell-hwdecode` should use `.i420` or `.yuv` when testing decode alone. A
 container output makes `/usr/bin/ffmpeg` software-encode the decoded frames.
 `dawnshell-hwtranscode` produces video-only AVC.
+
+## Preview and trace the wrapper expansion
+
+Print the route selected by `dawnshell-ffmpeg` without processing media:
+
+```sh
+/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg \
+  -hide_banner -y -i input.mp4 -map 0:v:0 -an \
+  -c:v libx264 -b:v 4M output.mp4
+```
+
+Expected plan:
+
+```text
+action=transcode input=input.mp4 output=output.mp4 codec=avc bitrate=4000000
+```
+
+Trace every shell command and expanded variable in the selected direct wrapper:
+
+```sh
+sudo bash -x /usr/local/bin/dawnshell-hwtranscode \
+  input.mp4 output.mp4 4000000 \
+  2>&1 | tee /tmp/dawnshell-hwtranscode.trace.log
+
+sudo bash -x /usr/local/bin/dawnshell-hwdecode input.mp4 output.i420
+sudo bash -x /usr/local/bin/dawnshell-hwencode input.mp4 output.mp4 4000000 avc
+```
+
+## Fully expanded raw Surface-transcode pipeline
+
+The following is the wrapper-free equivalent of
+`dawnshell-hwtranscode input.mp4 output.mp4 4000000` for H.264 MP4 input.
+
+```sh
+sudo -i
+
+input=/absolute/path/input.mp4
+output=/absolute/path/output.mp4
+bit_rate=4000000
+temporary="$(mktemp -d /run/dawnshell-raw-transcode.XXXXXX)"
+trap 'rm -rf -- "$temporary"' EXIT HUP INT TERM
+
+stream_info="$temporary/stream.txt"
+input_packets="$temporary/input-packets.json"
+annex_b="$temporary/input.h264"
+raw_packets="$temporary/raw-packets.json"
+framed_input="$temporary/framed-input.bin"
+framed_output="$temporary/framed-output.bin"
+encoded="$temporary/output.h264"
+client_log="$temporary/client.log"
+
+/usr/bin/ffprobe -v error -select_streams v:0 \
+  -show_entries stream=codec_name,width,height,avg_frame_rate \
+  -of default=noprint_wrappers=1 "$input" > "$stream_info"
+width="$(sed -n 's/^width=//p' "$stream_info" | head -n 1)"
+height="$(sed -n 's/^height=//p' "$stream_info" | head -n 1)"
+frame_rate="$(sed -n 's/^avg_frame_rate=//p' "$stream_info" | head -n 1)"
+integer_rate="$(printf '%s\n' "$frame_rate" | mawk -F/ \
+  'NF == 2 { printf "%d\\n", int(($1 / $2) + 0.5) }')"
+
+/usr/bin/ffprobe -v error -select_streams v:0 -show_packets \
+  -show_entries packet=pts_time,dts_time -of json \
+  "$input" > "$input_packets"
+/usr/bin/ffmpeg -hide_banner -loglevel error -y -i "$input" \
+  -map 0:v:0 -an -c:v copy -bsf:v h264_mp4toannexb \
+  -f h264 "$annex_b"
+/usr/bin/ffprobe -v error -f h264 -show_packets \
+  -show_entries packet=pos,size -of json \
+  "$annex_b" > "$raw_packets"
+
+/usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
+  "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
+/usr/local/bin/dawnshell-codec transcode \
+  avc avc "$width" "$height" "$integer_rate" "$bit_rate" \
+  < "$framed_input" > "$framed_output" 2> "$client_log"
+
+cat "$client_log" >&2
+frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
+  "$framed_output" "$encoded" --require-keyframe)"
+/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-stats \
+  "$client_log" "$frames"
+/usr/bin/ffmpeg -hide_banner -loglevel error -y \
+  -r "$frame_rate" -f h264 -i "$encoded" \
+  -map 0:v:0 -an -c:v copy "$output"
+```
+
+For HEVC input, replace `h264_mp4toannexb` with `hevc_mp4toannexb`, both
+`-f h264` occurrences with `-f hevc`, and `transcode avc avc` with
+`transcode hevc avc`.
+
+`/usr/local/bin/dawnshell-codec` is the irreducible native bridge client.
+Plain FFmpeg cannot call `MediaCodec` in the Android app process. The broker
+accepts UID 0 peers only, so commands that use the bridge require `sudo` from a
+regular Debian account.
 
 ## Make existing `ffmpeg` calls use the wrapper
 
@@ -98,7 +192,7 @@ unsupported codecs, and audio processing fall back to plain FFmpeg or fail in
 audio, mux it afterward:
 
 ```sh
-DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg \
+sudo env DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg \
   -y -i input.mp4 -map 0:v:0 -an -c:v libx264 -b:v 4M video-only.mp4
 
 /usr/bin/ffmpeg -y -i video-only.mp4 -i input.mp4 \
@@ -108,7 +202,7 @@ DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg \
 ## Troubleshooting
 
 ```sh
-dawnshell-codec health --format json
+sudo dawnshell-codec health --format json
 ```
 
 Open **Hardware video acceleration → View hardware codec report** in the app.
@@ -116,4 +210,3 @@ If the file-backed test passes but FFmpeg fails, investigate the streaming
 socket/shared-memory layer rather than hardware codec availability. If
 `broker_state` is not `listening`, enable and save the bridge and configure
 Debian again.
-
