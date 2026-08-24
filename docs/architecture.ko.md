@@ -145,13 +145,13 @@ Direct-Boot-aware Android `:codec` 프로세스가 공개 `MediaCodec` API로 �
 systemd와 SSH에서 분리되므로 vendor 코덱 오류가 서버 수명 주기를 종료시키지
 않습니다. `USER_UNLOCKED`에서도 중지하지 않습니다.
 
-현재 구현 단계는 BFU/AFU capability 조사입니다. H.264/AVC 및 HEVC 코덱을
-나열하고 secure 코덱을 제외한 뒤, 하드웨어로 판정한 encoder/decoder를 이름으로
-생성하고 즉시 해제합니다. Android 10(API 29) 이상은 플랫폼의 hardware,
-software-only, vendor 판정을 사용합니다. Android 7~9는 알려진 vendor와 software
-코덱 이름을 보수적으로 분류하며 알 수 없는 이름은 하드웨어로 승격하지 않습니다.
-결과와 판정 근거는 앱 DE의 `hardware-codec/` 아래 상태, 로그 및 JSON으로
-저장합니다. 전체 영상 frame 전달과 Debian client는 아직 구현 중입니다.
+현재 구현은 capability 조사뿐 아니라 root peer 인증 local socket protocol, 세 ABI용
+정적 Debian client, bounded socket/`memfd` 전송, H.264 decode/encode와 H.264·HEVC
+Surface transcode까지 포함합니다. Android 10(API 29) 이상은 플랫폼의 hardware,
+software-only, vendor 판정을 사용하고 Android 7~9는 알려진 이름만 보수적으로
+분류합니다. session 통계는 keyframe, timestamp, EOS, shared-memory 사용량과 Surface
+경로의 `cpu_yuv_frames=0`을 검증하며 software fallback은 하지 않습니다. 결과와
+판정 근거는 앱 DE의 `hardware-codec/` 아래 상태, 로그 및 JSON으로 저장합니다.
 
 ## SSH 키 흐름
 

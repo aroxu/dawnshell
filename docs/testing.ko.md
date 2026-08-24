@@ -204,8 +204,15 @@ Wi-Fi, 모바일 데이터, USB Ethernet, VPN, Tailscale과 SSH가 유지되는�
 그다음 재부팅하고 잠금을 해제하지 않은 채 동일한 결과가 기록되는지 확인합니다.
 최초 잠금 해제 뒤 `:codec` 프로세스와 Debian이 모두 유지되어야 합니다. BFU에서
 미디어 서비스가 없는 ROM은 `UNAVAILABLE`일 수 있지만 소프트웨어 코덱 성공으로
-표시되어서는 안 됩니다. 이 단계는 instance 생성 probe이며 실제 frame 가속 시험은
-아직 통과 조건에 포함하지 않습니다.
+표시되어서는 안 됩니다. AFU 결과는 반드시 `user_unlocked=true`로 구분해 BFU
+증거로 사용하지 않습니다.
+
+실제 frame 경로는 Debian에서 `dawnshell-codec-self-test`를 실행해 decode checksum,
+encode keyframe/PTS/EOS, FFmpeg 재검증과 Surface zero-copy 통계를 확인합니다.
+`dawnshell-codec health --format json`은 `broker_state=listening`과 session 정리를,
+`dawnshell-codec negative-test`는 잘못된 요청 뒤 broker 생존을 확인합니다. 최종 5회
+시험은 `BFU_REQUIRE_HARDWARE_CODEC=1 BFU_CYCLES=5 scripts/test-final-bfu.sh`로
+잠금 해제 전후에 동일한 검사를 실행합니다.
 
 ## 11. 삭제
 

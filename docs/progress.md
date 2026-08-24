@@ -73,6 +73,10 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [x] Added `memfd`/`SCM_RIGHTS` media transport with bounded socket fallback.
 - [x] Added H.264/HEVC-to-H.264 Surface transcoding without returning full YUV
   frames to Debian.
+- [x] Added keyframe requests, broker/session statistics, and malformed-request
+  isolation checks.
+- [x] Verified Exynos AVC/HEVC encoder and decoder instance creation on Android
+  16 after first unlock.
 - [ ] Verify Exynos AVC hardware instance creation on a locked real device.
 - [ ] Verify fixed-vector decode, encode, shared-memory transport, and Surface
   transcode before and after first unlock.

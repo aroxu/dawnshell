@@ -145,16 +145,18 @@ Debian FFmpeg로 출력 Annex-B를 다시 decode해 10 frame임을 확인합니�
 
 ## 현재 상태
 
-M0/M1 앱 측 기반과 M2 코드 경로가 구현되어 있습니다. M2에는 별도 `:codec`
-프로세스의 versioned abstract Unix socket broker, `SO_PEERCRED` root 인증, bounded
-binary framing, 실제 hardware session create/input/output/flush/EOS/close, peer 종료
-시 release, 그리고 `armeabi-v7a`/`arm64-v8a`/`x86_64` 정적 `dawnshell-codec` CLI가
-포함됩니다. CLI는 Debian `/usr/local/bin`에 설치되며 length-framed pipe 경로를
-제공합니다.
+M0~M6 코드 경로가 구현되어 있습니다. 별도 `:codec` 프로세스의 versioned abstract
+Unix socket broker, `SO_PEERCRED` root 인증, bounded framing, peer 종료 시 session
+release와 `armeabi-v7a`/`arm64-v8a`/`x86_64` 정적 client를 제공합니다. 64 KiB 이상
+payload는 `memfd`/`SCM_RIGHTS`를 먼저 사용하고 안전한 socket copy로 폴백합니다.
 
-실기기 BFU backend와 session create 통과 조건은 마지막 일괄 기기 시험에서
-검증합니다. M3에는 작은 고정 H.264 smoke vector, Android Image→I420 정규화,
-frame/PTS/SHA-256 자체 검사와 앱 실행 버튼까지 구현됐습니다. M4에는 결정적 I420
-pattern hardware encode, PTS/EOS/실시간 속도 검사와 FFmpeg bitstream 재검증이
-구현됐습니다. M3의 최종 720p 및 M4 실기기 통과 판정, shared-memory 전송,
-일반 FFmpeg adapter와 zero-copy 경로는 아직 남아 있습니다.
+고정 H.264 vector의 Image→I420 checksum decode, 결정적 I420 hardware encode,
+FFmpeg demux/mux wrapper, H.264/HEVC→H.264 Surface transcode가 구현됐습니다. encode와
+transcode는 keyframe을 요청하고 첫 frame flag를 확인합니다. broker health 및 session
+통계로 frame/EOS/error/shared-memory와 Surface 경로의 `cpu_yuv_frames=0`을 검사하며
+잘못된 요청 뒤에도 broker가 응답하는지 확인합니다.
+
+제공된 Android 16 AFU 로그에서는 Exynos AVC/HEVC encoder와 decoder 인스턴스 생성이
+모두 성공했습니다. 로그가 `user_unlocked=true`이므로 BFU M0 판정은 아직 아니며,
+BFU backend/session, 720p·1080p 성능과 M7 5회 cold-boot 회귀는 마지막 일괄 실기기
+시험에서 검증합니다.

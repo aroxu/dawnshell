@@ -100,8 +100,15 @@ an AVC decoder or encoder `created(...)` result, and no `OMX.google.*`,
 on probe failure. Reboot without unlocking and verify the same result, then
 unlock and verify both the `:codec` process and Debian remain alive. A ROM may
 report `UNAVAILABLE` during BFU, but it must never report a software codec as a
-hardware success. This stage proves instance creation only; frame acceleration
-is not yet a pass criterion.
+hardware success. An AFU report with `user_unlocked=true` must not be counted as
+BFU evidence.
+
+Inside Debian, run `dawnshell-codec-self-test` to verify the decode checksum,
+encode keyframe/PTS/EOS, FFmpeg decode, and Surface zero-copy statistics. Use
+`dawnshell-codec health --format json` to check broker health and released
+sessions, and `dawnshell-codec negative-test` to prove malformed requests do not
+kill the broker. The final five-cycle test enables these checks with
+`BFU_REQUIRE_HARDWARE_CODEC=1`.
 
 ## Pass criteria
 

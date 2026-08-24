@@ -42,6 +42,13 @@ fail-closed합니다. control payload는 1 MiB, media payload는 8 MiB, 전체 s
 - `FLUSH(6)`, `EOS(7)`, `CLOSE(8)`: session 상태를 제어합니다.
 - `INPUT_SHARED_MEMORY(9)`, `OUTPUT_SHARED_MEMORY(10)`: 64 KiB 이상의 media를
   `memfd`와 `SCM_RIGHTS`로 전달합니다. metadata와 응답은 기존 socket에 남습니다.
+- `CREATE_TRANSCODER(11)`: decoder output Surface를 encoder input Surface에 직접
+  연결한 hardware transcode session을 만듭니다.
+- `REQUEST_KEYFRAME(12)`: encoder에 다음 sync frame을 요청합니다.
+- `HEALTH(13)`: broker uptime, peer/session 수, 오류 및 shared-memory byte 통계를
+  JSON으로 반환합니다.
+- `SESSION_STATS(14)`: session별 frame, EOS, 오류, transport와 CPU YUV copy 통계를
+  JSON으로 반환합니다.
 
 vendor codec 오류와 잘못된 client 입력은 해당 요청 또는 session에서만 실패하며
 Debian PID 1, SSH, Direct Boot supervisor는 종료하지 않습니다. 연결이 끊기면 해당
@@ -51,6 +58,8 @@ peer가 만든 모든 session을 자동 release합니다.
 
 ```sh
 dawnshell-codec capabilities
+dawnshell-codec health --format json
+dawnshell-codec negative-test
 dawnshell-codec probe decode avc 128 128
 dawnshell-codec pipe decode avc 1280 720 30 4000000 < packets.bin > frames.bin
 dawnshell-codec-self-test
@@ -112,6 +121,12 @@ encoder canonical name, `transport=surface_zero_copy`가 session 응답에 기�
 Surface color format을 광고하는 보수적 hardware pair가 없으면 software로 조용히
 전환하지 않고 명시적으로 실패합니다. audio, 해상도 변경, 영상 filter 및 scaling은
 지원하지 않습니다.
+
+각 encode/transcode 시작 시 keyframe을 요청하며 첫 실제 출력 frame의 keyframe
+flag를 검사합니다. Surface wrapper는 종료 전에 session 통계를 읽어 입력·출력·Surface
+frame 수, EOS, `cpu_yuv_frames=0`, 오류 0을 확인한 뒤에만 결과 파일을 게시합니다.
+`negative-test`는 잘못된 health payload와 존재하지 않는 session 요청을 의도적으로
+거부시킨 뒤 같은 연결에서 broker health가 유지되는지 확인합니다.
 
 최종 BFU 5회 회귀 시험에서 코덱까지 강제하려면 호스트에서 다음처럼 실행합니다.
 
