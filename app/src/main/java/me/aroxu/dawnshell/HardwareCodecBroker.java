@@ -251,9 +251,13 @@ final class HardwareCodecBroker implements Closeable {
             throw new ProtocolException(type, sessionId, requestId,
                     HardwareCodecProtocol.ERROR_LIMIT, "payload length exceeds limit");
         }
+        // The ancillary descriptor arrives with the header, so it must be
+        // collected before the payload is drained. A client sends large
+        // payloads separately because one oversized sendmsg() would fail with
+        // EMSGSIZE and lose the descriptor with it.
+        FileDescriptor[] descriptors = peer.getAncillaryFileDescriptors();
         byte[] payload = new byte[payloadLength];
         input.readFully(payload);
-        FileDescriptor[] descriptors = peer.getAncillaryFileDescriptors();
         boolean sharedMemoryRequest = type == HardwareCodecProtocol.INPUT_SHARED_MEMORY
                 || type == HardwareCodecProtocol.OUTPUT_SHARED_MEMORY;
         if (sharedMemoryRequest) {

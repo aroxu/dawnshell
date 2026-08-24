@@ -56,7 +56,11 @@
 #define DSCB_COLOR_YUV420_FLEXIBLE 0x7f420888u
 #define DSCB_BUFFER_FLAG_CODEC_CONFIG 2u
 #define DSCB_SOCKET_NAME "dawnshell.codec.v1"
-#define DSCB_SHARED_MEMORY_THRESHOLD (64u * 1024u)
+/* A single AF_UNIX datagram-sized write larger than the kernel's socket
+   buffer fails with EMSGSIZE, and Android's LocalSocket buffer is far below
+   one video frame. Anything above this size therefore travels through a
+   memfd the app writes directly, which has no such limit. */
+#define DSCB_SHARED_MEMORY_THRESHOLD (4u * 1024u)
 
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC 0x0001u
@@ -286,15 +290,15 @@ static int rpc(int descriptor, uint16_t type, uint64_t session_id,
 static int rpc_with_fd(int descriptor, uint16_t type, uint64_t session_id,
                        const void *payload, uint32_t payload_length,
                        int shared_descriptor, struct response *response) {
-    const size_t request_length = DSCB_HEADER_BYTES + (size_t)payload_length;
-    uint8_t *request = malloc(request_length);
+    /* Only the header travels with the descriptor. Attaching a large payload
+       to the same sendmsg() can exceed the socket buffer and fail with
+       EMSGSIZE, and the ancillary descriptor would be lost with it. Any
+       remaining bytes are streamed afterwards in bounded writes. */
+    uint8_t *request = malloc(DSCB_HEADER_BYTES);
     if (request == NULL) return -1;
     const uint32_t request_id = next_request_id++;
     make_request_header(request, type, session_id, payload_length, request_id);
-    if (payload_length > 0) {
-        memcpy(request + DSCB_HEADER_BYTES, payload, payload_length);
-    }
-    struct iovec vector = {.iov_base = request, .iov_len = request_length};
+    struct iovec vector = {.iov_base = request, .iov_len = DSCB_HEADER_BYTES};
     char control[CMSG_SPACE(sizeof(int))];
     memset(control, 0, sizeof(control));
     struct msghdr message;
@@ -312,13 +316,17 @@ static int rpc_with_fd(int descriptor, uint16_t type, uint64_t session_id,
     do {
         sent = sendmsg(descriptor, &message, MSG_NOSIGNAL);
     } while (sent < 0 && errno == EINTR);
-    if (sent <= 0 || (size_t)sent > request_length) {
+    if (sent <= 0 || (size_t)sent > DSCB_HEADER_BYTES) {
         free(request);
         return -1;
     }
     int result = 0;
-    if ((size_t)sent < request_length
-            && write_all(descriptor, request + sent, request_length - (size_t)sent) != 0) {
+    if ((size_t)sent < DSCB_HEADER_BYTES
+            && write_all(descriptor, request + sent,
+                         DSCB_HEADER_BYTES - (size_t)sent) != 0) {
+        result = -1;
+    } else if (payload_length > 0
+            && write_all(descriptor, payload, payload_length) != 0) {
         result = -1;
     } else {
         result = read_response(descriptor, type, request_id, response);
