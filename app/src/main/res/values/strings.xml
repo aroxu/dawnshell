@@ -250,6 +250,7 @@
     <string name="dawnshell_codec_self_test_passed">Hardware AVC self-test passed. See the hardware video codec log for details.</string>
     <string name="dawnshell_codec_self_test_failed">Hardware AVC self-test failed. See the hardware video codec log for details.</string>
     <string name="dawnshell_codec_self_test_requires_setup">Enable the codec bridge, save settings, and configure Debian before running the self-test.</string>
+    <string name="dawnshell_codec_tools_missing">Codec tools are not installed in Debian. Run Configure Debian 13 systemd + SSH again, then retry.</string>
     <string name="dawnshell_codec_performance_test_started">Running B-frame/HEVC containers, 720p transport, a 1080p CPU baseline, encode PSNR/SSIM, realtime transcode, malformed-input, concurrency, cleanup, and broker-restart regressions…</string>
     <string name="dawnshell_codec_performance_test_passed">Hardware codec performance test passed. See the hardware video codec log for details.</string>
     <string name="dawnshell_codec_performance_test_failed">Hardware codec performance test failed. See the hardware video codec log for details.</string>

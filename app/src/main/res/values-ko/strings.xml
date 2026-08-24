@@ -250,6 +250,7 @@
     <string name="dawnshell_codec_self_test_passed">하드웨어 AVC 자체 검사를 통과했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>
     <string name="dawnshell_codec_self_test_failed">하드웨어 AVC 자체 검사에 실패했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>
     <string name="dawnshell_codec_self_test_requires_setup">코덱 브리지를 활성화하고 설정을 저장한 뒤 Debian 구성을 완료하세요.</string>
+    <string name="dawnshell_codec_tools_missing">Debian에 코덱 도구가 설치되지 않았습니다. Debian 13 systemd + SSH 구성을 다시 실행한 뒤 재시도하세요.</string>
     <string name="dawnshell_codec_performance_test_started">B-frame/HEVC 컨테이너, 720p 전송, 1080p CPU 기준선, 인코드 PSNR/SSIM, 실시간 트랜스코드, 잘못된 입력, 동시 세션, 자원 정리 및 브로커 재시작을 검사 중입니다…</string>
     <string name="dawnshell_codec_performance_test_passed">하드웨어 코덱 성능 검사를 통과했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>
     <string name="dawnshell_codec_performance_test_failed">하드웨어 코덱 성능 검사에 실패했습니다. 자세한 내용은 하드웨어 영상 코덱 로그에서 확인하세요.</string>

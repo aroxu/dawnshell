@@ -1418,6 +1418,7 @@ public class BootActivity extends AppCompatActivity {
         codecSelfTestExecutor.execute(() -> {
             String output;
             boolean passed = false;
+            boolean missingTools = false;
             try {
                 Thread.sleep(500L);
                 String command = BfuSu.shellQuote(chrootTool) + " chroot "
@@ -1431,6 +1432,11 @@ public class BootActivity extends AppCompatActivity {
                 output = "command=" + result.command + " exit=" + result.exitCode
                         + " timeout=" + result.timedOut + " output=" + result.output;
                 passed = result.exitedSuccessfully();
+                // Exit 127 means the configurator never installed the codec
+                // tools, which is a setup step rather than a codec failure.
+                missingTools = !passed && result.exitCode == 127
+                        && result.output != null
+                        && result.output.contains("dawnshell-codec");
                 if (passed && performance) {
                     output += "\n" + HardwareCodecRecoveryTest.run(this, codecLayout);
                 }
@@ -1446,11 +1452,15 @@ public class BootActivity extends AppCompatActivity {
                 output = BfuSu.sanitize(e.getMessage());
             }
             final boolean finalPassed = passed;
+            final boolean finalMissingTools = missingTools;
             final String finalOutput = performance
                     ? BfuSu.sanitizeTail(output) : BfuSu.sanitize(output);
             HardwareCodecProbe.recordBrokerEvent(this,
                     (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
-                            + (finalPassed ? "PASSED " : "FAILED ")
+                            + (finalPassed ? "PASSED "
+                            : finalMissingTools
+                            ? "FAILED tools_missing run_debian_configuration "
+                            : "FAILED ")
                             + finalOutput);
             try {
                 BfuOperationLog.append(this, "HARDWARE_CODEC_"
@@ -1470,6 +1480,9 @@ public class BootActivity extends AppCompatActivity {
                 int failedText = performance
                         ? R.string.dawnshell_codec_performance_test_failed
                         : R.string.dawnshell_codec_self_test_failed;
+                if (finalMissingTools) {
+                    failedText = R.string.dawnshell_codec_tools_missing;
+                }
                 // A toast truncates long codec output, so it only reports the
                 // outcome; the full detail stays in the hardware codec log.
                 Toast.makeText(this, getString(
