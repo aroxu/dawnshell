@@ -17,6 +17,12 @@
 #include <sys/file.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
+#ifndef PR_CAPBSET_DROP
+#define PR_CAPBSET_DROP 24
+#endif
+#ifndef CAP_SYS_BOOT
+#define CAP_SYS_BOOT 22
+#endif
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -2340,6 +2346,19 @@ static int wait_for_network_manager(int manager_ready_fd) {
 }
 
 static int set_base_private_namespaces(void) {
+    /* This kernel does not confine a container reboot request to the private
+       PID namespace; reboot(2) reaches the Android kernel path and restarts
+       the phone. Docker's runtime can issue that call while starting or
+       cleaning up a container, so the capability is dropped from the bounding
+       set before Debian starts. DawnShell's own reboot bridge is unaffected
+       because it asks the Android-side supervisor instead. */
+    if (prctl(PR_CAPBSET_DROP, CAP_SYS_BOOT, 0, 0, 0) != 0 && errno != EINVAL) {
+        return fail_errno("capbset_drop_sys_boot", 53);
+    }
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE cap_sys_boot_dropped "
+            "android_reboot_from_container=blocked\n",
+            (long long) realtime_seconds());
     if (unshare(CLONE_NEWNS) != 0) return fail_errno("unshare_mount", 53);
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) {
         return fail_errno("mount_make_rprivate", 54);

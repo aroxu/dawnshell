@@ -88,6 +88,12 @@ reboot now
 `systemctl reboot` is a namespace-isolation test path, not the Android reboot
 command.
 
+This `reboot` command is the only way to restart Android. Debian and the
+containers it runs cannot ask the kernel to reboot directly, because this
+kernel does not confine such a request to the container and would restart the
+whole device. That is what previously rebooted the phone when a Docker
+container started or was cleaned up.
+
 ## Kernel and Docker
 
 Keep the recommended automatic cgroup v2-to-v1 fallback unless diagnosing a
