@@ -110,6 +110,19 @@ sessions, and `dawnshell-codec negative-test` to prove malformed requests do not
 kill the broker. The final five-cycle test enables these checks with
 `BFU_REQUIRE_HARDWARE_CODEC=1`.
 
+Verify transparent integration with `dawnshell-ffmpeg`:
+
+```sh
+DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 -b:v 3M out.mp4
+dawnshell-ffmpeg -i input.mp4 -vf scale=640:480 -c:v libx264 out.mp4
+```
+
+The first command must run on hardware; the filtered command must be delegated
+to the real FFmpeg. `require` turns a software fallback into an error so a
+software result cannot be mistaken for hardware during benchmarking. Command
+routing itself is pinned without a device by
+`scripts/test-ffmpeg-bridge-plan.sh`.
+
 The short performance, quality, and error-regression button additionally checks
 shared-memory versus forced-socket decode, B-frame MP4 timestamps, a matching
 1080p software/hardware checksum and CPU baseline, hardware-encode PSNR/SSIM,

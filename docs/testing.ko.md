@@ -214,6 +214,18 @@ encode keyframe/PTS/EOS, FFmpeg 재검증과 Surface zero-copy 통계를 확인�
 시험은 `BFU_REQUIRE_HARDWARE_CODEC=1 BFU_CYCLES=5 scripts/test-final-bfu.sh`로
 잠금 해제 전후에 동일한 검사를 실행합니다.
 
+기존 프로그램 자동 연동은 Debian에서 `dawnshell-ffmpeg`로 확인합니다.
+
+```sh
+DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 -b:v 3M out.mp4
+dawnshell-ffmpeg -i input.mp4 -vf scale=640:480 -c:v libx264 out.mp4
+```
+
+첫 명령은 hardware 경로로 처리되어야 하고, filter를 사용한 두 번째 명령은 실제
+FFmpeg로 위임되어야 합니다. `require` 모드는 software fallback을 오류로 만들므로
+성능 비교 시 software 결과를 hardware로 오인하지 않게 합니다. 명령줄 판정 자체는
+`scripts/test-ffmpeg-bridge-plan.sh`가 기기 없이 회귀로 고정합니다.
+
 앱의 **단기 성능·품질·오류 회귀 검사**는 다음을 한 번에 수행합니다.
 
 - 720p 30-frame decode checksum과 정확한 PTS
