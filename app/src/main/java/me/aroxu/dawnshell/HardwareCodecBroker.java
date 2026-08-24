@@ -166,9 +166,9 @@ final class HardwareCodecBroker implements Closeable {
         int pid = credentials.getPid();
         try (LocalSocket peer = socket;
              DataInputStream input = new DataInputStream(new BufferedInputStream(
-                     peer.getInputStream()));
+                     peer.getInputStream(), SOCKET_CHUNK_BYTES));
              DataOutputStream output = new DataOutputStream(new BufferedOutputStream(
-                     peer.getOutputStream()))) {
+                     peer.getOutputStream(), SOCKET_CHUNK_BYTES))) {
             peer.setSoTimeout(PEER_TIMEOUT_MS);
             // LocalSocket defaults to a small kernel buffer, so a single large
             // media record fails with EMSGSIZE ("Message too long"). Raise both
@@ -837,11 +837,13 @@ final class HardwareCodecBroker implements Closeable {
         output.writeInt(payload.length);
         output.writeInt(requestId);
         output.writeInt(status);
-        // A single large write can exceed the kernel socket buffer and fail
-        // with EMSGSIZE, so media payloads are written in bounded chunks.
+        // A write larger than the kernel socket buffer fails with EMSGSIZE, and
+        // the buffered stream would otherwise coalesce chunks back into one
+        // oversized write. Each bounded chunk is therefore flushed on its own.
         for (int offset = 0; offset < payload.length; offset += SOCKET_CHUNK_BYTES) {
             output.write(payload, offset,
                     Math.min(SOCKET_CHUNK_BYTES, payload.length - offset));
+            output.flush();
         }
         output.flush();
     }

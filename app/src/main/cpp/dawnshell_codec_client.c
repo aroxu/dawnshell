@@ -61,6 +61,8 @@
    one video frame. Anything above this size therefore travels through a
    memfd the app writes directly, which has no such limit. */
 #define DSCB_SHARED_MEMORY_THRESHOLD (4u * 1024u)
+/* Bounded socket write size that stays below conservative kernel buffers. */
+#define DSCB_SOCKET_CHUNK (8u * 1024u)
 
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC 0x0001u
@@ -112,7 +114,11 @@ static uint64_t get_u64(const uint8_t *source) {
 static int write_all(int descriptor, const void *buffer, size_t length) {
     const uint8_t *bytes = buffer;
     while (length > 0) {
-        ssize_t count = write(descriptor, bytes, length);
+        /* A write larger than the kernel socket buffer fails outright with
+           EMSGSIZE instead of writing a partial record, so each write stays
+           within a bounded chunk. */
+        size_t attempt = length > DSCB_SOCKET_CHUNK ? DSCB_SOCKET_CHUNK : length;
+        ssize_t count = write(descriptor, bytes, attempt);
         if (count < 0 && errno == EINTR) continue;
         if (count <= 0) return -1;
         bytes += (size_t)count;
