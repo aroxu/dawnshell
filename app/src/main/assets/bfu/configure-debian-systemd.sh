@@ -1176,7 +1176,9 @@ chown 0:0 /usr/local/bin/dawnshell-ffmpeg
 # absolute /usr/bin/ffmpeg when it falls back, so this cannot recurse.
 ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg.new
 mv -T /usr/local/bin/ffmpeg.new /usr/local/bin/ffmpeg
-[ "$(readlink -f /usr/local/bin/ffmpeg)" = /usr/local/bin/dawnshell-ffmpeg ] || {
+# The link is created directly above, so comparing one symlink level is
+# enough. BusyBox lacks full path canonicalization here.
+[ "$(readlink /usr/local/bin/ffmpeg)" = /usr/local/bin/dawnshell-ffmpeg ] || {
     echo "ERROR: the ffmpeg wrapper symlink was not installed"
     exit 35
 }
@@ -1214,7 +1216,7 @@ case "$1" in
     disable)
         # Only remove our own symlink; never touch a real file placed here.
         if [ -L "$link" ]; then
-            [ "$(readlink -f "$link")" = /usr/local/bin/dawnshell-ffmpeg ] || {
+            [ "$(readlink "$link")" = /usr/local/bin/dawnshell-ffmpeg ] || {
                 echo "dawnshell-ffmpeg-integration: $link points elsewhere; leaving it" >&2
                 exit 1
             }
@@ -1227,7 +1229,7 @@ case "$1" in
 esac
 
 if [ -L "$link" ] && \
-        [ "$(readlink -f "$link")" = /usr/local/bin/dawnshell-ffmpeg ]; then
+        [ "$(readlink "$link")" = /usr/local/bin/dawnshell-ffmpeg ]; then
     echo "ffmpeg_integration=enabled target=/usr/local/bin/dawnshell-ffmpeg"
 else
     echo "ffmpeg_integration=disabled ffmpeg=/usr/bin/ffmpeg"
@@ -1430,7 +1432,7 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ -x /usr/local/bin/dawnshell-live-encode ]
 [ -x /usr/local/bin/dawnshell-ffmpeg ]
 [ -x /usr/local/bin/dawnshell-ffmpeg-integration ]
-[ "$(readlink -f /usr/local/bin/ffmpeg)" = /usr/local/bin/dawnshell-ffmpeg ]
+[ "$(readlink /usr/local/bin/ffmpeg)" = /usr/local/bin/dawnshell-ffmpeg ]
 [ -x /usr/local/bin/dawnshell-codec-performance-test ]
 [ -x /usr/local/bin/dawnshell-codec-long-run ]
 [ -x /usr/local/bin/dawnshell-codec-concurrency-test ]

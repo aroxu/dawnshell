@@ -84,7 +84,7 @@ any change. Debian's packaged `/usr/bin/ffmpeg` file is never modified.
 
 ```sh
 command -v ffmpeg
-readlink -f /usr/local/bin/ffmpeg
+readlink /usr/local/bin/ffmpeg
 dawnshell-ffmpeg-integration status
 ```
 

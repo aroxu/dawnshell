@@ -84,7 +84,7 @@ Debian 구성 시 `/usr/local/bin/ffmpeg`가 래퍼를 가리키도록 자동 �
 
 ```sh
 command -v ffmpeg
-readlink -f /usr/local/bin/ffmpeg
+readlink /usr/local/bin/ffmpeg
 dawnshell-ffmpeg-integration status
 ```
 
