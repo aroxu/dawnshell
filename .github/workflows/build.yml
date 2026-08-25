@@ -127,16 +127,27 @@ jobs:
         run: |
           set -euo pipefail
           shellcheck scripts/*.sh app/src/main/assets/bfu/*.sh
-          ./scripts/test-release-compliance.sh
-          ./scripts/build-bootstrap-runtime.sh
-          ./scripts/test-hardware-codec-bridge.sh
-          ./scripts/test-ffmpeg-bridge-plan.sh
-          ./scripts/test-gpu-status-tool.sh
-          ./scripts/test-live-codec-pipeline.sh
-          ./scripts/test-host-reboot-isolation.sh
-          ./scripts/test-compatibility-policy.sh
-          ./scripts/test-rootfs-path-resolution.sh
-          ./scripts/test-lifecycle-control-policy.sh
+          # Name each stage so a failure identifies itself in the log instead
+          # of collapsing into one opaque step failure.
+          run_stage() {
+            echo "::group::$1"
+            if ! "${@:2}"; then
+              echo "::error::stage failed: $1"
+              echo '::endgroup::'
+              return 1
+            fi
+            echo '::endgroup::'
+          }
+          run_stage release-compliance ./scripts/test-release-compliance.sh
+          run_stage bootstrap-runtime ./scripts/build-bootstrap-runtime.sh
+          run_stage hardware-codec-bridge ./scripts/test-hardware-codec-bridge.sh
+          run_stage ffmpeg-bridge-plan ./scripts/test-ffmpeg-bridge-plan.sh
+          run_stage gpu-status-tool ./scripts/test-gpu-status-tool.sh
+          run_stage live-codec-pipeline ./scripts/test-live-codec-pipeline.sh
+          run_stage host-reboot-isolation ./scripts/test-host-reboot-isolation.sh
+          run_stage compatibility-policy ./scripts/test-compatibility-policy.sh
+          run_stage rootfs-path-resolution ./scripts/test-rootfs-path-resolution.sh
+          run_stage lifecycle-control-policy ./scripts/test-lifecycle-control-policy.sh
 
       - name: Build and test Android application
         id: apk
