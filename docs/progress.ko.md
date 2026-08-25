@@ -90,8 +90,8 @@ ABI(Application Binary Interface)의 의미는
   구현했습니다.
 - [x] 720p inherited-transport 검사, 1080p30 실시간 Surface transcode와
   비정상 client 자원 정리 성능 검사 경로를 구현했습니다.
-- [x] Android 16 AFU에서 vendor AVC/HEVC encoder·decoder instance 생성을
-  확인했습니다(확인된 backend: Exynos).
+- [x] 이전 AFU 앱 내부 MediaCodec probe 결과를 기록했습니다. 이 과거 probe는
+  현재 inherited-FD NDK worker 경로의 검증 결과가 아닙니다.
 - [x] B-frame MP4와 HEVC container 고정 vector, streaming FFmpeg wrapper,
   software CPU 기준선과 hardware encode PSNR/SSIM 검사를 구현했습니다.
 - [x] malformed H.264/HEVC, EOS, 동시 private worker, parent 종료 후 정리 및

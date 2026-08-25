@@ -84,8 +84,8 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
   isolation checks.
 - [x] Added a 720p inherited-transport check, 1080p30 realtime Surface
   transcode gate, and abrupt-client resource cleanup test path.
-- [x] Verified vendor AVC/HEVC encoder and decoder instance creation on Android
-  16 after first unlock (observed backend: Exynos).
+- [x] Recorded earlier AFU app-local MediaCodec probe evidence. This historical
+  probe does not validate the current inherited-FD NDK worker path.
 - [ ] Verify vendor AVC hardware instance creation on a locked real device.
 - [ ] Verify fixed-vector decode, encode, inherited memfd/eventfd transport, and Surface
   transcode before and after first unlock.

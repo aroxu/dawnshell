@@ -50,7 +50,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             autoconf automake bison build-essential bzip2 gawk gettext gzip \
-            libtool patch pkg-config shellcheck unzip xz-utils
+            curl libtool patch pkg-config unzip xz-utils
+          shellcheck_version=0.11.0
+          shellcheck_sha256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+          shellcheck_root="$RUNNER_TEMP/shellcheck-$shellcheck_version"
+          shellcheck_archive="$RUNNER_TEMP/shellcheck-$shellcheck_version.tar.xz"
+          curl --fail --location --retry 3 \
+            --output "$shellcheck_archive" \
+            "https://github.com/koalaman/shellcheck/releases/download/v$shellcheck_version/shellcheck-v$shellcheck_version.linux.x86_64.tar.xz"
+          printf '%s  %s\n' "$shellcheck_sha256" "$shellcheck_archive" \
+            | sha256sum -c -
+          mkdir -p "$shellcheck_root"
+          tar -xJf "$shellcheck_archive" -C "$shellcheck_root"
+          shellcheck_path="$shellcheck_root/shellcheck-v$shellcheck_version/shellcheck"
+          test -x "$shellcheck_path"
+          echo "DAWNSHELL_SHELLCHECK=$shellcheck_path" >> "$GITHUB_ENV"
           # sdkmanager closes stdin after accepting its licenses. Ignore only
           # the expected SIGPIPE from yes; sdkmanager remains the pipeline's
           # status-bearing final command.
@@ -126,7 +140,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shellcheck scripts/*.sh app/src/main/assets/bfu/*.sh
+          "$DAWNSHELL_SHELLCHECK" --version
+          "$DAWNSHELL_SHELLCHECK" scripts/*.sh app/src/main/assets/bfu/*.sh
           # Report which script failed. A bare list of commands collapses into
           # one opaque step failure that hides the actual stage.
           for stage in \
@@ -141,12 +156,19 @@ jobs:
             scripts/test-rootfs-path-resolution.sh \
             scripts/test-lifecycle-control-policy.sh ; do
             echo "::group::$stage"
-            if ! "./$stage"; then
+            stage_log="$RUNNER_TEMP/$(basename "$stage").log"
+            if ! "./$stage" 2>&1 | tee "$stage_log"; then
               echo "::endgroup::"
               echo "::error::failing stage: $stage"
               # The job summary survives log-access restrictions, so record
               # the failing stage there as well.
-              echo "failing stage: $stage" >> "$GITHUB_STEP_SUMMARY"
+              {
+                echo "failing stage: $stage"
+                echo
+                echo '```text'
+                tail -n 240 "$stage_log"
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
             echo "::endgroup::"
