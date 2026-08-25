@@ -144,6 +144,9 @@ jobs:
             if ! "./$stage"; then
               echo "::endgroup::"
               echo "::error::failing stage: $stage"
+              # The job summary survives log-access restrictions, so record
+              # the failing stage there as well.
+              echo "failing stage: $stage" >> "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
             echo "::endgroup::"
