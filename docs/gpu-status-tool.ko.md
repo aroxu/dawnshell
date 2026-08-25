@@ -93,8 +93,32 @@ gsmi --format json
 | 일반 devfreq | `/sys/class/devfreq/*gpu*` |
 | 온도 | `/sys/class/thermal/thermal_zone*` |
 
-사용률은 Qualcomm의 `gpu_busy_percentage`와 Mali의 `utilisation`을 모두
-인식합니다. 클럭은 `cur_freq`, `max_freq`를 MHz로 변환해 표시합니다.
+속성 이름은 커널마다 다릅니다. 사용률은 Qualcomm의 `gpu_busy_percentage`,
+Mali의 `utilisation`, 삼성 Exynos의 `utilization`을 모두 인식합니다. 클럭은
+`cur_freq`, `max_freq`, Exynos의 `clock`을 읽고 Hz와 kHz를 자동 판별해 MHz로
+변환합니다. `max_freq`가 없으면 Exynos의 `dvfs_table`에서 최대 단계를 읽습니다.
+
+## 유휴 상태 표시
+
+GPU가 사용되지 않으면 커널이 전원 레일을 내리고 클럭을 `0`으로 보고합니다.
+이때는 측정 실패로 오해하지 않도록 `0MHz` 대신 `idle`로 표시하고, 전원 상태를
+`suspended`로 함께 보여줍니다. JSON에서는 `clock_mhz`가 `null`이 되어 숫자
+필드에 문자열이 섞이지 않습니다.
+
+실제 기기(Exynos, Mali-G71) 출력 예시입니다.
+
+```text
+| GPU                    | Mali-G71 20 cores                            |
+| Utilization            | 0%                                           |
+| Clock                  | idle                                         |
+| Max clock              | 546MHz                                       |
+| Governor               | Default                                      |
+| Power state            | suspended                                    |
+| Temperature            | unavailable                                  |
+```
+
+일부 기기는 thermal zone의 `type`이 비어 있어 GPU 온도를 특정할 수 없습니다.
+이 경우 온도는 `unavailable`로 표시됩니다.
 
 ## 문제 해결
 

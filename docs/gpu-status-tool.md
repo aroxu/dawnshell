@@ -76,8 +76,33 @@ gsmi --format json
 | Generic devfreq | `/sys/class/devfreq/*gpu*` |
 | Temperature | `/sys/class/thermal/thermal_zone*` |
 
-Utilization accepts both Qualcomm's `gpu_busy_percentage` and Mali's
-`utilisation`. Clocks come from `cur_freq` and `max_freq`, converted to MHz.
+Attribute names differ per kernel. Utilization accepts Qualcomm's
+`gpu_busy_percentage`, Mali's `utilisation`, and Samsung Exynos's
+`utilization`. Clocks come from `cur_freq`, `max_freq`, or Exynos's `clock`,
+with Hz and kHz detected automatically. When `max_freq` is absent, the highest
+step in Exynos's `dvfs_table` is used.
+
+## Idle reporting
+
+When the GPU is unused, the kernel powers down the rail and reports a zero
+clock. `gsmi` prints `idle` instead of `0MHz` so it does not read like a failed
+measurement, and shows the power state as `suspended`. In JSON, `clock_mhz`
+becomes `null` so numeric fields stay numeric.
+
+Real-device output (Exynos, Mali-G71):
+
+```text
+| GPU                    | Mali-G71 20 cores                            |
+| Utilization            | 0%                                           |
+| Clock                  | idle                                         |
+| Max clock              | 546MHz                                       |
+| Governor               | Default                                      |
+| Power state            | suspended                                    |
+| Temperature            | unavailable                                  |
+```
+
+Some devices leave the thermal zone `type` empty, so the GPU zone cannot be
+identified and the temperature is reported as `unavailable`.
 
 ## Troubleshooting
 

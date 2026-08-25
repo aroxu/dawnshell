@@ -70,6 +70,39 @@ grep -Fq '"temperature_c":48.0' <<<"$output"
 
 # A kernel that publishes the node but not utilization must say so rather
 # than invent a number.
+# Samsung Exynos Mali, verified on a real device: different attribute names,
+# kHz clocks, an empty thermal type, and a powered-down GPU reporting zero.
+exynos="$work_dir/exynos"
+mkdir -p "$exynos/sys/class/misc/mali0/device" \
+    "$exynos/sys/class/thermal/thermal_zone0"
+printf 'Mali-G71 20 cores r0p0 0x60A0\n' \
+    > "$exynos/sys/class/misc/mali0/device/gpuinfo"
+printf '0\n' > "$exynos/sys/class/misc/mali0/device/clock"
+printf '0\n' > "$exynos/sys/class/misc/mali0/device/utilization"
+printf '0\n' > "$exynos/sys/class/misc/mali0/device/power_state"
+printf 'Default\n' > "$exynos/sys/class/misc/mali0/device/dvfs_governor"
+printf ' 546000 455000 385000 338000 260000\n' \
+    > "$exynos/sys/class/misc/mali0/device/dvfs_table"
+printf '\n' > "$exynos/sys/class/thermal/thermal_zone0/type"
+
+make_variant "$exynos" "$work_dir/gsmi-exynos"
+output="$("$work_dir/gsmi-exynos" --format json)"
+grep -Fq '"name":"Mali-G71 20 cores"' <<<"$output"
+grep -Fq '"utilization_percent":0' <<<"$output"
+grep -Fq '"max_clock_mhz":546' <<<"$output"
+grep -Fq '"governor":"Default"' <<<"$output"
+grep -Fq '"power_state":"suspended"' <<<"$output"
+# A suspended GPU must not report 0 MHz as if it were a measurement, and JSON
+# must keep numeric fields numeric.
+grep -Fq '"clock_mhz":null' <<<"$output"
+table="$("$work_dir/gsmi-exynos")"
+grep -Fq '| Clock                  | idle' <<<"$table"
+grep -Fq '546MHz' <<<"$table"
+if grep -Fq 'idleMHz' <<<"$table"; then
+    echo 'FAIL: a state was formatted as a frequency' >&2
+    exit 1
+fi
+
 sparse="$work_dir/sparse"
 mkdir -p "$sparse/sys/class/devfreq/gpu0"
 printf '%s\n' '400000000' > "$sparse/sys/class/devfreq/gpu0/cur_freq"

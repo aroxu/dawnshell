@@ -135,6 +135,12 @@ read_devfreq_utilization() {
             parsed="$(parse_percentage "${value:-}")"
             [ -z "$parsed" ] || { printf '%s\n' "$parsed"; return 0; }
         fi
+        # Samsung Exynos spells the Mali attribute without the British 's'.
+        if [ -r "$base/utilization" ]; then
+            value="$(read_first_line "$base/utilization" || true)"
+            parsed="$(parse_percentage "${value:-}")"
+            [ -z "$parsed" ] || { printf '%s\n' "$parsed"; return 0; }
+        fi
     done
     return 1
 }
@@ -213,13 +219,21 @@ collect_sample() {
 
     gpu_name="$(read_attribute "$gpu_directory" gpu_model gpuclk_name name || true)"
     if [ -z "$gpu_name" ]; then
+        # Exynos Mali publishes a descriptive line such as
+        # "Mali-G71 20 cores r0p0 0x60A0"; keep the model and core count.
+        raw_info="$(read_attribute "$gpu_directory" gpuinfo || true)"
+        if [ -n "$raw_info" ]; then
+            gpu_name="$(printf '%s' "$raw_info" | cut -d' ' -f1-3)"
+        fi
+    fi
+    if [ -z "$gpu_name" ]; then
         gpu_name="$(basename "$gpu_directory")"
     fi
 
     value="$(read_devfreq_utilization "$gpu_directory" || true)"
     [ -z "$value" ] || gpu_busy="$value"
 
-    value="$(read_attribute "$gpu_directory" cur_freq gpuclk clkgt_freq || true)"
+    value="$(read_attribute "$gpu_directory" cur_freq gpuclk clkgt_freq clock || true)"
     if [ -n "$value" ]; then
         converted="$(hertz_to_mhz "$value")"
         [ -z "$converted" ] || gpu_clock="$converted"
@@ -230,12 +244,37 @@ collect_sample() {
         converted="$(hertz_to_mhz "$value")"
         [ -z "$converted" ] || gpu_max_clock="$converted"
     fi
+    if [ "$gpu_max_clock" = unavailable ]; then
+        # Exynos publishes the supported steps in dvfs_table, highest first.
+        value="$(read_attribute "$gpu_directory" dvfs_table || true)"
+        if [ -n "$value" ]; then
+            for step in $value; do
+                converted="$(hertz_to_mhz "$step" || true)"
+                [ -z "$converted" ] || { gpu_max_clock="$converted"; break; }
+            done
+        fi
+    fi
 
-    value="$(read_attribute "$gpu_directory" governor devfreq_governor || true)"
+    value="$(read_attribute "$gpu_directory" governor devfreq_governor dvfs_governor || true)"
     [ -z "$value" ] || gpu_governor="$value"
 
     value="$(read_attribute "$gpu_directory" runtime_status || true)"
     [ -z "$value" ] || gpu_power_state="$value"
+    if [ "$gpu_power_state" = unavailable ]; then
+        # Exynos Mali reports a numeric rail state: 0 is powered down.
+        value="$(read_attribute "$gpu_directory" power_state || true)"
+        case "$value" in
+            0) gpu_power_state=suspended ;;
+            1) gpu_power_state=active ;;
+            '') ;;
+            *) gpu_power_state="$value" ;;
+        esac
+    fi
+    # A powered-down GPU reports a zero clock. Say so instead of printing 0MHz,
+    # which reads like a measurement failure.
+    if [ "$gpu_clock" = 0 ] && [ "$gpu_power_state" = suspended ]; then
+        gpu_clock=idle
+    fi
 
     value="$(read_gpu_temperature || true)"
     [ -z "$value" ] || gpu_temperature="$value"
@@ -247,10 +286,18 @@ print_table() {
     timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     busy_display="$gpu_busy"
     [ "$busy_display" = unavailable ] || busy_display="$gpu_busy%"
+    # Only append the unit to an actual measurement; idle and unavailable are
+    # states, not frequencies.
     clock_display="$gpu_clock"
-    [ "$clock_display" = unavailable ] || clock_display="${gpu_clock}MHz"
+    case "$clock_display" in
+        unavailable|idle) ;;
+        *) clock_display="${gpu_clock}MHz" ;;
+    esac
     max_clock_display="$gpu_max_clock"
-    [ "$max_clock_display" = unavailable ] || max_clock_display="${gpu_max_clock}MHz"
+    case "$max_clock_display" in
+        unavailable|idle) ;;
+        *) max_clock_display="${gpu_max_clock}MHz" ;;
+    esac
     temperature_display="$gpu_temperature"
     [ "$temperature_display" = unavailable ] || temperature_display="${gpu_temperature}C"
 
@@ -280,7 +327,7 @@ print_csv() {
 
 json_value() {
     case "$1" in
-        unavailable) printf 'null' ;;
+        unavailable|idle) printf 'null' ;;
         ''|*[!0-9.]*) printf '"%s"' "$1" ;;
         *) printf '%s' "$1" ;;
     esac
