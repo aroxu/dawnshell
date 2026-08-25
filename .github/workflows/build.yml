@@ -160,13 +160,24 @@ jobs:
             if ! "./$stage" 2>&1 | tee "$stage_log"; then
               echo "::endgroup::"
               echo "::error::failing stage: $stage"
+              trace_log="$RUNNER_TEMP/$(basename "$stage").trace.log"
+              set +e
+              bash -x "./$stage" > "$trace_log" 2>&1
+              trace_status=$?
+              set -e
+              trace_tail="$(tail -n 40 "$trace_log" | tr '\n' ' ' | tr '\r' ' ')"
+              trace_tail="${trace_tail//'%'/'%25'}"
+              trace_tail="${trace_tail//$'\r'/'%0D'}"
+              trace_tail="${trace_tail//$'\n'/'%0A'}"
+              echo "::error::failure trace exit=$trace_status: $trace_tail"
               # The job summary survives log-access restrictions, so record
               # the failing stage there as well.
               {
                 echo "failing stage: $stage"
+                echo "trace exit: $trace_status"
                 echo
                 echo '```text'
-                tail -n 240 "$stage_log"
+                tail -n 240 "$trace_log"
                 echo '```'
               } >> "$GITHUB_STEP_SUMMARY"
               exit 1
