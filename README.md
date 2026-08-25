@@ -174,6 +174,7 @@ see [third-party notices](bfu-runtime/THIRD_PARTY_NOTICES.md) and
 - [Installation guide](docs/installation.md)
 - [User manual](docs/user-guide.md)
 - [FFmpeg hardware codec guide](docs/ffmpeg-hardware-codec.md)
+- [Upstream FFmpeg MediaCodec syntax compatibility](docs/ffmpeg-mediacodec-compatibility.md)
 - [Glossary](docs/glossary.md)
 - [Architecture](docs/architecture.md)
 - [Security model](docs/security.md)

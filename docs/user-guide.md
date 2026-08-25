@@ -179,6 +179,12 @@ Docker container must receive the node separately with `--device`; avoid
 For complete commands, automatic integration, audio remuxing, and fallback
 rules, see the [FFmpeg hardware codec guide](ffmpeg-hardware-codec.md).
 
+Upstream FFmpeg spellings such as `-hwaccel mediacodec` and
+`-c:v h264_mediacodec` work as well. Naming MediaCodec explicitly makes
+hardware mandatory, so the command fails instead of silently using libx264.
+See
+[Upstream FFmpeg MediaCodec syntax compatibility](ffmpeg-mediacodec-compatibility.md).
+
 Debian can run H.264/HEVC encoding and decoding on the device's dedicated video
 codec instead of the CPU. This is not GPU passthrough: Debian only demuxes and
 muxes containers, while the app process performs the codec work and returns the

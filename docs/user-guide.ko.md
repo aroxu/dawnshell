@@ -292,6 +292,12 @@ DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 out.m
 전체 명령표, 자동 연동, 오디오 재결합 및 폴백 조건은
 [FFmpeg 하드웨어 코덱 사용법](ffmpeg-hardware-codec.ko.md)을 참고하세요.
 
+`-hwaccel mediacodec`, `-c:v h264_mediacodec` 같은 순정 FFmpeg 문법도 그대로
+동작합니다. 명령에 MediaCodec을 직접 적으면 하드웨어가 필수 조건이 되므로,
+조용히 libx264로 떨어지지 않고 오류로 종료합니다. 자세한 내용은
+[순정 FFmpeg 문법 호환성 (MediaCodec)](ffmpeg-mediacodec-compatibility.ko.md)을
+참고하세요.
+
 ```sh
 dawnshell-codec health --format json
 dawnshell-codec-self-test

@@ -5,6 +5,11 @@
 [프로젝트 홈](../README.ko.md) · [사용자 매뉴얼](user-guide.ko.md) ·
 [테스트 안내](testing.ko.md)
 
+`-hwaccel mediacodec`이나 `-c:v h264_mediacodec` 같은 순정 FFmpeg 문법도
+지원합니다. 자세한 내용은
+[순정 FFmpeg 문법 호환성 (MediaCodec)](ffmpeg-mediacodec-compatibility.ko.md)을
+참고하세요.
+
 ## 기능 범위
 
 DawnShell은 Debian의 일반 GPU를 패스스루하지 않습니다. Debian에서 컨테이너와

@@ -5,6 +5,10 @@
 [Project home](../README.md) · [User manual](user-guide.md) ·
 [Testing](testing.md)
 
+Looking for `-hwaccel mediacodec` or `-c:v h264_mediacodec`? Those upstream
+spellings are supported. See
+[Upstream FFmpeg MediaCodec syntax compatibility](ffmpeg-mediacodec-compatibility.md).
+
 ## Scope
 
 DawnShell does not pass a general-purpose GPU into Debian. Debian handles
