@@ -364,7 +364,7 @@ apt-get -o Acquire::Retries=3 update
 echo "STAGE: Installing Debian systemd, D-Bus, OpenSSH, and diagnostics"
 apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     systemd systemd-sysv dbus openssh-server iproute2 procps ca-certificates \
-    bash passwd mawk time util-linux usbutils v4l-utils ffmpeg python3-minimal
+    bash passwd mawk time util-linux usbutils v4l-utils ffmpeg python3
 
 cat > /etc/apt/sources.list <<'EOF_APT_HTTPS'
 deb https://deb.debian.org/debian trixie main
@@ -380,6 +380,14 @@ for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
     /usr/sbin/shutdown; do
     [ -x "$tool" ] || {
         echo "ERROR: required BFU health tool is missing: $tool"
+        exit 35
+    }
+done
+# python3-minimal omits decimal, so the codec adapter cannot even start with
+# it. Verify the modules the adapter imports instead of trusting the package.
+for module in decimal json struct pathlib argparse; do
+    python3 -c "import $module" 2>/dev/null || {
+        echo "ERROR: Python is missing the $module module required by the codec adapter"
         exit 35
     }
 done
@@ -1125,7 +1133,23 @@ if [ "${DAWNSHELL_FFMPEG_BRIDGE:-auto}" = off ]; then
     run_real_ffmpeg "$@"
 fi
 
-plan="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg "$@" 2>/dev/null || true)"
+# Keep the adapter's own diagnostics. Discarding them once turned a broken
+# Python install into a confusing "Unknown encoder" error from plain FFmpeg.
+plan_errors="$(mktemp)"
+plan="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg "$@" \
+    2>"$plan_errors" || true)"
+if [ -z "$plan" ]; then
+    echo "dawnshell-ffmpeg: the codec planner produced no plan" >&2
+    [ ! -s "$plan_errors" ] || sed 's/^/dawnshell-ffmpeg: /' "$plan_errors" >&2
+    rm -f "$plan_errors"
+    if [ "${DAWNSHELL_FFMPEG_BRIDGE:-auto}" = off ]; then
+        run_real_ffmpeg "$@"
+    fi
+    echo "dawnshell-ffmpeg: refusing to fall back silently; set" \
+        "DAWNSHELL_FFMPEG_BRIDGE=off to use plain FFmpeg" >&2
+    exit 3
+fi
+rm -f "$plan_errors"
 action="${plan%% *}"
 action="${action#action=}"
 

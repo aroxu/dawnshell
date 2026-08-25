@@ -281,7 +281,18 @@ grep -Fq 'hardware_codec_concurrency_test=/usr/local/bin/dawnshell-codec-concurr
 grep -Fq 'hardware_codec_error_test=/usr/local/bin/dawnshell-codec-error-test' \
     "$configurator"
 grep -Fq 'ffmpeg -hide_banner -loglevel error -f h264' "$configurator"
-grep -Fq 'python3-minimal' "$configurator"
+# The minimal Python package omits decimal, which the codec adapter imports.
+# Installing it once made every bridge command fail as a plain FFmpeg
+# "Unknown encoder". Check the apt-get line, not prose in comments.
+if grep -E '^ +bash passwd .*python3-minimal' "$configurator"; then
+    echo 'FAIL: the minimal Python package lacks the decimal module' >&2
+    exit 1
+fi
+grep -Fq 'ffmpeg python3' "$configurator"
+grep -Fq 'for module in decimal json struct pathlib argparse' "$configurator"
+# A dead planner must not silently degrade into a software encode.
+grep -Fq 'the codec planner produced no plan' "$configurator"
+grep -Fq 'refusing to fall back silently' "$configurator"
 grep -Fq 'cat > /usr/local/bin/dawnshell-hwdecode' "$configurator"
 grep -Fq 'cat > /usr/local/bin/dawnshell-hwencode' "$configurator"
 grep -Fq 'cat > /usr/local/bin/dawnshell-hwtranscode' "$configurator"
