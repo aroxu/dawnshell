@@ -75,20 +75,32 @@ Two points matter:
 - The command syntax and the produced files are compatible with upstream.
 - `/usr/bin/ffmpeg` never opens MediaCodec. The Android app does.
 
-### Wiring the wrapper
+### The wrapper is wired in by default
+
+Configuring Debian installs `/usr/local/bin/ffmpeg` as a symlink to the
+wrapper. Because `/usr/local/bin` precedes `/usr/bin` on the default PATH,
+existing programs that call `ffmpeg` by name reach the hardware route without
+any change. Debian's packaged `/usr/bin/ffmpeg` file is never modified.
 
 ```sh
-sudo ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg
-hash -r
 command -v ffmpeg
+readlink -f /usr/local/bin/ffmpeg
+dawnshell-ffmpeg-integration status
 ```
 
-Undo it with:
+Turn the integration off or back on with:
 
 ```sh
-sudo rm -f /usr/local/bin/ffmpeg
+sudo dawnshell-ffmpeg-integration disable
+hash -r
+
+sudo dawnshell-ffmpeg-integration enable
 hash -r
 ```
+
+`disable` removes only DawnShell's own symlink and refuses to touch anything
+else placed at that path. Programs that execute the absolute
+`/usr/bin/ffmpeg` path always use stock FFmpeg regardless of this setting.
 
 ## 3. Supported upstream syntax
 

@@ -216,7 +216,7 @@ regular Debian account.
 ## Make existing `ffmpeg` calls use the wrapper
 
 ```sh
-sudo ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg
+sudo dawnshell-ffmpeg-integration enable
 hash -r
 command -v ffmpeg
 ```
@@ -225,10 +225,11 @@ The expected path is `/usr/local/bin/ffmpeg`. The wrapper directly executes
 `/usr/bin/ffmpeg` for fallback, so it does not recurse. Programs that execute
 the absolute `/usr/bin/ffmpeg` path bypass the wrapper.
 
-Undo the integration with:
+Configuring Debian already enables this by default, so re-running it is
+usually unnecessary. Undo the integration with:
 
 ```sh
-sudo rm -f /usr/local/bin/ffmpeg
+sudo dawnshell-ffmpeg-integration disable
 hash -r
 ```
 

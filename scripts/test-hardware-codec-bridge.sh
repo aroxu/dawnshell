@@ -122,8 +122,10 @@ grep -Fq 'dawnshell-live-encode --input /dev/video0' \
     "$english_strings" "$korean_strings"
 grep -Fq 'socket/shared-memory streaming' "$ffmpeg_guide"
 grep -Fq 'socket/공유' "$ffmpeg_guide_ko"
-grep -Fq 'sudo ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg' \
+grep -Fq 'sudo dawnshell-ffmpeg-integration enable' \
     "$ffmpeg_guide" "$ffmpeg_guide_ko"
+grep -Fq 'sudo dawnshell-ffmpeg-integration disable' \
+    "$ffmpeg_guide" "$ffmpeg_guide_ko" "$mediacodec_guide" "$mediacodec_guide_ko"
 grep -Fq 'plan-ffmpeg' "$ffmpeg_guide" "$ffmpeg_guide_ko"
 grep -Fq 'sudo bash -x /usr/local/bin/dawnshell-hwtranscode' \
     "$ffmpeg_guide" "$ffmpeg_guide_ko"

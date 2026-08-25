@@ -75,20 +75,32 @@ Android 앱 프로세스의 MediaCodec
 - 하지만 `/usr/bin/ffmpeg`가 MediaCodec을 여는 것은 아닙니다. 코덱을 여는
   주체는 Android 앱입니다.
 
-### 래퍼 연결
+### 래퍼 연결은 기본으로 적용됩니다
+
+Debian 구성 시 `/usr/local/bin/ffmpeg`가 래퍼를 가리키도록 자동 등록됩니다.
+기본 PATH에서 `/usr/local/bin`이 `/usr/bin`보다 앞이므로, `ffmpeg`를 이름으로
+실행하는 기존 프로그램이 별도 설정 없이 하드웨어 경로를 사용합니다. Debian이
+패키지로 설치한 `/usr/bin/ffmpeg` 파일 자체는 변경하지 않습니다.
 
 ```sh
-sudo ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg
-hash -r
 command -v ffmpeg
+readlink -f /usr/local/bin/ffmpeg
+dawnshell-ffmpeg-integration status
 ```
 
-되돌리기는 다음과 같습니다.
+원래 동작으로 되돌리거나 다시 켜려면 다음을 사용합니다.
 
 ```sh
-sudo rm -f /usr/local/bin/ffmpeg
+sudo dawnshell-ffmpeg-integration disable
+hash -r
+
+sudo dawnshell-ffmpeg-integration enable
 hash -r
 ```
+
+`disable`는 DawnShell이 만든 symlink만 제거하며, 다른 파일이 놓여 있으면
+건드리지 않고 종료합니다. 절대 경로로 `/usr/bin/ffmpeg`를 실행하는 프로그램은
+연결 상태와 무관하게 항상 순정 FFmpeg를 사용합니다.
 
 ## 3. 지원하는 순정 문법
 

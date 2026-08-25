@@ -93,6 +93,32 @@ grep -Fq 'DAWNSHELL_FFMPEG_BRIDGE' "$wrapper_source"
 grep -Fq '[ -x /usr/local/bin/dawnshell-ffmpeg ]' "$wrapper_source"
 grep -Fq 'hardware_codec_ffmpeg=/usr/local/bin/dawnshell-ffmpeg' "$wrapper_source"
 
+# The wrapper must own the plain "ffmpeg" name by default, and the integration
+# must stay reversible without touching Debian's packaged binary.
+grep -Fq 'ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg.new' \
+    "$wrapper_source"
+grep -Fq 'cat > /usr/local/bin/dawnshell-ffmpeg-integration' "$wrapper_source"
+grep -Fq 'hardware_codec_ffmpeg_integration=enabled' "$wrapper_source"
+if grep -Eq 'rm +-f +/usr/bin/ffmpeg|mv .*/usr/bin/ffmpeg' "$wrapper_source"; then
+    echo "FAIL: the configurator must never modify Debian's packaged ffmpeg" >&2
+    exit 1
+fi
+
+integration_dir="$(mktemp -d)"
+trap 'rm -rf -- "$wrapper_dir" "$integration_dir"' EXIT
+python3 - "$wrapper_source" "$integration_dir/integration" <<'PYTHON_EXTRACT_INTEGRATION'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+opening = ("cat > /usr/local/bin/dawnshell-ffmpeg-integration "
+           "<<'EOF_FFMPEG_INTEGRATION'\n")
+begin = source.index(opening) + len(opening)
+end = source.index("\nEOF_FFMPEG_INTEGRATION\n", begin)
+pathlib.Path(sys.argv[2]).write_text(source[begin:end] + "\n", encoding="utf-8")
+PYTHON_EXTRACT_INTEGRATION
+sh -n "$integration_dir/integration"
+
 # The generated wrapper must itself be valid shell and must delegate for real.
 wrapper_dir="$(mktemp -d)"
 trap 'rm -rf -- "$wrapper_dir"' EXIT

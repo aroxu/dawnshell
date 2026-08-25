@@ -272,7 +272,7 @@ FFmpeg만으로 Android 앱 프로세스의 `MediaCodec`을 호출할 수 없으
 만들면, `ffmpeg`를 이름으로 실행하는 프로그램이 DawnShell 래퍼를 먼저 찾습니다.
 
 ```sh
-sudo ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg
+sudo dawnshell-ffmpeg-integration enable
 hash -r
 command -v ffmpeg
 ```
@@ -281,10 +281,11 @@ command -v ffmpeg
 `/usr/bin/ffmpeg`를 직접 실행하므로 재귀 호출하지 않습니다. 프로그램이
 `/usr/bin/ffmpeg`를 절대 경로로 실행하면 이 연동을 우회합니다.
 
-되돌리려면 다음을 실행합니다.
+이 연결은 Debian 구성 시 이미 기본으로 적용되므로 보통 다시 실행할 필요가
+없습니다. 되돌리려면 다음을 실행합니다.
 
 ```sh
-sudo rm -f /usr/local/bin/ffmpeg
+sudo dawnshell-ffmpeg-integration disable
 hash -r
 ```
 

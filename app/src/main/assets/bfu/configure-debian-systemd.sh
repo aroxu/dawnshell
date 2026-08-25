@@ -1169,6 +1169,73 @@ EOF_CODEC_AUTO_FFMPEG
 chmod 0755 /usr/local/bin/dawnshell-ffmpeg
 chown 0:0 /usr/local/bin/dawnshell-ffmpeg
 
+# Put the bridge on the default PATH under the plain "ffmpeg" name so ordinary
+# programs reach hardware without being rebuilt or reconfigured. Debian ships
+# FFmpeg in /usr/bin, and /usr/local/bin precedes it, so this shadows the stock
+# binary without replacing any packaged file. The wrapper always execs the
+# absolute /usr/bin/ffmpeg when it falls back, so this cannot recurse.
+ln -sfn /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg.new
+mv -T /usr/local/bin/ffmpeg.new /usr/local/bin/ffmpeg
+[ "$(readlink -f /usr/local/bin/ffmpeg)" = /usr/local/bin/dawnshell-ffmpeg ] || {
+    echo "ERROR: the ffmpeg wrapper symlink was not installed"
+    exit 35
+}
+
+cat > /usr/local/bin/dawnshell-ffmpeg-integration <<'EOF_FFMPEG_INTEGRATION'
+#!/bin/sh
+set -eu
+export LC_ALL=C
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+link=/usr/local/bin/ffmpeg
+
+usage() {
+    echo "usage: dawnshell-ffmpeg-integration enable|disable|status" >&2
+    exit 2
+}
+
+[ "$#" -eq 1 ] || usage
+case "$1" in
+    status) ;;
+    enable|disable)
+        [ "$(id -u)" = 0 ] || {
+            echo "dawnshell-ffmpeg-integration: root privileges are required" >&2
+            exit 1
+        }
+        ;;
+    *) usage ;;
+esac
+
+case "$1" in
+    enable)
+        ln -sfn /usr/local/bin/dawnshell-ffmpeg "$link.new"
+        mv -T "$link.new" "$link"
+        ;;
+    disable)
+        # Only remove our own symlink; never touch a real file placed here.
+        if [ -L "$link" ]; then
+            [ "$(readlink -f "$link")" = /usr/local/bin/dawnshell-ffmpeg ] || {
+                echo "dawnshell-ffmpeg-integration: $link points elsewhere; leaving it" >&2
+                exit 1
+            }
+            rm -f "$link"
+        elif [ -e "$link" ]; then
+            echo "dawnshell-ffmpeg-integration: $link is not our symlink; leaving it" >&2
+            exit 1
+        fi
+        ;;
+esac
+
+if [ -L "$link" ] && \
+        [ "$(readlink -f "$link")" = /usr/local/bin/dawnshell-ffmpeg ]; then
+    echo "ffmpeg_integration=enabled target=/usr/local/bin/dawnshell-ffmpeg"
+else
+    echo "ffmpeg_integration=disabled ffmpeg=/usr/bin/ffmpeg"
+fi
+EOF_FFMPEG_INTEGRATION
+chmod 0755 /usr/local/bin/dawnshell-ffmpeg-integration
+chown 0:0 /usr/local/bin/dawnshell-ffmpeg-integration
+
 install -d -m 0755 -o root -g root /usr/local/sbin
 cat > /usr/local/sbin/reboot <<'EOF_HOST_REBOOT'
 #!/bin/sh
@@ -1362,6 +1429,8 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ -x /usr/local/bin/dawnshell-hwtranscode ]
 [ -x /usr/local/bin/dawnshell-live-encode ]
 [ -x /usr/local/bin/dawnshell-ffmpeg ]
+[ -x /usr/local/bin/dawnshell-ffmpeg-integration ]
+[ "$(readlink -f /usr/local/bin/ffmpeg)" = /usr/local/bin/dawnshell-ffmpeg ]
 [ -x /usr/local/bin/dawnshell-codec-performance-test ]
 [ -x /usr/local/bin/dawnshell-codec-long-run ]
 [ -x /usr/local/bin/dawnshell-codec-concurrency-test ]
@@ -1388,6 +1457,8 @@ hardware_codec_encode=/usr/local/bin/dawnshell-hwencode
 hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode
 hardware_codec_live_encode=/usr/local/bin/dawnshell-live-encode
 hardware_codec_ffmpeg=/usr/local/bin/dawnshell-ffmpeg
+hardware_codec_ffmpeg_integration=enabled
+hardware_codec_ffmpeg_link=/usr/local/bin/ffmpeg
 configured_epoch=$(date +%s)
 EOF_READY
 chown 0:0 "${READY_MARKER}.new"
