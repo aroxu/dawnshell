@@ -110,12 +110,16 @@ gpu_directory="$(find_gpu_directory || true)"
 # Qualcomm formats the value as "37 %" while Mali reports a bare integer, so
 # strip the percent sign and whitespace before validating the number.
 parse_percentage() {
-    printf '%s\n' "$1" | awk '
-        {
-            gsub(/%/, "")
-            gsub(/[[:space:]]/, "")
-            if ($0 ~ /^[0-9]+$/ && $0 + 0 <= 100) print $0 + 0
-        }'
+    # Implemented with shell builtins and tr so behaviour never depends on
+    # whether awk is mawk, busybox awk, or GNU awk.
+    candidate="$(printf '%s' "$1" | tr -d '%[:space:]')"
+    case "$candidate" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    # Strip leading zeros without arithmetic surprises, then bound the value.
+    candidate="$((candidate + 0))"
+    [ "$candidate" -le 100 ] || return 1
+    printf '%s\n' "$candidate"
 }
 
 read_devfreq_utilization() {
@@ -151,13 +155,18 @@ read_attribute() {
 }
 
 hertz_to_mhz() {
-    printf '%s\n' "$1" | awk '
-        /^[0-9]+$/ {
-            value = $1 + 0
-            if (value >= 1000000) printf "%d\n", value / 1000000
-            else if (value >= 1000) printf "%d\n", value / 1000
-            else printf "%d\n", value
-        }'
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    value="$((${1} + 0))"
+    # Kernels publish Hz or kHz depending on the driver.
+    if [ "$value" -ge 1000000 ]; then
+        printf '%s\n' "$((value / 1000000))"
+    elif [ "$value" -ge 1000 ]; then
+        printf '%s\n' "$((value / 1000))"
+    else
+        printf '%s\n' "$value"
+    fi
 }
 
 read_gpu_temperature() {
@@ -175,11 +184,17 @@ read_gpu_temperature() {
         case "$raw" in
             ''|*[!0-9-]*) continue ;;
         esac
-        printf '%s\n' "$raw" | awk '
-            { value = $1 + 0
-              # Kernels report millidegrees or whole degrees.
-              if (value > 1000) printf "%.1f\n", value / 1000
-              else printf "%.1f\n", value }'
+        # Kernels report millidegrees or whole degrees. Keep one decimal place
+        # using integer arithmetic so no awk implementation is involved.
+        case "$raw" in
+            -*) continue ;;
+        esac
+        value="$((raw + 0))"
+        if [ "$value" -gt 1000 ]; then
+            printf '%s.%s\n' "$((value / 1000))" "$(((value % 1000) / 100))"
+        else
+            printf '%s.0\n' "$value"
+        fi
         return 0
     done
     return 1
