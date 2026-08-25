@@ -139,19 +139,30 @@ Debian은 Android의 network namespace와 NIC(Network Interface Controller)를
 
 ## 하드웨어 영상 코덱 브리지
 
-하드웨어 영상 가속은 Debian에 GPU 장치 노드를 직접 전달하지 않습니다. 별도의
-Direct-Boot-aware Android `:codec` 프로세스가 공개 `MediaCodec` API로 코덱을
-조회하고, 향후 로컬 IPC를 통해 Debian 요청을 대행합니다. 이 프로세스는 Debian
-systemd와 SSH에서 분리되므로 vendor 코덱 오류가 서버 수명 주기를 종료시키지
-않습니다. `USER_UNLOCKED`에서도 중지하지 않습니다.
+하드웨어 영상 가속은 Debian에 GPU 장치 노드를 직접 전달하지 않습니다. 앱의
+`:codec` 프로세스는 capability 및 파일 기반 진단만 담당합니다. Debian 명령은
+다음 on-demand bionic NDK worker를 사용합니다.
 
-현재 구현은 capability 조사뿐 아니라 root peer 인증 local socket protocol, 세 ABI용
-정적 Debian client, bounded socket/`memfd` 전송, H.264 decode/encode와 H.264·HEVC
-Surface transcode까지 포함합니다. Android 10(API 29) 이상은 플랫폼의 hardware,
-software-only, vendor 판정을 사용하고 Android 7~9는 알려진 이름만 보수적으로
-분류합니다. session 통계는 keyframe, timestamp, EOS, shared-memory 사용량과 Surface
-경로의 `cpu_yuv_frames=0`을 검증하며 software fallback은 하지 않습니다. 결과와
-판정 근거는 앱 DE의 `hardware-codec/` 아래 상태, 로그 및 JSON으로 저장합니다.
+```text
+정적 dawnshell-codec 부모
+  → 상속 memfd request/response slot + eventfd 2개
+  → private dawnshell-codec-worker 자식
+  → AMediaCodec / AImageReader / ANativeWindow
+```
+
+listening socket, descriptor 전달, 등록 service, 상주 Debian codec daemon은 없습니다.
+명령 하나가 worker 하나를 소유하며, 부모가 종료되면 자식도 종료되어 session을
+정리합니다. private Debian mount namespace에는 bionic worker 실행에 필요한
+`/system`, `/apex`, 선택적 `/linkerconfig`만 읽기 전용으로 노출합니다. 앱 private
+storage와 일반 Termux CE는 노출하지 않습니다.
+
+APK에는 armv7/arm64/x86_64용 정적 client와 동적 NDK worker가 포함됩니다. worker는
+AVC/HEVC byte-buffer decode/encode와 decoder Surface→encoder Surface transcode를
+구현합니다. 신형 Android codec metadata 또는 보수적인 Exynos/Qualcomm component
+이름으로 하드웨어 후보를 선택하며 software codec으로 조용히 폴백하지 않습니다.
+session 통계는 keyframe, timestamp, EOS, 상속 shared-memory 전송과 Surface 경로의
+`cpu_yuv_frames=0`을 검증합니다. `USER_UNLOCKED`는 Debian을 중지하지 않으며 BFU와
+AFU 모두 codec 명령 실행 시에만 worker가 생성됩니다.
 
 ## SSH 키 흐름
 

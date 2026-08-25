@@ -98,16 +98,18 @@ must show `classification=platform_api29` (or an explicit legacy `heuristic_*`),
 an AVC decoder or encoder `created(...)` result, and no `OMX.google.*`,
 `c2.android.*`, or `.secure` backend. Debian PID 1 and SSH must remain available
 on probe failure. Reboot without unlocking and verify the same result, then
-unlock and verify both the `:codec` process and Debian remain alive. A ROM may
+unlock and verify Debian remains alive. The app-local `:codec` process is a
+diagnostic helper, not the Debian data path. A ROM may
 report `UNAVAILABLE` during BFU, but it must never report a software codec as a
 hardware success. An AFU report with `user_unlocked=true` must not be counted as
 BFU evidence.
 
 Inside Debian, run `dawnshell-codec-self-test` to verify the decode checksum,
 encode keyframe/PTS/EOS, FFmpeg decode, and Surface zero-copy statistics. Use
-`dawnshell-codec health --format json` to check broker health and released
-sessions, and `dawnshell-codec negative-test` to prove malformed requests do not
-kill the broker. The final five-cycle test enables these checks with
+`dawnshell-codec health --format json` to prove a private worker reaches
+`worker_state=ready`, and `dawnshell-codec negative-test` to prove malformed
+requests are isolated and a subsequent worker remains usable. The final
+five-cycle test enables these checks with
 `BFU_REQUIRE_HARDWARE_CODEC=1`.
 
 Verify transparent integration with `dawnshell-ffmpeg`:
@@ -124,17 +126,16 @@ routing itself is pinned without a device by
 `scripts/test-ffmpeg-bridge-plan.sh`.
 
 The short performance, quality, and error-regression button additionally checks
-shared-memory versus forced-socket decode, B-frame MP4 timestamps, a matching
-1080p software/hardware checksum and CPU baseline, hardware-encode PSNR/SSIM,
+the inherited memfd/eventfd path, B-frame MP4 timestamps, a matching 1080p
+software/hardware checksum and CPU baseline, hardware-encode PSNR/SSIM,
 AVC/HEVC Surface transcode, malformed AVC/HEVC and EOS isolation, concurrent
-sessions, idle/slow-client backpressure, peer-EOF cleanup, and scoped `:codec`
-broker crash recovery. Include it
+private workers, bounded backpressure, and parent/worker cleanup. Include it
 in the final five-cycle run with both
 `BFU_REQUIRE_HARDWARE_CODEC=1` and `BFU_REQUIRE_CODEC_PERFORMANCE=1`.
 
 The long-run button executes 720p decode, 1080p decode/encode, and AVC/HEVC
 transcode for ten minutes each. Evidence under `/var/log/dawnshell/codec-tests/`
-records client CPU/RSS and broker CPU/RSS/FD/heap, queue pressure, battery
+records command/client-worker CPU and RSS, call latency, queue pressure, battery
 temperature, and Android thermal status. The first device runs record the CPU
 reduction without enforcing an arbitrary percentage threshold.
 
@@ -144,5 +145,5 @@ reduction without enforcing an arbitrary percentage threshold.
 - App CE remains unavailable during BFU unless a documented override is active.
 - The same Debian and SSH instance survives first unlock.
 - Five cycles produce no duplicate processes or accumulated mounts.
-- Delayed networking does not kill the listener.
+- Delayed networking does not kill the SSH listener.
 - Stop and removal clean only verified targets.

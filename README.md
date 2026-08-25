@@ -105,18 +105,19 @@ Debian restart. SELinux can still deny access; Docker needs an explicit
 ADB, and an abnormal exit can require unplugging the device or rebooting. Never
 mount one removable filesystem from Android and Debian simultaneously.
 
-**Hardware video acceleration** is experimental and disabled by default. An
-isolated Android `MediaCodec` broker exposes an authenticated local protocol to
-Debian, including AVC/HEVC decode, AVC encode, zero-copy Surface transcode,
-FFmpeg-compatible wrappers, shared-memory frame transport, and socket fallback.
-The regression suite checks deterministic 720p/1080p checksums, B-frame MP4 and
-HEVC containers, transport selection, a software CPU baseline, encode PSNR/SSIM,
-real-time Surface transcode, malformed-input/concurrency isolation, and cleanup
-after interrupted clients, followed by scoped `:codec` broker crash recovery.
-A five-workload long-run records CPU, RSS, file
-descriptors, queue pressure, battery temperature, and thermal state. It is not
-OpenGL/Vulkan or general GPU passthrough; see
-[the implementation plan](docs/media-codec-bridge-plan.ko.md).
+**Hardware video acceleration** is experimental and disabled by default. Each
+Debian codec command starts a private bionic NDK worker that calls Android
+`MediaCodec`. The static Debian client and worker exchange bounded records through
+one inherited `memfd` and two inherited `eventfd` descriptors. There is no public
+listener, descriptor passing, persistent Debian codec daemon, or software-codec
+fallback. The path supports AVC/HEVC decode, AVC/HEVC encode, Surface transcode,
+and FFmpeg-compatible wrappers. The regression suite checks deterministic
+720p/1080p output, B-frame and HEVC input, objective encode quality, real-time
+transcode, malformed-input isolation, concurrent private workers, and cleanup
+after interrupted clients. A five-workload long run records client/worker CPU,
+RSS, latency, battery temperature, and thermal state. It is not OpenGL/Vulkan or
+general GPU passthrough; see the [codec architecture](docs/hardware-codec-protocol.md)
+and [FFmpeg guide](docs/ffmpeg-hardware-codec.md).
 
 ## Build
 

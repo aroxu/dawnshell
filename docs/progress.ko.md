@@ -70,32 +70,34 @@ ABI(Application Binary Interface)의 의미는
 
 ### 하드웨어 영상 가속
 
-- [x] 기본 비활성 MediaCodec 옵션과 별도 `:codec` 프로세스를 추가했습니다.
-- [x] BFU 부팅 재시도와 `USER_UNLOCKED` 이후 유지 수명 주기를 연결했습니다.
+- [x] 기본 비활성 MediaCodec 옵션과 앱 내부 진단용 `:codec` 프로세스를 추가했습니다.
+- [x] `USER_UNLOCKED` 수명 주기와 분리된 명령별 NDK worker를 BFU/AFU에서 사용할
+  수 있게 했습니다.
 - [x] API 29 이상 플랫폼 판정과 API 24~28 보수적 하위 호환 판정을 구현했습니다.
 - [x] secure/DRM 및 software fallback을 제외하고 AVC/HEVC 인스턴스 생성을
   DE JSON/로그로 기록합니다.
-- [x] root peer 인증 binary protocol과 3개 지원 ABI용 정적 Debian client를
-  구현했습니다.
+- [x] versioned inherited-FD binary protocol, 3개 지원 ABI용 정적 Debian client와
+  bionic NDK worker를 구현했습니다.
 - [x] 고정 AVC decode/I420 checksum 및 hardware encode/FFmpeg 자체 검사를
   구현했습니다.
 - [x] bounded packet framing과 timestamp를 유지하는 FFmpeg hardware decode/encode
   demux/mux wrapper를 구현했습니다.
-- [x] bounded socket 폴백이 있는 `memfd`/`SCM_RIGHTS` media 전송을 구현했습니다.
+- [x] listener/descriptor 전달 prototype을 상속 `memfd` 하나와 `eventfd` 두 개로
+  교체하고 socket fallback을 제거했습니다.
 - [x] 전체 YUV frame을 Debian으로 반환하지 않는 H.264/HEVC→H.264 Surface
   transcode를 구현했습니다.
-- [x] keyframe 요청, broker/session 통계와 잘못된 요청 격리 회귀 검사를
+- [x] keyframe 요청, worker/session 통계와 잘못된 요청 격리 회귀 검사를
   구현했습니다.
-- [x] 720p shared-memory/socket 비교, 1080p30 실시간 Surface transcode와
-  비정상 peer 자원 정리 성능 검사 경로를 구현했습니다.
+- [x] 720p inherited-transport 검사, 1080p30 실시간 Surface transcode와
+  비정상 client 자원 정리 성능 검사 경로를 구현했습니다.
 - [x] Android 16 AFU에서 vendor AVC/HEVC encoder·decoder instance 생성을
   확인했습니다(확인된 backend: Exynos).
 - [x] B-frame MP4와 HEVC container 고정 vector, streaming FFmpeg wrapper,
   software CPU 기준선과 hardware encode PSNR/SSIM 검사를 구현했습니다.
-- [x] malformed H.264/HEVC, EOS, idle peer, 동시 session, 자체 broker 강제 종료/복구
-  및 5개 workload 장시간 CPU/RSS/FD/thermal 계측 경로를 구현했습니다.
+- [x] malformed H.264/HEVC, EOS, 동시 private worker, parent 종료 후 정리 및
+  5개 workload 장시간 CPU/RSS/thermal 계측 경로를 구현했습니다.
 - [ ] BFU 실기기에서 vendor AVC hardware instance 생성을 확인합니다.
-- [ ] 최초 잠금 해제 전후에 고정 vector decode, encode, shared-memory 전송과
+- [ ] 최초 잠금 해제 전후에 고정 vector decode, encode, inherited memfd/eventfd 전송과
   Surface transcode를 검증합니다.
 - [ ] 실기기에서 1080p 실시간 성능, timestamp 안정성과 자원 정리를
   검증합니다.

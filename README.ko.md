@@ -118,12 +118,17 @@ Android 입력, 저장장치, 네트워크 또는 ADB를 끊을 수 있으며 �
 장치를 뽑거나 재부팅해야 할 수 있습니다. 같은 이동식 파일시스템을 Android와
 Debian에서 동시에 마운트하면 안 됩니다.
 
-**하드웨어 영상 가속**은 실험 기능이며 기본적으로 꺼져 있습니다. 현재 단계는
-Android MediaCodec 접근을 별도 프로세스로 격리하고 AVC/HEVC capability를 수집한
-뒤, 소프트웨어 코덱으로 몰래 전환하지 않고 명시적인 하드웨어 코덱 instance 생성
-여부를 확인합니다. OpenGL/Vulkan 또는 범용 GPU 패스스루 기능은 아닙니다.
-Debian frame 전달과 FFmpeg 연동은 아직 구현 중이며 자세한 범위는
-[구현 계획](docs/media-codec-bridge-plan.ko.md)을 참고해 주세요.
+**하드웨어 영상 가속**은 실험 기능이며 기본적으로 꺼져 있습니다. Debian의 각
+코덱 명령은 Android `MediaCodec`을 호출하는 전용 bionic NDK worker를 하나씩
+실행합니다. 정적 Debian client와 worker는 상속된 `memfd` 하나와 `eventfd` 두 개로
+상한이 있는 record만 교환합니다. 공개 listener, descriptor 전달, 상주 Debian
+codec daemon, 소프트웨어 코덱 폴백은 없습니다. AVC/HEVC decode·encode, Surface
+transcode와 FFmpeg 호환 wrapper를 제공합니다. 회귀 검사는 720p/1080p 출력,
+B-frame/HEVC 입력, 인코딩 품질, 실시간 transcode, 잘못된 입력 격리, 동시 private
+worker와 중단 client 정리를 확인합니다. 장기 검사는 client/worker CPU, RSS,
+호출 지연, 배터리 온도와 thermal 상태를 기록합니다. OpenGL/Vulkan 또는 범용 GPU
+패스스루 기능은 아닙니다. [코덱 구조](docs/hardware-codec-protocol.ko.md)와
+[FFmpeg 사용법](docs/ffmpeg-hardware-codec.ko.md)을 참고하세요.
 
 ## 빌드
 

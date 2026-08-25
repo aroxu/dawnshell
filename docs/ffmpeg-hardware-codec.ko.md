@@ -13,12 +13,12 @@
 ## 기능 범위
 
 DawnShell은 Debian의 일반 GPU를 패스스루하지 않습니다. Debian에서 컨테이너와
-패킷을 정리하고, Android 앱 프로세스의 `MediaCodec`이 H.264/AVC 및 HEVC
+패킷을 정리하고, 명령별 bionic NDK worker의 `MediaCodec`이 H.264/AVC 및 HEVC
 디코드와 인코드를 수행합니다.
 
 앱의 **파일 기반 하드웨어 AVC 디코드 자체 검사**는 Android 하드웨어 디코더가
-작동하는지만 확인합니다. 아래 FFmpeg 명령은 Unix socket/공유 메모리를 포함한
-스트리밍 브리지까지 사용하므로 별도로 확인해야 합니다.
+작동하는지만 확인합니다. 아래 FFmpeg 명령은 Debian 정적 client, 상속 공유
+전송, 명령별 private NDK worker와 FFmpeg adapter를 별도로 확인합니다.
 
 ## 최초 준비
 
@@ -32,8 +32,18 @@ command -v dawnshell-ffmpeg dawnshell-hwdecode dawnshell-hwencode dawnshell-hwtr
 sudo dawnshell-codec health --format json
 ```
 
-`health` 결과의 `broker_state`가 `listening`이어야 합니다. 도구가 없다면 앱에서
-Debian 구성을 다시 실행하세요.
+`health` JSON에는 다음 값이 모두 있어야 합니다.
+
+```text
+worker_state=ready
+transport=inherited_memfd_eventfd
+public_listener=false
+software_fallback=false
+```
+
+`health`는 새 worker를 시작해 상태를 읽고 회수합니다. 명령마다 PID가 달라지는
+것이 정상이며 유지해야 할 daemon은 없습니다. 도구가 없다면 앱에서 Debian 구성을
+다시 실행하세요.
 
 ## 가장 먼저 실행할 명령
 
@@ -261,10 +271,13 @@ HEVC 입력은 `h264_mp4toannexb`를 `hevc_mp4toannexb`로, 두 `-f h264`를
 `-f hevc`로, `dawnshell-codec transcode avc avc`를
 `dawnshell-codec transcode hevc avc`로 바꿉니다.
 
-여기서 `/usr/local/bin/dawnshell-codec`는 제거할 수 없는 최소 브리지입니다. 일반
-FFmpeg만으로 Android 앱 프로세스의 `MediaCodec`을 호출할 수 없으며, 이 네이티브
-클라이언트가 인증된 Android 브로커에 프레임과 제어 요청을 전달합니다. 브로커는
-보안을 위해 UID 0 연결만 허용하므로 일반 Debian 계정에서는 `sudo`가 필요합니다.
+여기서 `/usr/local/bin/dawnshell-codec`는 제거할 수 없는 정적 Android ELF
+client입니다. 이 client가 `memfd` 하나와 `eventfd` 두 개를 만들고 fork한 다음,
+그 descriptor만 상속한 `/usr/local/libexec/dawnshell-codec-worker`를 실행합니다.
+bionic worker는 NDK `AMediaCodec`을 호출하고 상한이 있는 record를 반환한 뒤
+부모와 함께 종료합니다. listening endpoint와 descriptor 전달은 없습니다. 일반
+glibc FFmpeg만으로 `MediaCodec`을 직접 호출할 수 없습니다. 관리되는 native/chroot
+실행 경로가 root 전용이므로 일반 Debian 계정에서는 `sudo`가 필요합니다.
 
 ## 기존 `ffmpeg` 호출에 자동 적용
 
@@ -349,11 +362,24 @@ journalctl -u dawnshell-codec-long-run.service -n 100 --no-pager
 
 앱에서는 **하드웨어 영상 가속 → 하드웨어 코덱 보고서 보기**를 엽니다.
 
-- 파일 기반 검사는 성공하지만 FFmpeg가 실패함: 코덱 자체가 아니라 socket/공유
-  메모리 스트리밍 계층을 확인합니다.
+- 파일 기반 검사는 성공하지만 FFmpeg가 실패함: 코덱 자체가 아니라
+  client/private-worker 경로를 확인합니다.
 - `action=passthrough`: 해당 명령은 자동 하드웨어 범위 밖입니다. `require`로 이유를
   명확한 오류로 바꿀 수 있습니다.
-- `broker_state`가 `listening`이 아님: 앱에서 브리지를 켜고 저장한 뒤 Debian 구성을
-  다시 실행합니다.
+- `worker_state=ready`가 없음: 앱에서 기능을 켜고 저장한 뒤 Debian 구성을 다시
+  실행하고 아래 파일과 Android runtime mount를 확인합니다.
 - BFU에서만 실패함: Android 미디어 서비스가 늦게 준비되는 ROM일 수 있습니다.
   앱 로그의 locked-boot 재시도 결과를 확인합니다.
+
+```sh
+sudo test -x /usr/local/bin/dawnshell-codec
+sudo test -x /usr/local/libexec/dawnshell-codec-worker
+findmnt /system /apex /linkerconfig 2>/dev/null || true
+sudo dawnshell-codec health --format json
+```
+
+`worker startup timed out`은 대개 bionic dynamic linker 경로가 보이지 않거나 ready
+handshake 전에 worker가 종료된 경우입니다. `hardware codec ... unavailable`은 해당
+Android 플랫폼에서 허용된 하드웨어 component를 찾지 못한 경우입니다.
+`Connection refused`는 폐기된 socket 기반 빌드의 오류이며 현재 구조에서는 나오면
+안 됩니다.

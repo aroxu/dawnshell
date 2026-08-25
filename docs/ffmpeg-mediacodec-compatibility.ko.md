@@ -20,13 +20,14 @@ FFmpeg 자체는 MediaCodec을 지원합니다. 하지만 그 지원은 **Androi
 | 빌드 타깃 | `--target-os=android` | Debian 패키지는 `linux` 타깃 |
 | C 라이브러리 | bionic | glibc |
 | 빌드 플래그 | `--enable-mediacodec --enable-jni` | 미적용 |
-| 링크 대상 | 시스템의 `libmediandk.so` | chroot 안에서 미노출 |
-| 런타임 | Android 미디어 서비스 접근 | SELinux 도메인이 다름 |
-| JVM | JNI 초기화 경로 | chroot 안에 JVM 없음 |
+| 링크 대상 | Android bionic `libmediandk.so` | glibc 프로세스와 ABI 비호환 |
+| 런타임 | Android linker, `/system`, APEX view | 일반 Debian rootfs에 없음 |
+| 코덱 API | NDK 또는 JNI 호출자 | Debian 패키지에는 해당 경로가 없음 |
 
-즉 문제는 "옵션을 켜지 않았다"가 아니라 **ABI와 프로세스 컨텍스트가 다르다**는
-점입니다. Debian FFmpeg는 glibc 프로세스이고, MediaCodec은 bionic + Android
-미디어 서비스 컨텍스트에서만 열립니다.
+즉 문제는 "옵션을 켜지 않았다"가 아니라 ABI가 다르다는 점입니다. Debian
+FFmpeg는 glibc Linux 프로세스이고 NDK MediaCodec library는 bionic Android
+library입니다. DawnShell은 parsing/muxing은 순정 FFmpeg에 맡기고 코덱 작업만 작은
+bionic worker에서 실행합니다.
 
 확인 방법은 다음과 같습니다.
 
@@ -43,17 +44,16 @@ FFmpeg 자체는 MediaCodec을 지원합니다. 하지만 그 지원은 **Androi
 
 - bionic 기반 Android FFmpeg 크로스 빌드
 - chroot 안으로 `/system/lib64`와 linker 노출
-- MediaCodec에 필요한 SELinux 접근 허용
-- JVM 없이 NDK MediaCodec을 초기화(상위 Android 버전에서 특히 불안정)
+- 큰 실행 파일에서 Android linker와 SELinux 동작을 그대로 유지
+- 지원 ABI마다 Android 전용 FFmpeg 빌드를 지속 관리
 
-마지막 두 항목은 DawnShell의 격리 설계와 정면으로 충돌합니다. Debian이 Android
-미디어 스택에 직접 붙는 순간, chroot는 더 이상 경계 역할을 하지 못합니다.
-그래서 DawnShell은 이 방식을 채택하지 않습니다.
+이 방식은 신뢰해야 할 Android 쪽 실행 영역을 크게 만듭니다. DawnShell은 대신
+범위가 좁은 NDK worker만 제공하고 Debian의 FFmpeg 패키지는 그대로 둡니다.
 
 ## 2. DawnShell의 방식: 문법은 순정, 실행은 브리지
 
 DawnShell은 명령줄 **문법**을 순정 FFmpeg와 동일하게 받아들이고, 실제 코덱
-호출만 Android 앱 프로세스로 넘깁니다.
+호출만 명령별 bionic NDK worker로 넘깁니다.
 
 ```text
 사용자 명령 (-hwaccel mediacodec / -c:v h264_mediacodec)
@@ -64,16 +64,20 @@ plan-ffmpeg                 실행 계획 결정
         ↓
 dawnshell-hwdecode / hwencode / hwtranscode
         ↓
-dawnshell-codec             Unix socket 클라이언트
+dawnshell-codec             정적 client: fork/exec + 상속 FD
         ↓
-Android 앱 프로세스의 MediaCodec
+dawnshell-codec-worker      bionic NDK AMediaCodec 프로세스
+        ↓
+Android MediaCodec service
 ```
 
 정확히 이해해야 할 두 가지가 있습니다.
 
 - 명령 문법과 결과물은 순정 FFmpeg와 호환됩니다.
 - 하지만 `/usr/bin/ffmpeg`가 MediaCodec을 여는 것은 아닙니다. 코덱을 여는
-  주체는 Android 앱입니다.
+  주체는 private bionic worker입니다.
+- client와 worker는 상속된 `memfd` 하나와 `eventfd` 두 개를 사용합니다. socket,
+  descriptor 전달, 등록 service, 상주 codec daemon은 없습니다.
 
 ### 래퍼 연결은 기본으로 적용됩니다
 
@@ -212,16 +216,16 @@ sudo ffmpeg -y -i input.mp4 -map 0:v:0 -an \
 
 | 항목 | 순정 Android FFmpeg | DawnShell |
 | --- | --- | --- |
-| 코덱 호출 주체 | FFmpeg 프로세스 | Android 앱 프로세스 |
-| 권한 | 앱 권한 | UID 0 필요(브로커 정책) |
+| 코덱 호출 주체 | FFmpeg 프로세스 | private bionic NDK worker |
+| 권한 | 앱/프로세스 권한 | root가 관리하는 native/chroot 경로 |
 | 오디오 동시 처리 | 가능 | 미지원(별도 mux) |
 | 필터와 하드웨어 조합 | 일부 가능 | 미지원 |
 | `-hwaccel_output_format` | 실제 의미 있음 | 무시 |
 | 실패 시 동작 | 설정에 따름 | 명시 시 오류 종료 |
-| 지연 | 프로세스 내부 | socket/공유 메모리 경유 |
+| 지연 | 프로세스 내부 | 자식 프로세스와 상속 공유 slot 경유 |
 
-`sudo`가 필요한 이유는 브로커가 UID 0 연결만 수락하기 때문입니다. 이는 Debian
-안의 임의 프로세스가 Android 코덱을 열지 못하게 하는 보안 경계입니다.
+`sudo`가 필요한 이유는 DawnShell이 관리하는 native runtime과 chroot 실행 경로가
+root 전용이기 때문입니다. peer credential을 검사하는 listener는 없습니다.
 
 ## 8. 실행 전 확인과 문제 해결
 
@@ -250,7 +254,7 @@ action=transcode input=input.mp4 output=output.mp4 codec=avc bitrate=6000000 exp
 | `explicit=mediacodec` | 사용자가 하드웨어를 명시함 |
 | `reason=...` | 폴백 사유 |
 
-브로커 상태와 로그를 확인합니다.
+새 private worker를 시작해 상태와 로그를 확인합니다.
 
 ```sh
 sudo dawnshell-codec health --format json
@@ -262,8 +266,9 @@ journalctl -u dawnshell-codec-long-run.service -n 100 --no-pager
 | --- | --- |
 | `hardware bridge required but unavailable` | 명령이 자동 범위 밖입니다. `plan-ffmpeg`의 `reason`을 확인하십시오. |
 | `Surface transcode only produces H.264` | HEVC 출력에는 `-hwaccel mediacodec`을 제거하십시오. |
-| `broker_state`가 `listening`이 아님 | 앱에서 브리지를 켜고 저장한 뒤 Debian 구성을 다시 실행하십시오. |
-| `connect @dawnshell.codec.v1 failed` | `sudo`로 실행했는지 확인하십시오. |
-| 파일 검사는 통과하지만 명령이 실패 | 코덱이 아니라 socket/공유 메모리 계층을 확인하십시오. |
+| `worker_state`가 `ready`가 아님 | 기능을 켜고 저장한 뒤 Debian 구성을 다시 실행하고 worker 및 `/system`/`/apex` mount를 확인하십시오. |
+| `worker startup timed out` | bionic worker가 상속 FD ready handshake 전에 종료되었습니다. stderr와 runtime mount를 확인하십시오. |
+| `Connection refused` | 폐기된 socket 기반 client가 남아 있습니다. 최신 APK에서 Debian 구성을 다시 실행하십시오. |
+| 파일 검사는 통과하지만 명령이 실패 | 코덱이 아니라 client/worker 시작과 상속 공유 전송을 확인하십시오. |
 
 앱에서는 **하드웨어 영상 가속 → 하드웨어 코덱 보고서 보기**를 확인합니다.

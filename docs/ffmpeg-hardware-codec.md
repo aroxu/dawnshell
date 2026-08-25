@@ -16,21 +16,31 @@ containers and packet framing, while Android `MediaCodec` performs H.264/AVC
 and HEVC codec work.
 
 The app's file-backed 1080p test proves the Android hardware decoder only. The
-commands below additionally exercise the Unix-socket/shared-memory streaming
-bridge and must be tested separately.
+commands below separately exercise the Debian static client, inherited shared
+transport, private NDK worker, and FFmpeg adapters.
 
 ## Setup
 
 1. Enable **Hardware codec bridge at Direct Boot** in the app and save it.
 2. Run **Configure Debian 13 systemd + SSH** again.
-3. In Debian, verify the installed tools and broker.
+3. In Debian, verify the installed tools and private worker.
 
 ```sh
 command -v dawnshell-ffmpeg dawnshell-hwdecode dawnshell-hwencode dawnshell-hwtranscode
 sudo dawnshell-codec health --format json
 ```
 
-`broker_state` must be `listening`.
+The health JSON must contain all of the following:
+
+```text
+worker_state=ready
+transport=inherited_memfd_eventfd
+public_listener=false
+software_fallback=false
+```
+
+`health` starts a new worker, queries it, and reaps it. Its PID is expected to
+change between commands; there is no daemon to keep alive.
 
 ## First hardware command
 
@@ -208,10 +218,14 @@ For HEVC input, replace `h264_mp4toannexb` with `hevc_mp4toannexb`, both
 `-f h264` occurrences with `-f hevc`, and `transcode avc avc` with
 `transcode hevc avc`.
 
-`/usr/local/bin/dawnshell-codec` is the irreducible native bridge client.
-Plain FFmpeg cannot call `MediaCodec` in the Android app process. The broker
-accepts UID 0 peers only, so commands that use the bridge require `sudo` from a
-regular Debian account.
+`/usr/local/bin/dawnshell-codec` is the irreducible static Android ELF client.
+It creates one `memfd` and two `eventfd` objects, forks, then executes
+`/usr/local/libexec/dawnshell-codec-worker` with only those inherited
+descriptors. The bionic worker calls NDK `AMediaCodec`, returns bounded records,
+and exits with its parent. There is no listening endpoint and no descriptor is
+sent to another process. Plain glibc FFmpeg cannot call `MediaCodec` directly.
+The managed native/chroot execution path is root-only, so bridge commands need
+`sudo` from a regular Debian account.
 
 ## Make existing `ffmpeg` calls use the wrapper
 
@@ -266,6 +280,19 @@ sudo dawnshell-codec health --format json
 
 Open **Hardware video acceleration → View hardware codec report** in the app.
 If the file-backed test passes but FFmpeg fails, investigate the streaming
-socket/shared-memory layer rather than hardware codec availability. If
-`broker_state` is not `listening`, enable and save the bridge and configure
-Debian again.
+client/worker path rather than hardware codec availability. If `health` does not
+report `worker_state=ready`, check that the option is enabled, configure Debian
+again, and verify these files:
+
+```sh
+sudo test -x /usr/local/bin/dawnshell-codec
+sudo test -x /usr/local/libexec/dawnshell-codec-worker
+findmnt /system /apex /linkerconfig 2>/dev/null || true
+sudo dawnshell-codec health --format json
+```
+
+`worker startup timed out` usually means the bionic dynamic linker view is
+missing or the worker exited before its ready handshake. `hardware codec ...
+unavailable` means the Android platform did not expose a permitted hardware
+component. `Connection refused` belongs to obsolete socket-based builds and is
+not an expected error in this architecture.

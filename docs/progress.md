@@ -59,32 +59,35 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 
 ### Hardware video acceleration
 
-- [x] Added a default-off MediaCodec option and isolated `:codec` process.
-- [x] Connected bounded BFU retries and persistence across `USER_UNLOCKED`.
+- [x] Added a default-off MediaCodec option and app-local diagnostic `:codec`
+  process.
+- [x] Added an on-demand NDK worker path available in both BFU and AFU without
+  coupling its lifecycle to `USER_UNLOCKED`.
 - [x] Added deterministic B-frame MP4 and HEVC vectors, streaming FFmpeg wrappers,
   a software CPU baseline, and hardware-encode PSNR/SSIM checks.
-- [x] Added malformed AVC/HEVC, EOS, idle-peer, concurrent-session, scoped broker
-  crash/recovery, and five-workload long-run CPU/RSS/FD/thermal regression paths.
+- [x] Added malformed AVC/HEVC, EOS, concurrent private-worker, parent-exit
+  cleanup, and five-workload long-run CPU/RSS/thermal regression paths.
 - [x] Added API 29+ platform classification and conservative API 24–28 fallback.
 - [x] Excluded secure/DRM and silent software fallback while recording AVC/HEVC
   instance creation in DE JSON and logs.
-- [x] Added a root-peer-authenticated binary protocol and static Debian client
-  for all three supported ABIs.
+- [x] Added a versioned inherited-FD binary protocol, static Debian client, and
+  bionic NDK worker for all three supported ABIs.
 - [x] Added deterministic AVC decode/I420 checksum and hardware encode/FFmpeg
   self-tests.
 - [x] Added FFmpeg demux/mux wrappers for hardware decode and encode while
   preserving bounded packet framing and timestamps.
-- [x] Added `memfd`/`SCM_RIGHTS` media transport with bounded socket fallback.
+- [x] Replaced the listener/descriptor-passing prototype with one inherited
+  `memfd`, two inherited `eventfd` objects, and no socket fallback.
 - [x] Added H.264/HEVC-to-H.264 Surface transcoding without returning full YUV
   frames to Debian.
-- [x] Added keyframe requests, broker/session statistics, and malformed-request
+- [x] Added keyframe requests, worker/session statistics, and malformed-request
   isolation checks.
-- [x] Added a 720p shared-memory/socket comparison, 1080p30 realtime Surface
-  transcode gate, and abrupt-peer resource cleanup test path.
+- [x] Added a 720p inherited-transport check, 1080p30 realtime Surface
+  transcode gate, and abrupt-client resource cleanup test path.
 - [x] Verified vendor AVC/HEVC encoder and decoder instance creation on Android
   16 after first unlock (observed backend: Exynos).
 - [ ] Verify vendor AVC hardware instance creation on a locked real device.
-- [ ] Verify fixed-vector decode, encode, shared-memory transport, and Surface
+- [ ] Verify fixed-vector decode, encode, inherited memfd/eventfd transport, and Surface
   transcode before and after first unlock.
 - [ ] Verify 1080p realtime performance, timestamp stability, and resource
   cleanup on a real device.

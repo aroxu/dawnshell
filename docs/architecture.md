@@ -79,20 +79,32 @@ therefore a separately warned, explicit option.
 
 ## Hardware video codec bridge
 
-Hardware video acceleration does not pass GPU device nodes into Debian. A
-separate Direct-Boot-aware Android `:codec` process uses the public `MediaCodec`
-API and will broker Debian requests over local IPC. It is isolated from Debian
-systemd and SSH, so a vendor codec failure cannot terminate the server
-lifecycle. `USER_UNLOCKED` does not stop it.
+Hardware video acceleration does not pass GPU device nodes into Debian. The
+app-local `:codec` process is retained only for capability and file diagnostics.
+Debian commands use an on-demand bionic NDK worker instead:
 
-The implementation now includes the capability probe, root-peer-authenticated
-local protocol, static clients for all three ABIs, bounded socket/`memfd`
-transport, H.264 decode/encode, and H.264/HEVC Surface transcoding. Android 10
-(API 29) and newer use platform hardware, software-only, and vendor flags;
-Android 7–9 use conservative known-name classification. Session statistics
-verify keyframes, timestamps, EOS, shared-memory use, and zero CPU YUV frames on
-the Surface path. There is no silent software fallback. Status, logs, and the
-capability JSON live under the app's DE `hardware-codec/` directory.
+```text
+static dawnshell-codec parent
+  → inherited memfd request/response slots + two eventfds
+  → private dawnshell-codec-worker child
+  → AMediaCodec / AImageReader / ANativeWindow
+```
+
+There is no listening socket, descriptor transfer, registered service, or
+persistent Debian codec daemon. One command owns one worker; parent death
+terminates the child and releases its sessions. The private Debian mount
+namespace exposes only read-only `/system`, `/apex`, and optional
+`/linkerconfig` so the bionic worker can resolve Android runtime libraries.
+App-private and Termux CE storage are not exposed.
+
+The APK ships static clients and dynamic NDK workers for armv7, arm64, and
+x86_64. The worker implements AVC/HEVC byte-buffer decode and encode plus
+decoder-Surface-to-encoder-Surface transcoding. Hardware candidates are selected
+from modern platform metadata or conservative Exynos and Qualcomm component
+names. Software codecs are never silently selected. Session statistics verify
+keyframes, timestamps, EOS, inherited shared-memory transport, and zero CPU YUV
+frames on the Surface path. `USER_UNLOCKED` does not stop Debian; a worker is
+created only when a codec command runs in either BFU or AFU.
 
 ## SSH keys
 

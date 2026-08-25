@@ -20,13 +20,14 @@ platform. Every one of the following is required:
 | Build target | `--target-os=android` | Debian packages target `linux` |
 | C library | bionic | glibc |
 | Build flags | `--enable-mediacodec --enable-jni` | Not enabled |
-| Link target | System `libmediandk.so` | Not exposed inside the chroot |
-| Runtime | Android media service access | Different SELinux domain |
-| JVM | JNI initialization path | No JVM inside the chroot |
+| Link target | Android bionic `libmediandk.so` | Incompatible with a glibc process |
+| Runtime | Android linker, `/system`, and APEX view | Not part of a normal Debian rootfs |
+| Codec API | NDK or JNI caller | Debian package has neither path |
 
-The blocker is not a missing configure flag. The ABI and the process context
-differ. Debian FFmpeg is a glibc process, while MediaCodec opens only from a
-bionic process inside the Android media context.
+The blocker is not a missing configure flag. Debian FFmpeg is a glibc Linux
+process, while NDK MediaCodec libraries are bionic Android libraries. DawnShell
+therefore keeps stock FFmpeg for parsing/muxing and runs only codec work in a
+small bionic worker.
 
 Verify it locally:
 
@@ -43,18 +44,16 @@ It is theoretically possible, but it requires all of the following:
 
 - A bionic-based Android FFmpeg cross build
 - Exposing `/system/lib64` and the Android linker inside the chroot
-- Granting SELinux access to the Android media stack
-- Initializing NDK MediaCodec without a JVM, which upstream documents as
-  unreliable on newer Android releases
+- Preserving Android linker and SELinux behavior for a very large executable
+- Maintaining Android-specific FFmpeg builds for every supported ABI
 
-The last two items break DawnShell's isolation model. Once Debian talks
-directly to the Android media stack, the chroot stops acting as a boundary.
-DawnShell therefore does not take this route.
+That makes the trusted Android-side surface much larger. DawnShell instead
+ships a narrowly scoped NDK worker and keeps Debian's packaged FFmpeg unchanged.
 
 ## 2. DawnShell's approach: upstream syntax, bridged execution
 
 DawnShell accepts the same command-line **syntax** as upstream FFmpeg and
-forwards only the codec work to the Android app process.
+forwards only the codec work to an on-demand bionic NDK worker.
 
 ```text
 User command (-hwaccel mediacodec / -c:v h264_mediacodec)
@@ -65,15 +64,20 @@ plan-ffmpeg                 route selection
         ↓
 dawnshell-hwdecode / hwencode / hwtranscode
         ↓
-dawnshell-codec             Unix socket client
+dawnshell-codec             static client: fork/exec + inherited FDs
         ↓
-MediaCodec in the Android app process
+dawnshell-codec-worker      bionic NDK AMediaCodec process
+        ↓
+Android MediaCodec service
 ```
 
 Two points matter:
 
 - The command syntax and the produced files are compatible with upstream.
-- `/usr/bin/ffmpeg` never opens MediaCodec. The Android app does.
+- `/usr/bin/ffmpeg` never opens MediaCodec. The private bionic worker does.
+- The client and worker use one inherited `memfd` plus two inherited `eventfd`
+  objects. No socket, descriptor passing, registered service, or persistent
+  codec daemon is involved.
 
 ### The wrapper is wired in by default
 
@@ -209,16 +213,17 @@ sudo ffmpeg -y -i input.mp4 -map 0:v:0 -an \
 
 | Aspect | Upstream Android FFmpeg | DawnShell |
 | --- | --- | --- |
-| Codec caller | The FFmpeg process | The Android app process |
-| Privileges | App permissions | UID 0 required by broker policy |
+| Codec caller | The FFmpeg process | Private bionic NDK worker |
+| Privileges | App/process permissions | Root-managed native/chroot path |
 | Simultaneous audio | Supported | Not supported; mux separately |
 | Filters plus hardware | Partially supported | Not supported |
 | `-hwaccel_output_format` | Meaningful | Accepted and ignored |
 | Failure behavior | Configuration dependent | Error when hardware was named |
-| Latency | In-process | Through socket/shared memory |
+| Latency | In-process | Child process through inherited shared slots |
 
-`sudo` is required because the broker accepts UID 0 peers only. That boundary
-prevents arbitrary Debian processes from opening Android codecs.
+`sudo` is required because DawnShell installs and exposes the managed native
+runtime only through its root-owned chroot path. There is no peer-credential
+listener to authenticate.
 
 ## 8. Preflight and troubleshooting
 
@@ -245,7 +250,7 @@ action=transcode input=input.mp4 output=output.mp4 codec=avc bitrate=6000000 exp
 | `explicit=mediacodec` | The caller named hardware |
 | `reason=...` | Fallback cause |
 
-Inspect the broker:
+Inspect a freshly started private worker:
 
 ```sh
 sudo dawnshell-codec health --format json
@@ -257,8 +262,9 @@ journalctl -u dawnshell-codec-long-run.service -n 100 --no-pager
 | --- | --- |
 | `hardware bridge required but unavailable` | The command is outside automatic scope; check `reason` from `plan-ffmpeg`. |
 | `Surface transcode only produces H.264` | Drop `-hwaccel mediacodec` for HEVC output. |
-| `broker_state` is not `listening` | Enable and save the bridge, then configure Debian again. |
-| `connect @dawnshell.codec.v1 failed` | Run the command with `sudo`. |
-| File test passes but the command fails | Investigate the socket/shared-memory layer, not codec availability. |
+| `worker_state` is not `ready` | Enable and save the feature, configure Debian again, and verify the worker plus `/system`/`/apex` mounts. |
+| `worker startup timed out` | The bionic worker exited before its inherited-FD ready handshake; inspect stderr and runtime mounts. |
+| `Connection refused` | An obsolete socket-based client is still installed; configure Debian again from the current APK. |
+| File test passes but the command fails | Investigate client/worker launch and inherited shared transport, not codec availability. |
 
 In the app, open **Hardware video acceleration → View hardware codec report**.

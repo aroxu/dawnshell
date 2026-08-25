@@ -217,7 +217,8 @@ USB 시리얼, 저장장치, 카메라, 오디오와 입력 장치는 Android �
 
 Debian에서 영상을 인코딩하거나 디코딩할 때 Android의 전용 영상 코덱을 대신
 사용하게 하는 기능입니다. GPU 패스스루가 아닙니다. Debian은 컨테이너 분해와
-재조립만 담당하고, 실제 코덱 작업은 앱 프로세스가 수행한 뒤 결과만 돌려줍니다.
+재조립만 담당하고, 실제 코덱 작업은 명령별 bionic NDK worker가 수행한 뒤 상속
+공유 descriptor로 결과만 돌려줍니다.
 
 ### 켜는 방법
 
@@ -307,13 +308,13 @@ dawnshell-codec-self-test
 `ca-certificates`가 없으면 `apt`로 먼저 설치한 뒤, test-videos.co.uk의 Big Buck
 Bunny 1920x1080 H.264 MP4를 Debian에서 다운로드합니다. 앱은 다운로드된 파일을
 DE 검사 디렉터리로 넘겨 `MediaExtractor`와 하드웨어 `MediaCodec`으로 직접
-디코드합니다. 영상 데이터는 Unix 소켓을 통과하지 않으며 검사 로그의
-`socket_media_bytes=0`으로 이를 확인할 수 있습니다. 첫 실행은 패키지 설치와 약
+디코드합니다. 이 앱 내부 검사는 프로세스 간 영상 전송을 사용하지 않으며 검사
+로그의 `interprocess_media_bytes=0`으로 이를 확인할 수 있습니다. 첫 실행은 패키지 설치와 약
 5 MB 다운로드 때문에 시간이 더 걸릴 수 있습니다.
 
-`dawnshell-codec-self-test`는 별도의 고급 스트리밍 브리지 검사입니다. 파일 기반
-검사가 성공해도 이 명령이 실패한다면 하드웨어 코덱 자체가 아니라 소켓/공유
-메모리 스트리밍 계층 문제로 구분할 수 있습니다.
+`dawnshell-codec-self-test`는 별도의 고급 private-worker 검사입니다. 파일 기반
+검사가 성공해도 이 명령이 실패한다면 하드웨어 코덱 자체가 아니라 private worker
+시작 또는 상속 memfd/eventfd 전송 문제로 구분할 수 있습니다.
 
 `backend`에 실제 선택된 코덱 이름이 표시됩니다. 소프트웨어 코덱이 조용히
 선택되는 일은 없으며, 하드웨어를 쓸 수 없으면 명확한 오류를 남깁니다. 코덱

@@ -202,8 +202,9 @@ Wi-Fi, 모바일 데이터, USB Ethernet, VPN, Tailscale과 SSH가 유지되는�
 - 실패해도 Debian PID 1과 SSH가 유지됨
 
 그다음 재부팅하고 잠금을 해제하지 않은 채 동일한 결과가 기록되는지 확인합니다.
-최초 잠금 해제 뒤 `:codec` 프로세스와 Debian이 모두 유지되어야 합니다. BFU에서
-미디어 서비스가 없는 ROM은 `UNAVAILABLE`일 수 있지만 소프트웨어 코덱 성공으로
+최초 잠금 해제 뒤 Debian은 유지되어야 합니다. 앱 내부 `:codec` 프로세스는
+capability 및 파일 진단용이며 Debian 영상 data path가 아닙니다. BFU에서 미디어
+서비스가 없는 ROM은 `UNAVAILABLE`일 수 있지만 소프트웨어 코덱 성공으로
 표시되어서는 안 됩니다. AFU 결과는 반드시 `user_unlocked=true`로 구분해 BFU
 증거로 사용하지 않습니다.
 
@@ -213,11 +214,12 @@ encode keyframe/PTS/EOS, FFmpeg 재검증과 Surface zero-copy 통계를 확인�
 그 전에 앱의 파일 기반 검사를 실행합니다. 이 검사는 Debian이 `apt`로 `wget`과
 `ca-certificates`를 준비하고 Big Buck Bunny 1080p H.264 MP4를 내려받은 뒤,
 Android `MediaExtractor`/하드웨어 `MediaCodec`이 DE 파일을 직접 읽습니다. 성공
-로그에는 `transport=device_protected_file socket_media_bytes=0`, 1920x1080,
-100개 이상의 입력 sample과 EOS가 모두 있어야 합니다. 이 검사는 소켓 프레이밍과
-독립적이므로 하드웨어 디코더와 스트리밍 전송 계층을 분리 진단합니다.
-`dawnshell-codec health --format json`은 `broker_state=listening`과 session 정리를,
-`dawnshell-codec negative-test`는 잘못된 요청 뒤 broker 생존을 확인합니다. 최종 5회
+로그에는 `transport=device_protected_file interprocess_media_bytes=0`, 1920x1080,
+100개 이상의 입력 sample과 EOS가 모두 있어야 합니다. 이 검사는 private worker
+전송과 독립적이므로 하드웨어 디코더와 명령 실행 경로를 분리 진단합니다.
+`dawnshell-codec health --format json`은 새 private worker가
+`worker_state=ready`에 도달하는지, `dawnshell-codec negative-test`는 잘못된 요청을
+격리한 뒤 후속 worker가 다시 동작하는지 확인합니다. 최종 5회
 시험은 `BFU_REQUIRE_HARDWARE_CODEC=1 BFU_CYCLES=5 scripts/test-final-bfu.sh`로
 잠금 해제 전후에 동일한 검사를 실행합니다.
 
@@ -236,9 +238,9 @@ FFmpeg로 위임되어야 합니다. `require` 모드는 software fallback을 �
 앱의 **단기 성능·품질·오류 회귀 검사**는 다음을 한 번에 수행합니다.
 
 - 720p 30-frame decode checksum과 정확한 PTS
-- 공유 메모리와 강제 socket fallback의 실제 byte counter 및 process CPU 시간 비교
+- 상속 memfd/eventfd 전송의 byte counter 및 process CPU 시간 기록
 - B-frame MP4 hardware decode와 출력 PTS reorder 검증
-- 1080p software/hardware decode checksum 및 client+broker CPU 기준선 기록
+- 1080p software/hardware decode checksum 및 client/worker CPU 기준선 기록
 - 1080p hardware encode 결과의 frame 수, PSNR 30 dB 및 SSIM 0.90 하한
 - 1080p30 60-frame Surface transcode가 2초 이내인지 확인
 - HEVC MP4→AVC Surface transcode 60-frame 확인
@@ -246,12 +248,12 @@ FFmpeg로 위임되어야 합니다. `require` 모드는 software fallback을 �
 - decoder 5회 및 Surface transcoder 2회 비정상 client 종료 뒤 자원 회수
 - H.264/HEVC 설정 누락·절단, framing/EOS 오류, idle peer 및 느린 출력 client의
   bounded backpressure 격리와 동시 2-session 조합
-- 자체 `:codec` PID 강제 종료 뒤 30초 안에 새 PID와 빈 session 상태로 복구
+- client 강제 종료 뒤 private worker 회수 및 다음 명령의 새 worker 정상 시작
 
 **장시간 하드웨어 코덱 검사**는 5개 workload를 각각 10분 실행하므로 약 50분이
 걸립니다. 앱에서 시작한 뒤 전용 로그 화면을 열 수 있고 **즉시 중지**로 systemd
 service를 바로 중단할 수 있습니다. 결과는 `/var/log/dawnshell/codec-tests/`에
-client user/system CPU와 최대 RSS, broker CPU/RSS/FD/heap, queue timeout/high-water,
+명령 전체 client/worker CPU와 최대 RSS, 호출 지연, queue timeout/high-water,
 battery temperature와 thermal 상태로 남습니다. 첫 실기기 결과가 쌓이기 전에는
 software 대비 CPU 감소율을 기록하되 임의의 수치로 실패시키지 않습니다.
 
@@ -264,10 +266,10 @@ BFU_CYCLES=5 \
 scripts/test-final-bfu.sh
 ```
 
-결과 `summary.tsv`에는 cycle별 Android boot ID와 systemd PID뿐 아니라 BFU/AFU
-codec broker PID 및 설치 APK에 포함된 ABI별 정적 client SHA-256이 기록됩니다.
-BFU와 AFU PID가 다르거나 DE에 provision된 client가 설치 APK와 다르면 즉시
-실패하므로, 단순히 AFU probe 로그만 성공한 결과를 M7 증거로 오인하지 않습니다.
+결과 `summary.tsv`에는 cycle별 Android boot ID와 systemd PID, BFU/AFU private
+worker 검사 결과, 설치 APK에 포함된 ABI별 client/worker SHA-256이 기록됩니다.
+BFU와 AFU에서 각각 새 worker가 성공해야 하며 DE에 provision된 실행 파일이 설치
+APK와 다르면 즉시 실패합니다. 명령마다 worker PID가 달라지는 것은 정상입니다.
 
 ## 11. 삭제
 

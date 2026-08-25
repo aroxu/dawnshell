@@ -1,197 +1,185 @@
-# DawnShell 하드웨어 코덱 로컬 프로토콜 v1
+# DawnShell NDK 하드웨어 코덱 worker 프로토콜 v1
 
-`dawnshell-codec`은 Debian chroot에서 Android의 별도 `:codec` 프로세스에
-접속하는 정적 실행 파일입니다. 연결은 외부 TCP가 아닌 Android abstract Unix
-socket `@dawnshell.codec.v1`을 사용합니다. 브로커는 `SO_PEERCRED`의 UID가 0인
-Debian 프로세스만 허용합니다. 앱 UID를 포함한 다른 UID는 요청 본문을 읽기 전에
-연결을 끊습니다. 앱 내부 검사도 사전 승인된 root를 통해 같은 경계를 사용합니다.
+[English](hardware-codec-protocol.md)
 
-abstract socket에는 파일 권한 비트가 없으므로 `0600`인 것처럼 표현하지 않습니다.
-대신 UID 검사를 접근 제어로 사용하며, DE의
-`files/hardware-codec/broker.status`는 앱 소유자만 읽을 수 있게 저장합니다.
+이 문서는 Debian 13의 `dawnshell-codec`과 Android bionic
+`dawnshell-codec-worker` 사이의 내부 프로토콜을 설명합니다. 이 기능은 GPU
+패스스루가 아니라 Android NDK `AMediaCodec`을 이용한 AVC/HEVC 영상
+디코드·인코드·Surface 트랜스코드입니다.
 
-## 고정 헤더
+## 프로세스와 전송 구조
 
-모든 정수는 network byte order(big-endian)입니다. 요청과 응답 헤더는 32바이트입니다.
+명령을 실행할 때마다 다음 구조가 한 번 만들어집니다.
 
-| 오프셋 | 크기 | 값 |
+```text
+Debian glibc 프로그램/FFmpeg wrapper
+  └─ 정적 Android ELF dawnshell-codec (부모)
+       ├─ memfd 1개: control page + request slot + response slot
+       ├─ eventfd 1개: request 알림
+       ├─ eventfd 1개: response 알림
+       └─ fork/exec
+            └─ bionic dawnshell-codec-worker
+                 └─ NDK AMediaCodec / AImageReader / ANativeWindow
+```
+
+- listening socket, TCP port, filesystem socket, Binder service 등록이 없습니다.
+- `sendmsg`/`recvmsg`와 `SCM_RIGHTS` descriptor 전달을 사용하지 않습니다.
+- 부모가 만든 descriptor를 고정 FD 3, 4, 5로 자식에게 직접 상속합니다.
+- worker에는 `PR_SET_PDEATHSIG(SIGTERM)`을 설정합니다. 부모가 사라지면 worker도
+  종료되고 모든 코덱 session을 release합니다.
+- worker는 상주 daemon이 아닙니다. CLI 명령 하나에 private worker 하나가
+  대응합니다. 명령이 끝나면 정상 종료합니다.
+- request는 한 번에 하나만 outstanding 상태가 될 수 있어 queue가 무한히 커지지
+  않습니다.
+
+공유 mapping은 약 16 MiB이며 control page 4 KiB, request/response slot은 각각
+`32 + 8 MiB`입니다. 전체 frame을 복사하는 byte-buffer decode/encode는 이 slot을
+사용합니다. Surface transcode에서는 압축 packet만 slot을 통과하고 full-size YUV는
+Android Surface 안에 남습니다.
+
+## chroot에서 Android runtime을 실행하는 방법
+
+`dawnshell-codec`은 정적 실행 파일이고 worker는 `/system/bin/linker[64]`를 사용하는
+동적 bionic 실행 파일입니다. DawnShell의 private mount namespace는 다음 Android
+runtime tree만 Debian에 읽기 전용으로 노출합니다.
+
+- `/system`
+- `/apex`
+- `/linkerconfig`(기기에 존재할 때)
+
+mount에는 read-only, `nosuid`, `nodev`를 적용하되 Android linker 실행을 위해
+`noexec`는 적용하지 않습니다. 일반 Termux CE, DawnShell 앱 데이터, Android의 다른
+쓰기 가능한 데이터 tree는 코덱을 위해 bind하지 않습니다.
+
+## transport control page
+
+control page에는 다음 값이 있습니다.
+
+- magic `DSCW` (`0x44534357`), transport version `1`
+- mapping/slot 크기
+- 부모/worker PID
+- `WORKER_READY`, `WORKER_FAILED`, `SHUTDOWN` flag
+- request/response sequence와 byte 수
+
+부모는 request slot을 쓴 뒤 release store로 sequence를 게시하고 request eventfd를
+증가시킵니다. worker는 처리 후 response slot과 sequence를 게시하고 response
+eventfd를 증가시킵니다. 부모는 sequence, protocol header, 전체 길이를 모두 다시
+검증합니다. 시작 handshake는 10초, 일반 RPC는 35초 상한입니다.
+
+## 고정 protocol header
+
+slot 내부 protocol 정수는 network byte order(big-endian)입니다. 요청과 응답 헤더는
+32바이트입니다.
+
+| offset | size | 값 |
 | --- | ---: | --- |
 | 0 | 4 | magic `DSCB` (`0x44534342`) |
 | 4 | 2 | protocol version `1` |
-| 6 | 2 | message type; 응답은 `type | 0x8000` |
-| 8 | 4 | flags; v1에서는 0 |
-| 12 | 8 | session ID; create 요청은 0 |
+| 6 | 2 | message type, 응답은 `type | 0x8000` |
+| 8 | 4 | flags, v1에서는 0 |
+| 12 | 8 | session ID, create 요청은 0 |
 | 20 | 4 | payload length |
 | 24 | 4 | 0이 아닌 request ID |
 | 28 | 4 | 요청은 0, 응답은 signed status |
 
-잘못된 magic/version/flags/request ID, 알 수 없는 type, 길이 불일치와 상한 초과는
-fail-closed합니다. control payload는 1 MiB, media payload는 8 MiB, 전체 session은
-4개, peer당 session은 2개, 동시 peer는 4개로 제한합니다. peer 연결은 30초 idle
-timeout을 두며 초과 연결은 executor queue에 쌓지 않고 즉시 거부합니다.
+잘못된 magic/version/flags/request ID, 길이 불일치, 8 MiB 상한 초과는 fail-closed로
+처리합니다. 한 worker에서 동시에 유지할 수 있는 session은 2개입니다.
 
-## 메시지
+## message
 
-- `HELLO(1)`: protocol과 제한을 JSON으로 반환합니다.
-- `CAPABILITIES(2)`: BFU에서 probe한 하드웨어 codec JSON을 반환합니다.
-- `CREATE(3)`: decode/encode, AVC/HEVC, 크기, FPS, bitrate, color format으로 실제
-  하드웨어 `MediaCodec`을 configure/start하고 session ID를 반환합니다.
-- `INPUT(4)`: PTS, flags와 한 packet/frame을 queue합니다.
-- `OUTPUT(5)`: bounded timeout으로 output을 dequeue합니다. format change와
-  backpressure는 별도 status로 반환합니다. decoder의 `YUV_420_888` Image plane은
-  crop/row stride/pixel stride를 반영해 packed I420으로 정규화합니다.
+- `HELLO(1)`: protocol, `transport=inherited_memfd_eventfd`, worker 종류와
+  `public_listener=false`, `descriptor_transfer=false`를 반환합니다.
+- `CAPABILITIES(2)`: worker 기능과 AVC/HEVC 지원 범위를 반환합니다.
+- `CREATE(3)`: byte-buffer decoder/encoder를 생성합니다.
+- `INPUT(4)`: PTS, flags, packet 또는 I420 frame을 queue합니다.
+- `OUTPUT(5)`: bounded timeout으로 output을 dequeue합니다. decoder의
+  `YUV_420_888` plane은 crop/row stride/pixel stride를 반영해 packed I420으로
+  정규화합니다.
 - `FLUSH(6)`, `EOS(7)`, `CLOSE(8)`: session 상태를 제어합니다.
-- `INPUT_SHARED_MEMORY(9)`, `OUTPUT_SHARED_MEMORY(10)`: 64 KiB 이상의 media를
-  `memfd`와 `SCM_RIGHTS`로 전달합니다. metadata와 응답은 기존 socket에 남습니다.
+- `INPUT_SHARED_MEMORY(9)`, `OUTPUT_SHARED_MEMORY(10)`: 과거 descriptor 전달
+  protocol 번호를 충돌 방지용으로 예약합니다. 현재 worker는 명시적으로 거부합니다.
 - `CREATE_TRANSCODER(11)`: decoder output Surface를 encoder input Surface에 직접
-  연결한 hardware transcode session을 만듭니다.
-- `REQUEST_KEYFRAME(12)`: encoder에 다음 sync frame을 요청합니다.
-- `HEALTH(13)`: broker PID/uptime, peer/session 수, 누적 I/O, dequeue timeout,
-  payload/queue high-water, CPU/RSS/FD/heap, thermal 및 battery temperature를
-  JSON으로 반환합니다.
-- `SESSION_STATS(14)`: session별 frame, EOS, 오류, transport와 CPU YUV copy 통계를
-  JSON으로 반환합니다. 입력 queue 및 출력 dequeue 호출의 평균/최대 지연시간도
-  microsecond 단위로 기록합니다.
+  연결합니다.
+- `REQUEST_KEYFRAME(12)`: encoder sync frame을 요청합니다.
+- `HEALTH(13)`: 해당 private worker의 PID, uptime, active session, 요청/오류 수를
+  반환합니다. 명령마다 worker가 새로 생기므로 다른 명령의 누적 상태가 아닙니다.
+- `SESSION_STATS(14)`: frame/byte/EOS/error, call latency,
+  `media_transport=inherited_memfd_eventfd` 및 Surface/CPU YUV frame 수를 반환합니다.
 
-vendor codec 오류와 잘못된 client 입력은 해당 요청 또는 session에서만 실패하며
-Debian PID 1, SSH, Direct Boot supervisor는 종료하지 않습니다. 연결이 끊기면 해당
-peer가 만든 모든 session을 자동 release합니다. bridge 중지 시 listening socket뿐
-아니라 추적 중인 peer socket도 닫고 session 정리를 제한 시간 동안 기다립니다.
+## 하드웨어 코덱 선택
 
-## Debian CLI
+software codec으로 조용히 폴백하지 않습니다.
 
-```sh
-dawnshell-codec capabilities
-dawnshell-codec health --format json
-dawnshell-codec negative-test
-dawnshell-codec transcode-test input.h264 1920 1080 30 60 8000000
-dawnshell-codec orphan-test decode
-dawnshell-codec orphan-test transcode
-dawnshell-codec hold-test decode 240000
-dawnshell-codec idle-test 32000
-dawnshell-codec probe decode avc 128 128
-dawnshell-codec pipe decode avc 1280 720 30 4000000 < packets.bin > frames.bin
-dawnshell-codec-self-test
-dawnshell-codec-performance-test
-dawnshell-codec-error-test
-dawnshell-codec-concurrency-test
-dawnshell-codec-long-run all 600
-dawnshell-hwdecode input.mp4 output.mkv
-dawnshell-hwdecode input.mp4 output.i420
-dawnshell-hwencode input.mkv output.mp4 4000000
-dawnshell-hwencode input.mkv output.h264
-dawnshell-hwencode input.mkv output.hevc 4000000 hevc
-dawnshell-hwtranscode input-hevc.mkv output-h264.mp4 8000000
-```
+1. 최신 Android에서는 `AMediaCodecStore` metadata로 hardware codec을 찾습니다.
+2. API가 없거나 결과가 부족하면 검증된 platform component 이름을 보수적으로
+   사용합니다.
+3. 현재 알려진 이름에는 Exynos(`OMX.Exynos`, `OMX.SEC`, `c2.exynos`)와
+   Qualcomm(`OMX.qcom`, `c2.qti`) 계열이 포함됩니다.
+4. `OMX.google`, `c2.android` 같은 software component는 선택하지 않습니다.
+5. vendor codec 생성/configure/start가 실패하면 다음 hardware 후보를 시도하고,
+   모두 실패하면 명령을 실패시킵니다.
 
-자체 검사는 고정 AVC decode의 frame/PTS/I420 checksum을 확인한 다음 고정 I420
-pattern 10개를 hardware encoder로 처리합니다. encoder 출력의 frame/PTS/EOS와
-실시간 이상 처리 속도를 확인하고 Debian FFmpeg가 결과 Annex-B bitstream 10개를
-오류 없이 decode하는지 재검증합니다.
+이름 기반 판정은 구형 Android 호환용 보수적 fallback입니다. 실제 codec 지원 여부와
+SELinux/media service 접근은 실기기 실행에서 최종 확인해야 합니다.
 
-`pipe`의 stdin/stdout record는 `pts_us:u64`, `flags:u32`, `length:u32`, `data` 순서의
-big-endian framing입니다. 이 framing은 M3 고정 test vector와 이후 FFmpeg adapter가
-공유합니다. 64 KiB 이상 input과 일반 `pipe` output은 `memfd`/`SCM_RIGHTS`를 먼저
-시도합니다. 커널에 `memfd_create`가 없거나 브로커가 확장 message를 지원하지 않으면
-동일한 8 MiB 상한의 socket copy로 자동 폴백합니다. 문제 진단 시
-`DAWNSHELL_CODEC_DISABLE_SHM=1`로 shared-memory 시도를 끌 수 있습니다.
-
-이 경로는 Unix socket을 통한 대형 payload 복사를 줄이지만 MediaCodec buffer와
-Debian 프로세스 사이의 완전한 zero-copy를 의미하지는 않습니다. 브로커는 받은 FD를
-요청마다 닫고, 정확히 하나가 아닌 ancillary FD, 범위를 벗어난 길이와 capacity를
-거부합니다.
-
-## FFmpeg 어댑터(M5)
-
-`dawnshell-hwdecode`는 FFprobe로 첫 번째 영상 스트림의 packet PTS와 형식을 읽고,
-H.264에는 `h264_mp4toannexb`, HEVC에는 `hevc_mp4toannexb` bitstream filter를 적용해
-MP4/MKV packet을 Annex-B로 정규화합니다. 원본 packet PTS를 protocol record에
-보존한 뒤 Android 하드웨어
-decoder에 전달하며, 반환된 `YUV_420_888` 결과는 packed I420으로 저장합니다. raw
-output과 일반 컨테이너 출력 모두 codec client→adapter→FFmpeg 파이프를 사용하므로
-1080p raw frame 전체를 작은 `/run` tmpfs에 중복 저장하지 않습니다.
-
-출력 확장자가 `.i420` 또는 `.yuv`이면 하드웨어 decode 결과를 그대로 보존합니다.
-그 밖의 출력은 Debian FFmpeg와 `libx264`로 다시 encode/mux합니다. 따라서 현재
-일반 파일 명령은 **하드웨어 decode + 소프트웨어 encode/mux** 경로이며, Android
-MediaCodec surface와 zero-copy encode는 M6 이후 범위입니다. 파일 decode는 H.264와
-HEVC, 짝수
-16..4096 해상도, 평균 1..240 FPS만 허용하고 packet 수/크기, 음수 PTS 및 출력
-I420 frame 크기를 fail-closed로 검사합니다. B-frame 입력 packet은 decode 순서로
-보내므로 PTS 역행을 허용하되 decoded frame의 표시 PTS는 단조 증가해야 합니다.
-
-`dawnshell-hwencode`는 FFmpeg로 첫 번째 video stream을 packed I420으로 변환한 뒤
-Android 하드웨어 AVC 또는 HEVC encoder에 전달합니다. codec 인수를 생략하면
-`.hevc`, `.h265`, `.265` 출력은 HEVC, 그 밖은 AVC를 선택합니다. raw 확장자는
-Annex-B 그대로이며, 그 밖의 컨테이너는 FFmpeg stream-copy로 mux합니다. 이 경로는 소프트웨어 decode와
-하드웨어 encode 조합이고 audio stream은 포함하지 않습니다. 입력·출력 frame 수가
-다르면 결과를 게시하지 않고 실패합니다. 완료 시 실제 압축 byte 수와 frame rate로
-평균 bitrate를 계산해 목표값과의 비율을 출력합니다. 기기별 rate-control 특성이
-확인되기 전에는 이 비율을 임의의 공통 threshold로 실패 처리하지 않습니다.
-
-## Surface zero-copy transcode(M6)
-
-`CREATE_TRANSCODER(11)`은 hardware encoder의 `COLOR_FormatSurface` input을 만들고
-그 Surface를 hardware decoder의 output으로 직접 설정합니다. decoder output은
-`releaseOutputBuffer(..., true)`로 Surface에 전달되며 encoder EOS는
-`signalEndOfInputStream()`으로 닫습니다. 따라서 full-size YUV frame은 Debian이나
-Java heap으로 내려오지 않고 압축 packet만 protocol을 통과합니다.
-
-`dawnshell-hwtranscode`는 H.264 또는 HEVC container를 FFmpeg로 demux한 뒤 이
-Surface session에서 H.264로 변환하고 결과를 stream-copy mux합니다. 선택된 decoder와
-encoder canonical name, `transport=surface_zero_copy`가 session 응답에 기록됩니다.
-Surface color format을 광고하는 보수적 hardware pair가 없으면 software로 조용히
-전환하지 않고 명시적으로 실패합니다. audio, 해상도 변경, 영상 filter 및 scaling은
-지원하지 않습니다.
-
-각 encode/transcode 시작 시 keyframe을 요청하며 첫 실제 출력 frame의 keyframe
-flag를 검사합니다. Surface wrapper는 종료 전에 session 통계를 읽어 입력·출력·Surface
-frame 수, EOS, `cpu_yuv_frames=0`, 오류 0을 확인한 뒤에만 결과 파일을 게시합니다.
-`negative-test`는 잘못된 magic/version/header/request ID/type/길이, 중간에 끊긴
-payload와 존재하지 않는 session 요청을 의도적으로 거부시키고, 생성한 session에
-허용되지 않은 buffer flag와 역행하는 encoder PTS를
-보낸 뒤 같은 session의 flush와 broker health가 유지되는지 확인합니다. decoder는
-B-frame 표시 순서 때문에 packet PTS 역행을 허용하며 demux 순서(DTS)대로 전달합니다.
-`orphan-test`는 CLOSE를 보내지 않고
-client를 종료해 peer EOF 정리가 codec 및 Surface를 회수하는지 시험합니다.
-같은 검사에서 동시 peer 4개를 유지한 채 다섯 번째 연결이 즉시 거부되는지도
-확인합니다. 끊어진 peer에 쓰는 경우 client는 `SIGPIPE`로 종료되지 않고 오류를
-반환합니다.
-`dawnshell-codec-error-test`는 H.264와 HEVC의 설정 누락/절단, record framing 오류,
-EOS 상태 전이, parameter 상한과 출력을 읽지 않는 client의 bounded backpressure를
-검사합니다. 30초 idle socket 종료도 기본으로 확인하며, 긴 검사를 생략해야 할 때만
-`DAWNSHELL_CODEC_TEST_IDLE_TIMEOUT=0`을 지정합니다. `dawnshell-codec-concurrency-test`는
-세 가지 2-session 조합을 시도하고 최소 한 조합의 실제 overlap을 요구합니다.
-
-통계의 `process_cpu_time_ms`는 session 수명 동안 증가한 격리 `:codec` 프로세스 전체
-CPU 시간입니다. 동시 session이 있으면 해당 작업만의 CPU 시간으로 해석할 수 없으므로
-성능 검사는 단일 session 상태에서 비교합니다. `media_transport`는 실제 byte counter에
-따라 `socket`, `shared_memory`, `mixed`, `none` 중 하나로 기록됩니다.
-
-단기 성능 검사는 720p/1080p checksum, B-frame MP4 timestamp reorder, AVC/HEVC
-Surface transcode, software 대비 CPU 계측과 hardware encode PSNR/SSIM을 함께
-검사합니다. 현재 품질 하한은 PSNR 30 dB, SSIM 0.90이며 CPU 감소율은 기록만 하고
-첫 실기기 기준선이 확정되기 전에는 임의의 감소율을 강제하지 않습니다.
-
-앱에서 단기 성능 검사가 모두 끝나면 자체 `:codec` PID만 `SIGKILL`한 뒤 최대 30초
-동안 새 PID의 authenticated health 응답을 기다립니다. 이 검사는 Android
-`media.codec`/vendor service를 종료하지 않으며, 새 broker가 stale session 없이
-복구되지 않으면 전체 회귀 검사를 실패시킵니다.
-
-앱의 장시간 검사 서비스는 720p AVC decode, 1080p AVC decode/encode, AVC와 HEVC
-Surface transcode를 각각 600초 실행합니다. `/var/log/dawnshell/codec-tests/` 아래에
-작업 로그, health JSONL, client GNU time, CPU/RSS/FD/heap/thermal 요약을 남깁니다.
-중지 요청은 queue를 기다리지 않고 해당 systemd service에 즉시 전달됩니다.
-
-최종 BFU 5회 회귀 시험에서 코덱까지 강제하려면 호스트에서 다음처럼 실행합니다.
+## CLI와 FFmpeg
 
 ```sh
-BFU_REQUIRE_HARDWARE_CODEC=1 \
-BFU_REQUIRE_CODEC_PERFORMANCE=1 \
-BFU_CYCLES=5 \
-scripts/test-final-bfu.sh
+sudo dawnshell-codec capabilities
+sudo dawnshell-codec health --format json
+sudo dawnshell-codec probe decode avc 1920 1080
+sudo dawnshell-codec probe encode hevc 1920 1080
+sudo dawnshell-codec-self-test
+sudo dawnshell-codec-performance-test
+
+sudo dawnshell-hwdecode input.mp4 output.i420
+sudo dawnshell-hwencode input.mp4 output.mp4 4000000 avc
+sudo dawnshell-hwencode input.mp4 output.hevc 8000000 hevc
+sudo dawnshell-hwtranscode input.mp4 output.mp4 6000000
 ```
 
-각 cold boot의 unlock 전과 `USER_UNLOCKED` 후에 decode, encode, Surface transcode
-자체 검사를 각각 실행합니다. 이 검사는 ADB가 BFU에서 연결되지 않는 ROM에서도 SSH
-경로만으로 잠금 해제 전 코덱 동작을 판정합니다.
+`pipe` record는 `pts_us:u64`, `flags:u32`, `length:u32`, `data` 순서의 big-endian
+framing입니다. FFmpeg wrapper는 container demux/mux, bitstream filter와 audio 처리를
+Debian FFmpeg에 맡기고 영상 codec 작업만 private NDK worker에 보냅니다.
+
+## BFU와 AFU
+
+- APK는 armhf/arm64/amd64에 대응하는 client와 worker를 DE에 provisioning합니다.
+- Debian 구성 시 두 파일을 rootfs의 `/usr/local/bin`과 `/usr/local/libexec`에
+  설치합니다.
+- BFU/AFU 모두 동일한 on-demand worker 경로를 사용합니다.
+- `USER_UNLOCKED`는 실행 중인 Debian/systemd를 중지하지 않습니다.
+- worker 자체를 미리 상주시킬 필요가 없습니다. BFU에서 첫 codec 명령이 실행될 때
+  생성됩니다.
+- BFU 시점에 Android media service나 vendor codec이 아직 준비되지 않았으면 codec
+  명령만 실패하며 Debian PID 1, SSH, 네트워크는 유지됩니다.
+
+## 보안·격리 한계
+
+- 이 경로는 앱의 Java 프로세스를 통하지 않으며 앱 UID 인증 socket도 없습니다.
+- 관리되는 root 실행 경로만 지원합니다.
+- memfd는 부모와 해당 자식에게만 상속하며 public 이름이 없습니다.
+- worker는 Android media service와 통신하므로 Magisk SELinux domain과 ROM 정책의
+  영향을 받습니다.
+- Surface transcode는 full YUV copy를 피하지만 compressed packet과 control record는
+  shared slot을 통과합니다.
+- byte-buffer decode/encode는 MediaCodec buffer와 shared slot 사이에 한 번 이상
+  복사하므로 완전한 zero-copy가 아닙니다.
+
+## 검증 기준
+
+호스트 빌드에서 확인하는 항목:
+
+- armv7/arm64/x86_64 client와 worker의 `-Werror` 컴파일
+- client가 정적 ELF이고 worker가 Android linker 및
+  `libmediandk/libandroid/libdl/libc`만 요구하는지 확인
+- Debian data path에 `AF_UNIX`, `sendmsg/recvmsg`, `SCM_RIGHTS`가 없는지 확인
+- app Java socket broker/JNI library가 패키징되지 않는지 확인
+- worker provisioning, read-only runtime mount, wrapper 문법 및 APK 빌드
+
+실기기에서만 확인 가능한 마지막 항목:
+
+- BFU/AFU 각각에서 bionic worker가 Android linker로 시작되는지
+- Magisk/SELinux domain에서 media codec service 접근이 허용되는지
+- 실제 Exynos/Qualcomm AVC·HEVC codec configure/queue/dequeue 결과
+- 1080p decode/encode, Surface transcode, 장시간/동시 worker 안정성

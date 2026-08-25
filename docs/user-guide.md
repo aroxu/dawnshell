@@ -187,8 +187,8 @@ See
 
 Debian can run H.264/HEVC encoding and decoding on the device's dedicated video
 codec instead of the CPU. This is not GPU passthrough: Debian only demuxes and
-muxes containers, while the app process performs the codec work and returns the
-result.
+muxes containers, while an on-demand bionic NDK worker performs the codec work
+and returns the result through inherited shared descriptors.
 
 ### Enabling it
 
@@ -211,13 +211,14 @@ The app's **file-backed hardware AVC decode self-test** installs `wget` and
 `ca-certificates` with Debian `apt` when needed, then downloads the 1920x1080
 H.264 Big Buck Bunny sample from test-videos.co.uk inside Debian. Android reads
 the staged DE file directly with `MediaExtractor` and a conservatively selected
-hardware `MediaCodec`. Video bytes never cross the Unix socket; the report must
-show `socket_media_bytes=0`. The first run can take longer because it installs
-packages and downloads about 5 MB.
+hardware `MediaCodec`. This app-local test uses no interprocess media transport;
+the report must show `interprocess_media_bytes=0`. The first run can take longer
+because it installs packages and downloads about 5 MB.
 
-`dawnshell-codec-self-test` remains the separate advanced streaming-bridge
-test. If the file-backed test passes while that command fails, the failure is
-isolated to the socket/shared-memory transport rather than the hardware codec.
+`dawnshell-codec-self-test` remains the separate advanced private-worker test.
+If the file-backed test passes while that command fails, the failure is isolated
+to worker launch or inherited memfd/eventfd transport rather than codec
+availability.
 
 ### Automatic integration
 
