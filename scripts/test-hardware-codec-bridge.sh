@@ -30,30 +30,25 @@ mediacodec_guide_ko="$repo_dir/docs/ffmpeg-mediacodec-compatibility.ko.md"
 grep -Fq 'MAGIC = 0x44534342' "$java_protocol"
 grep -Fq 'VERSION = 1' "$java_protocol"
 grep -Fq 'MAX_MEDIA_PAYLOAD = 8 * 1024 * 1024' "$java_protocol"
-grep -Fq 'socket.getPeerCredentials()' "$broker"
-# An ancillary descriptor belongs to the datagram carrying the header, so the
-# broker must claim it before any further read and must not buffer input.
-grep -Fq 'FileDescriptor[] descriptors = peer.getAncillaryFileDescriptors();' "$broker"
-python3 - "$broker" <<'PYTHON_VERIFY_ANCILLARY'
-import pathlib
-import sys
-
-source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-if "new BufferedInputStream" in source:
-    raise SystemExit("buffered reads drop the ancillary descriptor")
-start = source.index("private Request readRequest(")
-end = source.index("\n    }\n", start)
-body = source[start:end]
-claim = body.index("getAncillaryFileDescriptors")
-payload = body.index("input.readFully(payload)")
-if claim > payload:
-    raise SystemExit("the descriptor must be claimed before the payload is read")
-if body.count("input.read") > 0 and claim > body.index("readUnsignedShort"):
-    raise SystemExit("the descriptor must be claimed right after the magic word")
-print("broker claims the ancillary descriptor before draining the payload")
-PYTHON_VERIFY_ANCILLARY
-grep -Fq 'credentials.getUid() != 0' "$broker"
-if grep -Fq 'credentials.getUid() != Process.myUid()' "$broker"; then
+# Android's LocalSocket stream API fails with EMSGSIZE when a message carries
+# an SCM_RIGHTS descriptor, so the broker must own a plain AF_UNIX socket and
+# call recvmsg itself.
+codec_socket="$repo_dir/app/src/main/java/me/aroxu/dawnshell/CodecSocket.java"
+codec_socket_jni="$repo_dir/app/src/main/cpp/codec_socket_jni.c"
+test -f "$codec_socket"
+test -f "$codec_socket_jni"
+grep -Fq 'CodecSocket.listen(' "$broker"
+grep -Fq 'peer.receiveFully(' "$broker"
+grep -Fq 'peer.sendFully(' "$broker"
+grep -Fq 'recvmsg(descriptor, &message, 0)' "$codec_socket_jni"
+grep -Fq 'SCM_RIGHTS' "$codec_socket_jni"
+grep -Fq 'SO_PEERCRED' "$codec_socket_jni"
+if grep -Fq 'android.net.LocalSocket' "$broker"; then
+    echo "the broker must not use LocalSocket for descriptor passing" >&2
+    exit 1
+fi
+grep -Fq 'peerUid != 0' "$broker"
+if grep -Fq 'peerUid != Process.myUid()' "$broker"; then
     echo "Hardware codec broker must not authenticate app-UID socket peers" >&2
     exit 1
 fi
@@ -87,10 +82,35 @@ grep -Fq 'encoder.createInputSurface()' "$broker"
 grep -Fq 'decoder.configure(decoderFormat, inputSurface' "$broker"
 grep -Fq 'decoder.releaseOutputBuffer(index, info.size > 0)' "$broker"
 grep -Fq 'encoder.signalEndOfInputStream()' "$broker"
-grep -Fq 'peer.getAncillaryFileDescriptors()' "$broker"
+grep -Fq 'wrapDescriptor(' "$broker"
 grep -Fq 'Os.pread(descriptor' "$broker"
 grep -Fq 'Os.pwrite(descriptor' "$broker"
 grep -Fq 'ensureBrokerStarted()' "$service"
+
+# The bridge must come up on its own after a reboot in both AFU and BFU. It
+# once required opening the app by hand, which silently broke every Debian
+# codec command after a restart.
+boot_receiver="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BootReceiver.java"
+grep -Fq 'startHardwareCodecBridge(context' "$boot_receiver"
+grep -Fq 'HardwareCodecService.ensureStarted(context, bootRetry)' "$boot_receiver"
+grep -Fq 'HardwareCodecService.ensureStarted(this, !userUnlocked)' \
+    "$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuBootService.java"
+python3 - "$boot_receiver" <<'PYTHON_VERIFY_BOOT_PATHS'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source.index("public void onReceive(")
+end = source.index("\n    private static void startHardwareCodecBridge", start)
+body = source[start:end]
+locked = body.index("ACTION_LOCKED_BOOT_COMPLETED")
+completed = body.index("ACTION_BOOT_COMPLETED")
+if "startHardwareCodecBridge" not in body[locked:completed]:
+    raise SystemExit("locked boot never starts the codec bridge")
+if "startHardwareCodecBridge" not in body[completed:]:
+    raise SystemExit("boot completed never starts the codec bridge")
+print("codec bridge starts from both locked boot and boot completed")
+PYTHON_VERIFY_BOOT_PATHS
 grep -Fq 'ACTION_FILE_SELF_TEST' "$service"
 grep -Fq 'HardwareCodecFileSelfTest.run(this, token)' "$service"
 grep -Fq 'Big_Buck_Bunny_1080_10s_5MB.mp4' "$file_self_test"
@@ -296,8 +316,25 @@ grep -Fq 'refusing to fall back silently' "$configurator"
 # A pipeline hides upstream failures behind its last command's status, which
 # once surfaced a real encoder rejection as an unexplained broken pipe.
 # shellcheck disable=SC2016 # Assert literal generated shell source.
-grep -Fq 'stage_status=("${PIPESTATUS[@]}")' "$configurator"
+grep -Fq 'stage_status="${PIPESTATUS[*]}"' "$configurator"
 grep -Fq 'hardware-encoder' "$configurator"
+# The response header travels as its own send so a large payload cannot be
+# merged into one oversized write, which previously failed as "Message too
+# long" for full-resolution frames.
+python3 - "$broker" <<'PYTHON_VERIFY_RESPONSE_WRITE'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source.index("private static void writeResponse(")
+end = source.index("\n    }\n", start)
+body = source[start:end]
+header_send = body.index("peer.sendFully(header, 0, header.length)")
+payload_send = body.index("peer.sendFully(payload, 0, payload.length)")
+if header_send > payload_send:
+    raise SystemExit("the response header must be sent before the payload")
+print("broker sends the response header separately from the payload")
+PYTHON_VERIFY_RESPONSE_WRITE
 # An encoder consumes one raw frame, not the whole protocol payload.
 grep -Fq 'width * height * 3 / 2);' "$broker"
 grep -Fq 'cat > /usr/local/bin/dawnshell-hwdecode' "$configurator"

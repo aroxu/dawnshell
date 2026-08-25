@@ -934,27 +934,37 @@ echo "DawnShell hardware encode: codec=$codec size=${width}x${height} rate=$fram
 # A pipeline reports only its last command's status, so a failing encoder
 # upstream of a healthy writer would look successful while FFmpeg reports a
 # confusing broken pipe. Inspect every stage.
+# errexit would abort before the per-stage status can be inspected, so relax
+# it for exactly this pipeline and restore it immediately afterwards.
+set +e
 ffmpeg -hide_banner -loglevel error -i "$input" -map 0:v:0 -an \
     -pix_fmt yuv420p -f rawvideo pipe:1 2> "$ffmpeg_log" \
     | /usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 \
         - "$width" "$height" "$frame_rate" - 2> "$pack_log" \
     | /usr/local/bin/dawnshell-codec pipe encode "$codec" "$width" "$height" \
-        "$integer_rate" "$bit_rate" > "$framed_output" 2> "$client_log" || true
-stage_status=("${PIPESTATUS[@]}")
-stage_names=(ffmpeg-decode frame-packer hardware-encoder)
-stage_logs=("$ffmpeg_log" "$pack_log" "$client_log")
+        "$integer_rate" "$bit_rate" > "$framed_output" 2> "$client_log"
+# PIPESTATUS is only valid immediately after the pipeline, and appending
+# "|| true" would overwrite it, so capture it as the very next command.
+stage_status="${PIPESTATUS[*]}"
+set -e
 failed=0
-for index in 0 1 2; do
-    if [ "${stage_status[$index]:-1}" -ne 0 ]; then
-        echo "dawnshell-hwencode: ${stage_names[$index]} failed with status ${stage_status[$index]}" >&2
-        failed=1
-    fi
+index=0
+for status in $stage_status; do
+    index=$((index + 1))
+    [ "$status" -eq 0 ] && continue
+    case "$index" in
+        1) stage_name=ffmpeg-decode ;;
+        2) stage_name=frame-packer ;;
+        *) stage_name=hardware-encoder ;;
+    esac
+    echo "dawnshell-hwencode: $stage_name failed with status $status" >&2
+    failed=1
 done
 if [ "$failed" -ne 0 ]; then
-    for index in 0 1 2; do
-        [ ! -s "${stage_logs[$index]}" ] || {
-            echo "--- ${stage_names[$index]} ---" >&2
-            cat "${stage_logs[$index]}" >&2
+    for stage_log in "$ffmpeg_log" "$pack_log" "$client_log"; do
+        [ ! -s "$stage_log" ] || {
+            echo "--- $stage_log ---" >&2
+            cat "$stage_log" >&2
         }
     done
     exit 4
