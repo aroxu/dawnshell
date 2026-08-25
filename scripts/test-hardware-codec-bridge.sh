@@ -293,6 +293,13 @@ grep -Fq 'for module in decimal json struct pathlib argparse' "$configurator"
 # A dead planner must not silently degrade into a software encode.
 grep -Fq 'the codec planner produced no plan' "$configurator"
 grep -Fq 'refusing to fall back silently' "$configurator"
+# A pipeline hides upstream failures behind its last command's status, which
+# once surfaced a real encoder rejection as an unexplained broken pipe.
+# shellcheck disable=SC2016 # Assert literal generated shell source.
+grep -Fq 'stage_status=("${PIPESTATUS[@]}")' "$configurator"
+grep -Fq 'hardware-encoder' "$configurator"
+# An encoder consumes one raw frame, not the whole protocol payload.
+grep -Fq 'width * height * 3 / 2);' "$broker"
 grep -Fq 'cat > /usr/local/bin/dawnshell-hwdecode' "$configurator"
 grep -Fq 'cat > /usr/local/bin/dawnshell-hwencode' "$configurator"
 grep -Fq 'cat > /usr/local/bin/dawnshell-hwtranscode' "$configurator"
