@@ -3,6 +3,8 @@
 .idea/
 *.iml
 **/build/
+# CMake scratch output for the JNI socket transport.
+**/.cxx/
 *.apk
 *.aab
 local.properties

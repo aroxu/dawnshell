@@ -9,9 +9,6 @@ import android.os.Debug;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.Image;
-import android.net.Credentials;
-import android.net.LocalServerSocket;
-import android.net.LocalSocket;
 import android.os.Process;
 import android.os.Bundle;
 import android.os.PowerManager;
@@ -26,10 +23,8 @@ import android.graphics.Rect;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
-import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
@@ -64,7 +59,7 @@ final class HardwareCodecBroker implements Closeable {
     private final Context context;
     private final ExecutorService acceptExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService peerExecutor = Executors.newFixedThreadPool(4);
-    private final Set<LocalSocket> peerSockets = ConcurrentHashMap.newKeySet();
+    private final Set<CodecSocket> peerSockets = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicInteger activeSessions = new AtomicInteger(0);
     private final AtomicInteger activeTranscoders = new AtomicInteger(0);
@@ -91,7 +86,7 @@ final class HardwareCodecBroker implements Closeable {
     private final long startedElapsedRealtime = SystemClock.elapsedRealtime();
     private final AtomicLong nextSessionId = new AtomicLong(
             (System.currentTimeMillis() << 12) ^ Process.myPid());
-    private LocalServerSocket server;
+    private CodecSocket server;
 
     HardwareCodecBroker(Context context) {
         this.context = BfuPreferences.deviceProtectedContext(context).getApplicationContext();
@@ -99,7 +94,10 @@ final class HardwareCodecBroker implements Closeable {
 
     synchronized void start() throws IOException {
         if (server != null) return;
-        server = new LocalServerSocket(HardwareCodecProtocol.SOCKET_NAME);
+        // A plain AF_UNIX socket is required: LocalSocket's stream API fails
+        // with EMSGSIZE when a message carries an SCM_RIGHTS descriptor.
+        server = CodecSocket.listen(HardwareCodecProtocol.SOCKET_NAME,
+                HardwareCodecProtocol.MAX_PEERS);
         HardwareCodecProbe.writeBrokerStatus(context, "LISTENING protocol="
                 + HardwareCodecProtocol.VERSION + " socket=@"
                 + HardwareCodecProtocol.SOCKET_NAME
@@ -113,15 +111,17 @@ final class HardwareCodecBroker implements Closeable {
     private void acceptLoop() {
         while (!closed.get()) {
             try {
-                LocalSocket socket = server.accept();
+                int[] credentialValues = new int[2];
+                CodecSocket socket = server.accept(credentialValues);
                 if (closed.get()) {
                     socket.close();
                     break;
                 }
-                Credentials credentials = socket.getPeerCredentials();
-                if (credentials == null || credentials.getUid() != 0) {
-                    int rejectedUid = credentials == null ? -1 : credentials.getUid();
-                    int rejectedPid = credentials == null ? -1 : credentials.getPid();
+                int peerUid = credentialValues[0];
+                int peerPid = credentialValues[1];
+                if (peerUid != 0) {
+                    int rejectedUid = peerUid;
+                    int rejectedPid = peerPid;
                     rejectedPeers.incrementAndGet();
                     HardwareCodecProbe.recordBrokerEvent(context, "PEER_REJECTED uid="
                             + rejectedUid + " pid=" + rejectedPid);
@@ -131,8 +131,8 @@ final class HardwareCodecBroker implements Closeable {
                 if (!reservePeer()) {
                     rejectedPeers.incrementAndGet();
                     HardwareCodecProbe.recordBrokerEvent(context,
-                            "PEER_REJECTED uid=" + credentials.getUid()
-                                    + " pid=" + credentials.getPid()
+                            "PEER_REJECTED uid=" + peerUid
+                                    + " pid=" + peerPid
                                     + " reason=peer_limit");
                     socket.close();
                     continue;
@@ -140,7 +140,7 @@ final class HardwareCodecBroker implements Closeable {
                 acceptedPeers.incrementAndGet();
                 peerSockets.add(socket);
                 try {
-                    peerExecutor.execute(() -> handlePeer(socket, credentials));
+                    peerExecutor.execute(() -> handlePeer(socket, peerUid, peerPid));
                 } catch (RejectedExecutionException e) {
                     peerSockets.remove(socket);
                     activePeers.decrementAndGet();
@@ -159,37 +159,25 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private void handlePeer(LocalSocket socket, Credentials credentials) {
+    private void handlePeer(CodecSocket socket, int uid, int pid) {
         Map<Long, CodecBridgeSession> sessions = new HashMap<>();
-        int uid = credentials.getUid();
-        int pid = credentials.getPid();
-        try (LocalSocket peer = socket;
-             // Reading is deliberately unbuffered. A buffered stream would
-             // pull bytes from the next datagram while the header is parsed,
-             // and its ancillary descriptor would be lost with it.
-             DataInputStream input = new DataInputStream(peer.getInputStream());
-             DataOutputStream output = new DataOutputStream(new BufferedOutputStream(
-                     peer.getOutputStream(), SOCKET_CHUNK_BYTES))) {
-            peer.setSoTimeout(PEER_TIMEOUT_MS);
-            // LocalSocket defaults to a small kernel buffer, so a single large
-            // media record fails with EMSGSIZE ("Message too long"). Raise both
-            // directions to hold one maximum-size framed record.
-            configureSocketBuffers(peer);
+        try (CodecSocket peer = socket) {
+            peer.setTimeoutMs(PEER_TIMEOUT_MS);
             HardwareCodecProbe.recordBrokerEvent(context, "PEER_CONNECTED uid="
                     + uid + " pid=" + pid);
             while (!closed.get()) {
                 Request request;
                 try {
-                    request = readRequest(peer, input);
+                    request = readRequest(peer);
                 } catch (EOFException e) {
                     break;
                 } catch (ProtocolException e) {
-                    writeResponse(output, e.type, e.sessionId, e.requestId,
+                    writeResponse(peer, e.type, e.sessionId, e.requestId,
                             e.status, textPayload(e.getMessage()));
                     break;
                 }
                 try {
-                    dispatch(request, sessions, output);
+                    dispatch(request, sessions, peer);
                 } finally {
                     request.closeDescriptors();
                 }
@@ -198,6 +186,7 @@ final class HardwareCodecBroker implements Closeable {
             if (!closed.get()) {
                 HardwareCodecProbe.recordBrokerEvent(context, "PEER_FAILED uid="
                         + uid + " pid=" + pid + " error=" + safe(e));
+                Log.w(TAG, "codec peer failed uid=" + uid + " pid=" + pid, e);
             }
         } finally {
             for (CodecBridgeSession session : sessions.values()) closeSession(session);
@@ -208,34 +197,27 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private static void configureSocketBuffers(LocalSocket peer) {
-        try {
-            if (peer.getSendBufferSize() < SOCKET_BUFFER_BYTES) {
-                peer.setSendBufferSize(SOCKET_BUFFER_BYTES);
-            }
-            if (peer.getReceiveBufferSize() < SOCKET_BUFFER_BYTES) {
-                peer.setReceiveBufferSize(SOCKET_BUFFER_BYTES);
-            }
-        } catch (IOException | RuntimeException e) {
-            // A kernel that caps the buffer still works through short writes.
-            Log.w(TAG, "Could not enlarge codec socket buffers", e);
-        }
-    }
-
-    private Request readRequest(LocalSocket peer, DataInputStream input)
+    private Request readRequest(CodecSocket peer)
             throws IOException, ProtocolException {
-        int magic = input.readInt();
-        // The ancillary descriptor belongs to the datagram that carried the
-        // header. It must be claimed here, before any further read can let the
-        // buffered stream pull in the next message and drop it.
-        FileDescriptor[] descriptors = peer.getAncillaryFileDescriptors();
-        int version = input.readUnsignedShort();
-        int type = input.readUnsignedShort();
-        int flags = input.readInt();
-        long sessionId = input.readLong();
-        int payloadLength = input.readInt();
-        int requestId = input.readInt();
-        int reserved = input.readInt();
+        byte[] header = new byte[HardwareCodecProtocol.HEADER_BYTES];
+        int[] received = {-1};
+        int count = peer.receiveFully(header, 0, header.length, received);
+        if (count == CodecSocket.END_OF_STREAM) {
+            closeDescriptor(received[0]);
+            throw new EOFException("peer closed the codec socket");
+        }
+        // recvmsg reports the ancillary descriptor together with the header
+        // that carried it, so no separate claim step can lose it.
+        FileDescriptor[] descriptors = wrapDescriptor(received[0]);
+        ByteBuffer view = ByteBuffer.wrap(header).order(ByteOrder.BIG_ENDIAN);
+        int magic = view.getInt();
+        int version = view.getShort() & 0xFFFF;
+        int type = view.getShort() & 0xFFFF;
+        int flags = view.getInt();
+        long sessionId = view.getLong();
+        int payloadLength = view.getInt();
+        int requestId = view.getInt();
+        int reserved = view.getInt();
         if (magic != HardwareCodecProtocol.MAGIC) {
             closeDescriptors(descriptors);
             throw new ProtocolException(type, sessionId, requestId,
@@ -261,7 +243,24 @@ final class HardwareCodecBroker implements Closeable {
                     HardwareCodecProtocol.ERROR_LIMIT, "payload length exceeds limit");
         }
         byte[] payload = new byte[payloadLength];
-        input.readFully(payload);
+        if (payloadLength > 0) {
+            int[] extra = {-1};
+            int read = peer.receiveFully(payload, 0, payloadLength, extra);
+            if (read == CodecSocket.END_OF_STREAM) {
+                closeDescriptors(descriptors);
+                closeDescriptor(extra[0]);
+                throw new EOFException("peer closed during the request payload");
+            }
+            // A client may attach the descriptor to the payload message rather
+            // than the header, so adopt it instead of discarding it.
+            if (extra[0] >= 0) {
+                if (descriptors == null) {
+                    descriptors = wrapDescriptor(extra[0]);
+                } else {
+                    closeDescriptor(extra[0]);
+                }
+            }
+        }
         boolean sharedMemoryRequest = type == HardwareCodecProtocol.INPUT_SHARED_MEMORY
                 || type == HardwareCodecProtocol.OUTPUT_SHARED_MEMORY;
         if (sharedMemoryRequest) {
@@ -281,7 +280,7 @@ final class HardwareCodecBroker implements Closeable {
     }
 
     private void dispatch(Request request, Map<Long, CodecBridgeSession> sessions,
-                          DataOutputStream output) throws IOException {
+                          CodecSocket output) throws IOException {
         try {
             switch (request.type) {
                 case HardwareCodecProtocol.HELLO:
@@ -378,7 +377,7 @@ final class HardwareCodecBroker implements Closeable {
     }
 
     private void create(Request request, Map<Long, CodecBridgeSession> sessions,
-                        DataOutputStream output) throws IOException, RequestException {
+                        CodecSocket output) throws IOException, RequestException {
         if (request.sessionId != 0 || request.payload.length
                 != HardwareCodecProtocol.CREATE_PAYLOAD_BYTES) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -417,7 +416,7 @@ final class HardwareCodecBroker implements Closeable {
 
     private void createTranscoder(Request request,
                                   Map<Long, CodecBridgeSession> sessions,
-                                  DataOutputStream output)
+                                  CodecSocket output)
             throws IOException, RequestException {
         if (request.sessionId != 0 || request.payload.length
                 != HardwareCodecProtocol.CREATE_TRANSCODER_PAYLOAD_BYTES) {
@@ -462,7 +461,7 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private void input(Request request, CodecBridgeSession session, DataOutputStream output)
+    private void input(Request request, CodecBridgeSession session, CodecSocket output)
             throws IOException, RequestException {
         if (request.payload.length < 16) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -483,7 +482,7 @@ final class HardwareCodecBroker implements Closeable {
                 status, new byte[0]);
     }
 
-    private void output(Request request, CodecBridgeSession session, DataOutputStream output)
+    private void output(Request request, CodecBridgeSession session, CodecSocket output)
             throws IOException, RequestException {
         if (request.payload.length != 4) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -503,7 +502,7 @@ final class HardwareCodecBroker implements Closeable {
     }
 
     private void inputSharedMemory(Request request, CodecBridgeSession session,
-                                   DataOutputStream output)
+                                   CodecSocket output)
             throws IOException, RequestException {
         if (request.payload.length != HardwareCodecProtocol.SHARED_INPUT_PAYLOAD_BYTES) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -529,7 +528,7 @@ final class HardwareCodecBroker implements Closeable {
     }
 
     private void outputSharedMemory(Request request, CodecBridgeSession session,
-                                    DataOutputStream output)
+                                    CodecSocket output)
             throws IOException, RequestException {
         if (request.payload.length != HardwareCodecProtocol.SHARED_OUTPUT_PAYLOAD_BYTES) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -597,7 +596,7 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private void eos(Request request, CodecBridgeSession session, DataOutputStream output)
+    private void eos(Request request, CodecBridgeSession session, CodecSocket output)
             throws IOException, RequestException {
         if (request.payload.length != 8) {
             throw new RequestException(HardwareCodecProtocol.ERROR_PROTOCOL,
@@ -830,26 +829,52 @@ final class HardwareCodecBroker implements Closeable {
         }
     }
 
-    private static void writeResponse(DataOutputStream output, int type, long sessionId,
+    private static void writeResponse(CodecSocket peer, int type, long sessionId,
                                       int requestId, int status, byte[] payload)
             throws IOException {
-        output.writeInt(HardwareCodecProtocol.MAGIC);
-        output.writeShort(HardwareCodecProtocol.VERSION);
-        output.writeShort(type | HardwareCodecProtocol.RESPONSE_BIT);
-        output.writeInt(0);
-        output.writeLong(sessionId);
-        output.writeInt(payload.length);
-        output.writeInt(requestId);
-        output.writeInt(status);
-        // A write larger than the kernel socket buffer fails with EMSGSIZE, and
-        // the buffered stream would otherwise coalesce chunks back into one
-        // oversized write. Each bounded chunk is therefore flushed on its own.
-        for (int offset = 0; offset < payload.length; offset += SOCKET_CHUNK_BYTES) {
-            output.write(payload, offset,
-                    Math.min(SOCKET_CHUNK_BYTES, payload.length - offset));
-            output.flush();
+        byte[] header = new byte[HardwareCodecProtocol.HEADER_BYTES];
+        ByteBuffer view = ByteBuffer.wrap(header).order(ByteOrder.BIG_ENDIAN);
+        view.putInt(HardwareCodecProtocol.MAGIC);
+        view.putShort((short) HardwareCodecProtocol.VERSION);
+        view.putShort((short) (type | HardwareCodecProtocol.RESPONSE_BIT));
+        view.putInt(0);
+        view.putLong(sessionId);
+        view.putInt(payload.length);
+        view.putInt(requestId);
+        view.putInt(status);
+        peer.sendFully(header, 0, header.length);
+        // send() loops internally, so a payload larger than the socket buffer
+        // is delivered in kernel-sized pieces without an EMSGSIZE failure.
+        if (payload.length > 0) {
+            peer.sendFully(payload, 0, payload.length);
         }
-        output.flush();
+    }
+
+    private static FileDescriptor[] wrapDescriptor(int descriptor) {
+        if (descriptor < 0) return null;
+        FileDescriptor wrapper = new FileDescriptor();
+        try {
+            // FileDescriptor has no public constructor taking an int, so the
+            // platform's own setter is used to adopt the received descriptor.
+            java.lang.reflect.Method setter =
+                    FileDescriptor.class.getDeclaredMethod("setInt$", int.class);
+            setter.setAccessible(true);
+            setter.invoke(wrapper, descriptor);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            try {
+                Os.close(wrapper);
+            } catch (ErrnoException ignored) {
+                // Nothing was adopted, so there is nothing to release.
+            }
+            throw new IllegalStateException("cannot adopt a received descriptor", e);
+        }
+        return new FileDescriptor[] {wrapper};
+    }
+
+    private static void closeDescriptor(int descriptor) {
+        if (descriptor < 0) return;
+        FileDescriptor[] wrapped = wrapDescriptor(descriptor);
+        closeDescriptors(wrapped);
     }
 
     private static byte[] textPayload(String value) {
@@ -884,21 +909,16 @@ final class HardwareCodecBroker implements Closeable {
     public synchronized void close() {
         if (!closed.compareAndSet(false, true)) return;
         if (server != null) {
-            try {
-                server.close();
-            } catch (IOException e) {
-                Log.w(TAG, "Could not close hardware codec broker socket", e);
-            }
+            // Shutting down first unblocks a thread parked in accept().
+            server.shutdown();
+            server.close();
             server = null;
         }
         acceptExecutor.shutdownNow();
         awaitExecutor(acceptExecutor, "accept loop");
-        for (LocalSocket peer : peerSockets) {
-            try {
-                peer.close();
-            } catch (IOException e) {
-                Log.w(TAG, "Could not close hardware codec peer socket", e);
-            }
+        for (CodecSocket peer : peerSockets) {
+            peer.shutdown();
+            peer.close();
         }
         peerExecutor.shutdownNow();
         awaitExecutor(peerExecutor, "peer cleanup");

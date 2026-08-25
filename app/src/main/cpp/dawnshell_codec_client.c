@@ -807,12 +807,23 @@ static int queue_input(int descriptor, uint64_t session_id,
                        const uint8_t header[16], const uint8_t *data,
                        uint32_t length) {
     int shared_descriptor = -1;
-    if (shared_memory_supported && length >= DSCB_SHARED_MEMORY_THRESHOLD) {
+    // A frame larger than the kernel's socket buffer cannot be sent inline at
+    // all: the write fails with EMSGSIZE regardless of chunking, because the
+    // receiver must hold one whole record. Shared memory is therefore
+    // mandatory above the threshold rather than an optimization.
+    int shared_memory_required = length >= DSCB_SHARED_MEMORY_THRESHOLD;
+    if (shared_memory_supported && shared_memory_required) {
         shared_descriptor = create_shared_memory("dawnshell-codec-input", length);
         if (shared_descriptor >= 0
                 && pwrite_all(shared_descriptor, data, length) != 0) {
             close(shared_descriptor);
             shared_descriptor = -1;
+        }
+        if (shared_descriptor < 0) {
+            fprintf(stderr, "dawnshell-codec: could not stage a %" PRIu32
+                    "-byte frame in shared memory: %s\n", length,
+                    strerror(errno));
+            return -1;
         }
     }
     if (shared_descriptor >= 0) {
@@ -853,6 +864,15 @@ static int queue_input(int descriptor, uint64_t session_id,
         }
         if (shared_descriptor >= 0) close(shared_descriptor);
         if (result != 2) return result;
+    }
+    // Falling through means shared memory is unavailable or the broker
+    // rejected it. An inline send of a full frame would fail as "Message too
+    // long", so report the real cause instead.
+    if (shared_memory_required) {
+        fprintf(stderr, "dawnshell-codec: shared memory is unavailable for a %"
+                PRIu32 "-byte frame; the socket cannot carry it inline\n",
+                length);
+        return -1;
     }
     uint8_t *payload = malloc((size_t)length + 16);
     if (payload == NULL) return -1;
