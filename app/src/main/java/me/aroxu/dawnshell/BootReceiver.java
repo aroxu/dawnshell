@@ -29,7 +29,7 @@ public class BootReceiver extends BroadcastReceiver {
                 // The codec bridge is independent of BFU Debian, so it must
                 // still come up. Otherwise a Debian shell can only reach the
                 // hardware codec after someone opens the app by hand.
-                startHardwareCodecBridge(context, true);
+                startHardwareCodecBridge(context);
             }
             return;
         }
@@ -44,19 +44,21 @@ public class BootReceiver extends BroadcastReceiver {
             // A device that boots straight into an unlocked user never sees
             // LOCKED_BOOT_COMPLETED handling reach the bridge, so start it
             // here as well. Both paths are idempotent.
-            startHardwareCodecBridge(context, !unlocked);
+            startHardwareCodecBridge(context);
         }
     }
 
-    private static void startHardwareCodecBridge(Context context,
-                                                 boolean bootRetry) {
+    private static void startHardwareCodecBridge(Context context) {
+        // A receiver cannot start a foreground service in the background;
+        // Android denies it outright. Routing through BfuBootService, which is
+        // already allowed to launch from boot, grants the same permission.
         if (!BfuPreferences.hardwareCodecBridge(context)) {
             Log.i(TAG, "Hardware codec bridge is disabled");
             return;
         }
         try {
-            HardwareCodecService.ensureStarted(context, bootRetry);
-            Log.i(TAG, "Hardware codec bridge requested at boot retry=" + bootRetry);
+            BfuBootService.requestCodecBridgeStart(context);
+            Log.i(TAG, "Hardware codec bridge requested at boot");
         } catch (RuntimeException e) {
             // A foreground-service start can be refused while the device is
             // still settling; the retry schedule inside the service recovers.

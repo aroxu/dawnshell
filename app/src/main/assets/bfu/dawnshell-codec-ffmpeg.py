@@ -255,43 +255,6 @@ def validate_stats(arguments):
     )
 
 
-def compare_decode_transports(arguments):
-    shared = load_last_stats(arguments.shared_log)
-    socket = load_last_stats(arguments.socket_log)
-    for label, stats in (("shared", shared), ("socket", socket)):
-        require_call_latency(stats, f"{label} decoder")
-        if stats.get("kind") != "bytebuffer_decoder":
-            raise ValueError(f"{label} run is not a decoder session")
-        for key in ("input_frames", "output_frames", "cpu_yuv_frames"):
-            if int(stats.get(key, -1)) != arguments.frames:
-                raise ValueError(
-                    f"{label} run {key}={stats.get(key)!r}; expected {arguments.frames}"
-                )
-        if int(stats.get("input_eos", 0)) < 1 or int(stats.get("output_eos", 0)) < 1:
-            raise ValueError(f"{label} run did not complete EOS")
-        if int(stats.get("errors", -1)) != 0:
-            raise ValueError(f"{label} run recorded codec errors")
-    if int(shared.get("shared_output_bytes", 0)) <= 0:
-        raise ValueError("default decoder run did not use shared-memory output")
-    if shared.get("media_transport") not in ("shared_memory", "mixed"):
-        raise ValueError("default decoder run did not report shared-memory transport")
-    if int(socket.get("shared_input_bytes", -1)) != 0 \
-            or int(socket.get("shared_output_bytes", -1)) != 0:
-        raise ValueError("socket fallback run unexpectedly used shared memory")
-    if int(socket.get("socket_output_bytes", 0)) <= 0:
-        raise ValueError("socket fallback run did not transfer decoder output")
-    if socket.get("media_transport") != "socket":
-        raise ValueError("socket fallback run did not report socket transport")
-    print(
-        "decode_transport_comparison=verified "
-        f"frames={arguments.frames} "
-        f"shared_runtime_ms={shared.get('uptime_ms')} "
-        f"shared_process_cpu_ms={shared.get('process_cpu_time_ms')} "
-        f"socket_runtime_ms={socket.get('uptime_ms')} "
-        f"socket_process_cpu_ms={socket.get('process_cpu_time_ms')}"
-    )
-
-
 def validate_decoder_stats(arguments):
     stats = load_last_stats(arguments.input)
     require_call_latency(stats, "decoder")
@@ -306,8 +269,8 @@ def validate_decoder_stats(arguments):
         raise ValueError("decoder statistics do not prove EOS completion")
     if int(stats.get("errors", -1)) != 0:
         raise ValueError("decoder session recorded codec errors")
-    if stats.get("media_transport") not in ("shared_memory", "mixed"):
-        raise ValueError("decoder did not use shared-memory media output")
+    if stats.get("media_transport") != "inherited_memfd_eventfd":
+        raise ValueError("decoder did not use the inherited memfd/eventfd transport")
     print(
         "hardware_decode_statistics=verified "
         f"frames={arguments.frames} transport={stats.get('media_transport')} "
@@ -365,216 +328,6 @@ def validate_encoder_stats(arguments):
     )
 
 
-def load_health(path):
-    with open(path, "r", encoding="utf-8", errors="strict") as source:
-        value = json.load(source)
-    if not isinstance(value, dict) or value.get("broker_state") != "listening":
-        raise ValueError(f"invalid broker health snapshot: {path}")
-    return value
-
-
-def validate_cleanup(arguments):
-    before = load_health(arguments.before)
-    after = load_health(arguments.after)
-    for label, health in (("before", before), ("after", after)):
-        if int(health.get("active_sessions", -1)) != 0 \
-                or int(health.get("active_transcoders", -1)) != 0:
-            raise ValueError(f"{label} snapshot has active codec resources")
-        if int(health.get("sessions_created", -1)) \
-                != int(health.get("sessions_closed", -2)):
-            raise ValueError(f"{label} snapshot has an unclosed session")
-    if int(after.get("uptime_ms", -1)) < int(before.get("uptime_ms", 0)):
-        raise ValueError("codec broker restarted during resource cleanup test")
-    created_delta = int(after["sessions_created"]) - int(before["sessions_created"])
-    closed_delta = int(after["sessions_closed"]) - int(before["sessions_closed"])
-    if created_delta != arguments.sessions or closed_delta != arguments.sessions:
-        raise ValueError(
-            f"cleanup delta created={created_delta} closed={closed_delta}; "
-            f"expected {arguments.sessions}"
-        )
-    print(
-        "codec_resource_cleanup=verified "
-        f"sessions={arguments.sessions} active_sessions=0 active_transcoders=0"
-    )
-
-
-def summarize_health(arguments):
-    samples = []
-    with open(arguments.input, "r", encoding="utf-8", errors="strict") as source:
-        for line_number, line in enumerate(source, 1):
-            if not line.strip():
-                continue
-            value = json.loads(line)
-            if not isinstance(value, dict) or value.get("broker_state") != "listening":
-                raise ValueError(f"invalid health sample at line {line_number}")
-            samples.append(value)
-    if len(samples) < 2:
-        raise ValueError("at least two broker health samples are required")
-    pids = {int(sample.get("pid", -1)) for sample in samples}
-    if len(pids) != 1 or next(iter(pids)) <= 0:
-        raise ValueError(f"broker PID changed during test: {sorted(pids)}")
-    previous_uptime = -1
-    for index, sample in enumerate(samples):
-        uptime = int(sample.get("uptime_ms", -1))
-        if uptime < previous_uptime:
-            raise ValueError(f"broker uptime moved backwards at sample {index}")
-        previous_uptime = uptime
-        if int(sample.get("active_sessions", -1)) != 0 \
-                or int(sample.get("active_transcoders", -1)) != 0:
-            raise ValueError(f"health sample {index} has active codec resources")
-        if int(sample.get("sessions_created", -1)) \
-                != int(sample.get("sessions_closed", -2)):
-            raise ValueError(f"health sample {index} has an unclosed session")
-
-    def values(key):
-        return [int(sample.get(key, -1)) for sample in samples]
-
-    rss = values("process_rss_kb")
-    descriptors = values("open_fd_count")
-    heap = values("java_heap_used_bytes")
-    cpu = values("process_cpu_time_ms")
-    input_records = values("input_records")
-    output_records = values("output_records")
-    input_bytes = values("input_bytes")
-    output_bytes = values("output_bytes")
-    input_timeouts = values("input_dequeue_timeouts")
-    output_timeouts = values("output_dequeue_timeouts")
-    queue_depth = values("queue_depth_high_water")
-    peak_input_payload = values("peak_input_payload_bytes")
-    peak_output_payload = values("peak_output_payload_bytes")
-    if min(rss + descriptors + heap + cpu) < 0:
-        raise ValueError("health samples are missing process resource metrics")
-    cumulative = (
-        input_records + output_records + input_bytes + output_bytes
-        + input_timeouts + output_timeouts + queue_depth
-        + peak_input_payload + peak_output_payload
-    )
-    if min(cumulative) < 0:
-        raise ValueError("health samples are missing queue and payload metrics")
-    for name, series in (
-        ("input_records", input_records),
-        ("output_records", output_records),
-        ("input_bytes", input_bytes),
-        ("output_bytes", output_bytes),
-        ("input_dequeue_timeouts", input_timeouts),
-        ("output_dequeue_timeouts", output_timeouts),
-        ("queue_depth_high_water", queue_depth),
-        ("peak_input_payload_bytes", peak_input_payload),
-        ("peak_output_payload_bytes", peak_output_payload),
-    ):
-        if any(current < previous for previous, current in zip(series, series[1:])):
-            raise ValueError(f"cumulative health metric moved backwards: {name}")
-    fd_growth = descriptors[-1] - descriptors[0]
-    rss_growth = rss[-1] - rss[0]
-    heap_growth = heap[-1] - heap[0]
-    if fd_growth > arguments.max_fd_growth:
-        raise ValueError(
-            f"broker descriptor growth {fd_growth} exceeds {arguments.max_fd_growth}"
-        )
-    if rss_growth > arguments.max_rss_growth_kb:
-        raise ValueError(
-            f"broker RSS growth {rss_growth} KiB exceeds "
-            f"{arguments.max_rss_growth_kb} KiB"
-        )
-    if heap_growth > arguments.max_heap_growth_bytes:
-        raise ValueError(
-            f"broker heap growth {heap_growth} bytes exceeds "
-            f"{arguments.max_heap_growth_bytes} bytes"
-        )
-    summary = {
-        "format": "dawnshell-codec-health-summary-1",
-        "samples": len(samples),
-        "pid": next(iter(pids)),
-        "uptime_start_ms": int(samples[0]["uptime_ms"]),
-        "uptime_end_ms": int(samples[-1]["uptime_ms"]),
-        "cpu_delta_ms": cpu[-1] - cpu[0],
-        "rss_start_kb": rss[0],
-        "rss_end_kb": rss[-1],
-        "rss_max_kb": max(rss),
-        "rss_growth_kb": rss_growth,
-        "fd_start": descriptors[0],
-        "fd_end": descriptors[-1],
-        "fd_max": max(descriptors),
-        "fd_growth": fd_growth,
-        "heap_start_bytes": heap[0],
-        "heap_end_bytes": heap[-1],
-        "heap_max_bytes": max(heap),
-        "heap_growth_bytes": heap_growth,
-        "thermal_max": max(values("thermal_status")),
-        "battery_temperature_max_deci_c": max(
-            values("battery_temperature_deci_c")
-        ),
-        "input_records_delta": input_records[-1] - input_records[0],
-        "output_records_delta": output_records[-1] - output_records[0],
-        "input_bytes_delta": input_bytes[-1] - input_bytes[0],
-        "output_bytes_delta": output_bytes[-1] - output_bytes[0],
-        "input_dequeue_timeouts_delta": input_timeouts[-1] - input_timeouts[0],
-        "output_dequeue_timeouts_delta": output_timeouts[-1] - output_timeouts[0],
-        "queue_depth_high_water": max(queue_depth),
-        "peak_input_payload_bytes": max(peak_input_payload),
-        "peak_output_payload_bytes": max(peak_output_payload),
-        "user_unlocked_start": bool(samples[0].get("user_unlocked")),
-        "user_unlocked_end": bool(samples[-1].get("user_unlocked")),
-    }
-    with open(arguments.output, "w", encoding="utf-8") as output:
-        json.dump(summary, output, sort_keys=True, indent=2)
-        output.write("\n")
-    print(
-        "codec_health_stability=verified "
-        f"samples={len(samples)} pid={summary['pid']} "
-        f"rss_growth_kb={rss_growth} fd_growth={fd_growth} "
-        f"heap_growth_bytes={heap_growth} thermal_max={summary['thermal_max']} "
-        f"queue_depth_high_water={summary['queue_depth_high_water']} "
-        f"input_timeouts={summary['input_dequeue_timeouts_delta']} "
-        f"output_timeouts={summary['output_dequeue_timeouts_delta']}"
-    )
-
-
-def validate_concurrency_health(arguments):
-    health = load_health(arguments.input)
-    sessions = int(health.get("active_sessions", -1))
-    transcoders = int(health.get("active_transcoders", -1))
-    if sessions != arguments.sessions:
-        raise ValueError(
-            f"active concurrent sessions={sessions}; expected {arguments.sessions}"
-        )
-    if transcoders != arguments.transcoders:
-        raise ValueError(
-            f"active concurrent transcoders={transcoders}; "
-            f"expected {arguments.transcoders}"
-        )
-    print(
-        "codec_concurrency=verified "
-        f"active_sessions={sessions} active_transcoders={transcoders}"
-    )
-
-
-def validate_balanced_health(arguments):
-    before = load_health(arguments.before)
-    after = load_health(arguments.after)
-    if int(before.get("pid", -1)) != int(after.get("pid", -2)):
-        raise ValueError("codec broker restarted during error-isolation test")
-    if int(after.get("uptime_ms", -1)) < int(before.get("uptime_ms", 0)):
-        raise ValueError("codec broker uptime moved backwards")
-    if int(after.get("active_sessions", -1)) != 0 \
-            or int(after.get("active_transcoders", -1)) != 0:
-        raise ValueError("codec broker retained active resources")
-    if int(after.get("sessions_created", -1)) \
-            != int(after.get("sessions_closed", -2)):
-        raise ValueError("codec broker retained an unclosed session")
-    created_delta = int(after.get("sessions_created", 0)) \
-        - int(before.get("sessions_created", 0))
-    if created_delta < arguments.minimum_sessions:
-        raise ValueError(
-            f"only {created_delta} sessions were exercised; "
-            f"expected at least {arguments.minimum_sessions}"
-        )
-    print(
-        "codec_error_isolation=verified "
-        f"sessions={created_delta} active_sessions=0 broker_pid={after.get('pid')}"
-    )
-
-
 def validate_quality(arguments):
     psnr_text = pathlib.Path(arguments.psnr_log).read_text(
         encoding="utf-8", errors="replace"
@@ -628,20 +381,17 @@ def load_time_metrics(path):
 
 
 def compare_cpu_baseline(arguments):
-    before = load_health(arguments.before_health)
-    after = load_health(arguments.after_health)
-    if int(before.get("pid", -1)) != int(after.get("pid", -2)):
-        raise ValueError("codec broker restarted during CPU comparison")
-    broker_cpu_seconds = (
-        int(after.get("process_cpu_time_ms", -1))
-        - int(before.get("process_cpu_time_ms", -1))
-    ) / 1000.0
-    if broker_cpu_seconds < 0:
-        raise ValueError("broker CPU time moved backwards")
+    session = load_last_stats(arguments.hardware_log)
+    worker_cpu_seconds = int(session.get("process_cpu_time_ms", -1)) / 1000.0
+    if worker_cpu_seconds < 0:
+        raise ValueError("hardware session did not report NDK worker CPU time")
+    if session.get("media_transport") != "inherited_memfd_eventfd":
+        raise ValueError("hardware session did not use the private worker transport")
     hardware = load_time_metrics(arguments.hardware_time)
     software = load_time_metrics(arguments.software_time)
-    hardware_client_cpu = hardware["user_seconds"] + hardware["system_seconds"]
-    hardware_total_cpu = hardware_client_cpu + broker_cpu_seconds
+    # GNU time includes the waited worker child. Adding worker_cpu_seconds a
+    # second time would double-count codec process CPU.
+    hardware_total_cpu = hardware["user_seconds"] + hardware["system_seconds"]
     software_total_cpu = software["user_seconds"] + software["system_seconds"]
     if software_total_cpu <= 0:
         raise ValueError("software baseline reported no CPU time")
@@ -655,8 +405,8 @@ def compare_cpu_baseline(arguments):
     result = {
         "format": "dawnshell-codec-cpu-baseline-1",
         "hardware_wall_seconds": hardware["wall_seconds"],
-        "hardware_client_cpu_seconds": hardware_client_cpu,
-        "hardware_broker_cpu_seconds": broker_cpu_seconds,
+        "hardware_command_cpu_seconds": hardware_total_cpu,
+        "hardware_worker_cpu_seconds": worker_cpu_seconds,
         "hardware_total_cpu_seconds": hardware_total_cpu,
         "hardware_client_max_rss_kb": hardware["max_rss_kb"],
         "software_wall_seconds": software["wall_seconds"],
@@ -945,11 +695,6 @@ def main():
     validate_stats_parser.add_argument("frames", type=positive_int)
     validate_stats_parser.add_argument("--max-runtime-ms", type=positive_int)
     validate_stats_parser.set_defaults(handler=validate_stats)
-    compare_transport_parser = commands.add_parser("compare-decode-transports")
-    compare_transport_parser.add_argument("shared_log")
-    compare_transport_parser.add_argument("socket_log")
-    compare_transport_parser.add_argument("frames", type=positive_int)
-    compare_transport_parser.set_defaults(handler=compare_decode_transports)
     decoder_stats_parser = commands.add_parser("validate-decoder-stats")
     decoder_stats_parser.add_argument("input")
     decoder_stats_parser.add_argument("frames", type=positive_int)
@@ -961,32 +706,6 @@ def main():
     encoder_stats_parser.add_argument("target_bitrate", type=positive_int)
     encoder_stats_parser.add_argument("--output")
     encoder_stats_parser.set_defaults(handler=validate_encoder_stats)
-    cleanup_parser = commands.add_parser("validate-cleanup")
-    cleanup_parser.add_argument("before")
-    cleanup_parser.add_argument("after")
-    cleanup_parser.add_argument("sessions", type=positive_int)
-    cleanup_parser.set_defaults(handler=validate_cleanup)
-    health_parser = commands.add_parser("summarize-health")
-    health_parser.add_argument("input")
-    health_parser.add_argument("output")
-    health_parser.add_argument("--max-fd-growth", type=positive_int, default=2)
-    health_parser.add_argument(
-        "--max-rss-growth-kb", type=positive_int, default=65536
-    )
-    health_parser.add_argument(
-        "--max-heap-growth-bytes", type=positive_int, default=33554432
-    )
-    health_parser.set_defaults(handler=summarize_health)
-    concurrency_parser = commands.add_parser("validate-concurrency-health")
-    concurrency_parser.add_argument("input")
-    concurrency_parser.add_argument("sessions", type=positive_int)
-    concurrency_parser.add_argument("transcoders", type=int)
-    concurrency_parser.set_defaults(handler=validate_concurrency_health)
-    balanced_parser = commands.add_parser("validate-balanced-health")
-    balanced_parser.add_argument("before")
-    balanced_parser.add_argument("after")
-    balanced_parser.add_argument("minimum_sessions", type=positive_int)
-    balanced_parser.set_defaults(handler=validate_balanced_health)
     quality_parser = commands.add_parser("validate-quality")
     quality_parser.add_argument("psnr_log")
     quality_parser.add_argument("ssim_log")
@@ -995,8 +714,7 @@ def main():
     quality_parser.add_argument("--output")
     quality_parser.set_defaults(handler=validate_quality)
     baseline_parser = commands.add_parser("compare-cpu-baseline")
-    baseline_parser.add_argument("before_health")
-    baseline_parser.add_argument("after_health")
+    baseline_parser.add_argument("hardware_log")
     baseline_parser.add_argument("hardware_time")
     baseline_parser.add_argument("software_time")
     baseline_parser.add_argument("output")

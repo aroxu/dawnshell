@@ -29,8 +29,9 @@ Encoding/output:
   --record PATH              Also save fragmented MP4 while output mode is hls
   --print-plan               Print the five-stage pipeline without executing it
 
-The Android MediaCodec broker accepts UID 0 only. Run the actual pipeline with
-sudo. Audio is not currently captured. Ctrl-C closes FFmpeg and finalizes the
+The managed private NDK MediaCodec worker is supported only from the root
+execution path. Run the actual pipeline with sudo. Audio is not currently
+captured. Ctrl-C closes FFmpeg and finalizes the
 recording or playlist.
 EOF
 }

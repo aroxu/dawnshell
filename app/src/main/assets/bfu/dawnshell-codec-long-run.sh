@@ -91,12 +91,8 @@ trap 'terminate 130' INT
 trap 'terminate 143' TERM
 
 operations="$result_dir/operations.log"
-health="$result_dir/health.jsonl"
-summary_json="$result_dir/health-summary.json"
 timings="$result_dir/client-time.tsv"
 timing_summary="$result_dir/client-time-summary.json"
-before="$temporary/health-before.json"
-after="$temporary/health-after.json"
 output="$temporary/output.bin"
 timing_enabled=0
 : > "$timings"
@@ -174,8 +170,6 @@ run_workload() {
 
 echo "STAGE: warming hardware codec workload $mode"
 run_workload warmup
-dawnshell-codec health --format json > "$before"
-cat "$before" >> "$health"
 timing_enabled=1
 
 started="$(date +%s)"
@@ -189,15 +183,11 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
         echo "Evidence: $result_dir" >&2
         exit 1
     fi
-    dawnshell-codec health --format json >> "$health"
 done
 finished="$(date +%s)"
 elapsed=$((finished - started))
-dawnshell-codec health --format json > "$after"
-cat "$after" >> "$health"
-
-"$adapter" validate-cleanup "$before" "$after" "$iterations"
-"$adapter" summarize-health "$health" "$summary_json"
+dawnshell-codec health --format json | \
+    grep -Fq '"transport":"inherited_memfd_eventfd"'
 media_seconds=$((iterations * clip_seconds))
 "$adapter" summarize-time-series "$timings" "$timing_summary" "$media_seconds"
 realtime_factor="$(mawk -v media="$media_seconds" -v elapsed="$elapsed" \

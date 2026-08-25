@@ -38,7 +38,7 @@ esac
 
 mkdir -p "$results_dir"
 summary="$results_dir/cycles.tsv"
-printf 'cycle\tandroid_boot_id\tboot_app_pid\ttotal_pss_kib\ttotal_rss_kib\tsupervisor_pid\tinit_host_pid\tsystemd_count\tcodec_bfu_pid\tcodec_afu_pid\tcodec_client_sha256\n' \
+printf 'cycle\tandroid_boot_id\tboot_app_pid\ttotal_pss_kib\ttotal_rss_kib\tsupervisor_pid\tinit_host_pid\tsystemd_count\tcodec_bfu_result\tcodec_afu_result\tcodec_client_sha256\tcodec_worker_sha256\n' \
   > "$summary"
 
 preflight="$results_dir/preflight.txt"
@@ -101,6 +101,9 @@ embedded_helper_hash="$(unzip -p "$bfu_apk" \
   | sha256sum | awk '{print toupper($1)}')"
 embedded_codec_hash="$(unzip -p "$bfu_apk" \
   "assets/bfu/bin/$cpu_abi/dawnshell-codec" \
+  | sha256sum | awk '{print toupper($1)}')"
+embedded_codec_worker_hash="$(unzip -p "$bfu_apk" \
+  "assets/bfu/bin/$cpu_abi/dawnshell-codec-worker" \
   | sha256sum | awk '{print toupper($1)}')"
 
 artifact_evidence="$results_dir/artifacts.tsv"
@@ -178,6 +181,13 @@ for ((cycle = 1; cycle <= cycles; cycle++)); do
     echo "FAIL: provisioned codec client does not match the installed APK artifact" >&2
     exit 8
   }
+  codec_worker="/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/dawnshell-codec-worker"
+  device_codec_worker_hash="$(adb exec-out run-as me.aroxu.dawnshell cat "$codec_worker" \
+    | sha256sum | awk '{print toupper($1)}')"
+  [[ "$device_codec_worker_hash" = "$embedded_codec_worker_hash" ]] || {
+    echo "FAIL: provisioned codec worker does not match the installed APK artifact" >&2
+    exit 8
+  }
   # Literal root-side loop; command substitutions must expand on Android.
   # shellcheck disable=SC2016
   systemd_count="$(adb shell su -c 'count=0; for file in /proc/[0-9]*/comm; do [ "$(cat "$file" 2>/dev/null)" = systemd ] && count=$((count + 1)); done; echo "$count"' | tr -d '\r\n')"
@@ -187,25 +197,21 @@ for ((cycle = 1; cycle <= cycles; cycle++)); do
   }
   init_comm="$(adb shell su -c "cat /proc/$init_host_pid/comm" | tr -d '\r\n')"
   [[ "$init_comm" = systemd ]]
-  codec_bfu_pid=disabled
-  codec_afu_pid=disabled
+  codec_bfu_result=disabled
+  codec_afu_result=disabled
   if [[ "${BFU_REQUIRE_HARDWARE_CODEC:-0}" == "1" ]]; then
-    codec_bfu_pid="$(grep -F '"broker_state":"listening"' "$cycle_log" \
-      | grep -F '"user_unlocked":false' | sed -n \
-        's/.*"pid":\([0-9][0-9]*\).*/\1/p' | head -n 1)"
-    codec_afu_pid="$(grep -F '"broker_state":"listening"' "$cycle_log" \
-      | grep -F '"user_unlocked":true' | sed -n \
-        's/.*"pid":\([0-9][0-9]*\).*/\1/p' | head -n 1)"
-    [[ -n "$codec_bfu_pid" && "$codec_bfu_pid" = "$codec_afu_pid" ]] || {
-      echo "FAIL: cycle $cycle lacks one continuous BFU-to-AFU codec PID" >&2
-      exit 8
-    }
+    grep -Fq 'PASS: BFU private codec worker and hardware self-test succeeded.' \
+      "$cycle_log"
+    grep -Fq 'PASS: AFU private codec worker and hardware self-test succeeded.' \
+      "$cycle_log"
+    codec_bfu_result=verified
+    codec_afu_result=verified
   fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$cycle" "$boot_id" "${app_pid:-unknown}" "${total_pss:-unknown}" \
     "${total_rss:-unknown}" "${supervisor_pid:-unknown}" \
-    "${init_host_pid:-unknown}" "$systemd_count" "$codec_bfu_pid" \
-    "$codec_afu_pid" "$device_codec_hash" >> "$summary"
+    "${init_host_pid:-unknown}" "$systemd_count" "$codec_bfu_result" \
+    "$codec_afu_result" "$device_codec_hash" "$device_codec_worker_hash" >> "$summary"
 done
 
 awk -F '\t' '

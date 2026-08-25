@@ -242,6 +242,33 @@ validate_static_elf() {
     fi
 }
 
+validate_codec_worker_elf() {
+    local binary="$1"
+    local machine_pattern="$2"
+    local interpreter="$3"
+
+    "$llvm_readelf" -h "$binary" \
+        | grep -E "Machine:[[:space:]]+$machine_pattern" >/dev/null
+    "$llvm_readelf" -h "$binary" \
+        | grep -E 'Type:[[:space:]]+DYN' >/dev/null
+    "$llvm_readelf" -l "$binary" | grep -F "$interpreter" >/dev/null
+    local dependencies
+    dependencies="$($llvm_readelf -d "$binary" \
+        | sed -n 's/.*Shared library: \[\([^]]*\)\].*/\1/p' | sort -u)"
+    local expected=$'libandroid.so\nlibc.so\nlibdl.so\nlibmediandk.so'
+    if [[ "$dependencies" != "$expected" ]]; then
+        echo "Unexpected Android codec worker dependencies in $binary" >&2
+        printf '%s\n' "$dependencies" >&2
+        exit 5
+    fi
+    if "$llvm_strings" "$binary" \
+            | grep -E '/data/(data|user|user_de)/[^/ ]+|[A-Za-z]:/Users/' \
+                >/dev/null; then
+        echo "Forbidden fixed data or host path embedded in $binary" >&2
+        exit 6
+    fi
+}
+
 merge_busybox_config() {
     local source_root="$1"
     local fragment="$repo_dir/bfu-runtime/config/busybox-bootstrap.config"
@@ -458,6 +485,20 @@ build_codec_client() {
     chmod 700 "$stage/dawnshell-codec"
 }
 
+build_codec_worker() {
+    local stage="$1"
+    "$clang" "--target=$clang_target" \
+        -std=c17 -Os -fPIE -fstack-protector-strong \
+        -Wall -Wextra -Werror -Wformat=2 \
+        -Wl,-pie -Wl,-z,relro,-z,now -Wl,--gc-sections \
+        "$repo_dir/app/src/main/cpp/dawnshell_codec_worker.c" \
+        "$repo_dir/app/src/main/cpp/dawnshell_codec_ndk.c" \
+        -lmediandk -landroid -ldl \
+        -o "$stage/dawnshell-codec-worker"
+    "$llvm_strip" --strip-unneeded "$stage/dawnshell-codec-worker"
+    chmod 700 "$stage/dawnshell-codec-worker"
+}
+
 build_architecture() {
     local abi="$1"
     local clang_target="$2"
@@ -476,12 +517,15 @@ build_architecture() {
     build_gpgv "$work" "$stage"
     build_namespace_probe "$stage"
     build_codec_client "$stage"
+    build_codec_worker "$stage"
 
     local binary
     for binary in dawnshell-toolbox pkgdetails gpgv bfu-namespace-probe; do
         validate_elf "$stage/$binary" "$machine_pattern" "$interpreter"
     done
     validate_static_elf "$stage/dawnshell-codec" "$machine_pattern"
+    validate_codec_worker_elf "$stage/dawnshell-codec-worker" \
+        "$machine_pattern" "$interpreter"
 
     mkdir -p "$output_dir/$abi"
     install -m 700 "$stage/dawnshell-toolbox" \
@@ -492,6 +536,8 @@ build_architecture() {
         "$output_dir/$abi/bfu-namespace-probe"
     install -m 700 "$stage/dawnshell-codec" \
         "$output_dir/$abi/dawnshell-codec"
+    install -m 700 "$stage/dawnshell-codec-worker" \
+        "$output_dir/$abi/dawnshell-codec-worker"
 
     printf '%s\n' \
         "android_abi=$abi" \
@@ -501,9 +547,11 @@ build_architecture() {
         "pkgdetails_base_installer=1.226" \
         "gpgv=2.4.9" \
         "dawnshell_codec_protocol=1" \
+        "dawnshell_codec_transport=inherited_memfd_eventfd" \
+        "dawnshell_codec_worker=ndk_mediacodec" \
         > "$output_dir/$abi/runtime.properties"
 
-    sha256sum "$output_dir/$abi/"{dawnshell-toolbox,pkgdetails,gpgv,bfu-namespace-probe,dawnshell-codec}
+    sha256sum "$output_dir/$abi/"{dawnshell-toolbox,pkgdetails,gpgv,bfu-namespace-probe,dawnshell-codec,dawnshell-codec-worker}
 }
 
 mkdir -p "$output_dir" "$bootstrap_assets_dir"

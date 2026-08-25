@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicLong;
 public class BfuBootService extends Service {
 
     static final String ACTION_START = "me.aroxu.dawnshell.action.START_BFU";
+    static final String ACTION_START_CODEC_BRIDGE =
+            "me.aroxu.dawnshell.action.START_CODEC_BRIDGE";
     static final String ACTION_INSTALL_DEBIAN =
             "me.aroxu.dawnshell.action.INSTALL_DEBIAN_ROOTFS";
     static final String ACTION_CONFIGURE_DEBIAN =
@@ -94,7 +96,10 @@ public class BfuBootService extends Service {
         String action = intent == null ? ACTION_START : intent.getAction();
         boolean disabledControlAllowed = ACTION_DEBIAN_STATUS.equals(action)
                 || ACTION_DEBIAN_STOP.equals(action)
-                || ACTION_REMOVE_DEBIAN_ROOTFS.equals(action);
+                || ACTION_REMOVE_DEBIAN_ROOTFS.equals(action)
+                // The codec bridge is independent of BFU Debian, so it must
+                // still start when BFU mode itself is switched off.
+                || ACTION_START_CODEC_BRIDGE.equals(action);
         if (!BfuPreferences.isEnabled(this) && !disabledControlAllowed) {
             Log.i(TAG, "BFU service stopped because BFU mode is disabled");
             stopSelf();
@@ -102,6 +107,20 @@ public class BfuBootService extends Service {
         }
 
         boolean userUnlocked = isUserUnlocked();
+        if (ACTION_START_CODEC_BRIDGE.equals(action)) {
+            if (BfuPreferences.hardwareCodecBridge(this)) {
+                HardwareCodecService.ensureStarted(this, !userUnlocked);
+                Log.i(TAG, "Hardware MediaCodec service started from boot;"
+                        + " user_unlocked=" + userUnlocked);
+            } else {
+                Log.i(TAG, "Hardware codec bridge is disabled");
+            }
+            if (!BfuPreferences.isEnabled(this)) {
+                // Nothing else here applies while BFU mode is off.
+                stopSelf(startId);
+                return START_NOT_STICKY;
+            }
+        }
         if (ACTION_START.equals(action)
                 && BfuPreferences.hardwareCodecBridge(this)) {
             HardwareCodecService.ensureStarted(this, !userUnlocked);
@@ -218,6 +237,17 @@ public class BfuBootService extends Service {
 
     static void requestHardwareCodecProbe(Context context) {
         HardwareCodecService.ensureStarted(context, false);
+    }
+
+    /**
+     * Starts this service purely so it can launch the codec bridge.
+     *
+     * <p>Android denies a background foreground-service start made directly
+     * from a broadcast receiver. Routing through this already-foreground
+     * service grants the codec bridge the same allowance.
+     */
+    static void requestCodecBridgeStart(Context context) {
+        startServiceAction(context, ACTION_START_CODEC_BRIDGE);
     }
 
     static void requestDebianLifecycle(Context context, DebianLauncher.Operation operation) {

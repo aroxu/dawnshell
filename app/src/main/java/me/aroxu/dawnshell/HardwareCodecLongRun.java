@@ -31,7 +31,7 @@ final class HardwareCodecLongRun {
                 + " output=" + BfuSu.sanitize(result.output);
         writeStatus(context, (result.exitedSuccessfully() ? "SUCCEEDED " : "FAILED ")
                 + summary);
-        HardwareCodecProbe.recordBrokerEvent(context,
+        HardwareCodecProbe.recordRuntimeEvent(context,
                 "LONG_RUN_CONTROL " + summary);
         return result;
     }
@@ -83,7 +83,7 @@ final class HardwareCodecLongRun {
         } catch (IOException ignored) {
             // The original failure remains the useful diagnostic.
         }
-        HardwareCodecProbe.recordBrokerEvent(context,
+        HardwareCodecProbe.recordRuntimeEvent(context,
                 "LONG_RUN_CONTROL_FAILED " + summary);
     }
 

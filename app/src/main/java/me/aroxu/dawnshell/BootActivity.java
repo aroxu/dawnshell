@@ -1397,7 +1397,7 @@ public class BootActivity extends AppCompatActivity {
             }
             final boolean finalPassed = passed;
             final String finalOutput = output;
-            HardwareCodecProbe.recordBrokerEvent(this,
+            HardwareCodecProbe.recordRuntimeEvent(this,
                     "SELF_TEST_" + finalOutput);
             try {
                 BfuOperationLog.append(this, "HARDWARE_CODEC_FILE_SELF_TEST_"
@@ -1511,7 +1511,7 @@ public class BootActivity extends AppCompatActivity {
             chrootTool = codecLayout.toolboxBinary.getAbsolutePath();
         } catch (IOException | IllegalStateException e) {
             String detail = BfuSu.sanitize(e.getMessage());
-            HardwareCodecProbe.recordBrokerEvent(this,
+            HardwareCodecProbe.recordRuntimeEvent(this,
                     (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
                             + "FAILED runtime_provisioning " + detail);
             recordOperation("HARDWARE_CODEC_"
@@ -1552,12 +1552,6 @@ public class BootActivity extends AppCompatActivity {
                 missingTools = !passed && result.exitCode == 127
                         && result.output != null
                         && result.output.contains("dawnshell-codec");
-                if (passed && performance) {
-                    output += "\n" + HardwareCodecRecoveryTest.run(this, codecLayout);
-                }
-            } catch (IOException e) {
-                passed = false;
-                output = BfuSu.sanitizeTail(e.getMessage());
             } catch (InterruptedException e) {
                 passed = false;
                 Thread.currentThread().interrupt();
@@ -1570,7 +1564,7 @@ public class BootActivity extends AppCompatActivity {
             final boolean finalMissingTools = missingTools;
             final String finalOutput = performance
                     ? BfuSu.sanitizeTail(output) : BfuSu.sanitize(output);
-            HardwareCodecProbe.recordBrokerEvent(this,
+            HardwareCodecProbe.recordRuntimeEvent(this,
                     (performance ? "PERFORMANCE_TEST_" : "SELF_TEST_")
                             + (finalPassed ? "PASSED "
                             : finalMissingTools
@@ -1899,8 +1893,6 @@ public class BootActivity extends AppCompatActivity {
             if (status.isEmpty()) {
                 status = getString(R.string.dawnshell_codec_status_none);
             }
-            String broker = HardwareCodecProbe.readBrokerStatus(this);
-            if (!broker.isEmpty()) status = status + "\n" + broker;
             replaceConsoleText(hardwareCodecStatus, getString(
                     R.string.dawnshell_codec_status, compact(status, 520)), false);
         } catch (IOException | RuntimeException e) {

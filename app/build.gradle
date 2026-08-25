@@ -54,24 +54,6 @@ android {
             versionCode appVersionCode.toInteger()
         }
         validateVersionName(versionName)
-        // Android's LocalSocket stream API cannot read a message that carries
-        // an SCM_RIGHTS descriptor; it fails with EMSGSIZE. The broker
-        // therefore performs recvmsg/sendmsg itself.
-        externalNativeBuild {
-            cmake {
-                arguments '-DANDROID_STL=none'
-                cppFlags ''
-            }
-        }
-        ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
-        }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path 'src/main/cpp/CMakeLists.txt'
-        }
     }
 
     signingConfigs {
@@ -139,7 +121,7 @@ task versionName {
 def bfuBootstrapAbis = ['armeabi-v7a', 'arm64-v8a', 'x86_64']
 def bfuBootstrapExecutables = [
         'dawnshell-toolbox', 'pkgdetails', 'gpgv', 'bfu-namespace-probe',
-        'dawnshell-codec']
+        'dawnshell-codec', 'dawnshell-codec-worker']
 def bfuBootstrapAssets = []
 bfuBootstrapAbis.each { abi ->
     bfuBootstrapExecutables.each { executable ->

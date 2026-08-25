@@ -935,6 +935,44 @@ static int bind_recursively(const char *source, const char *target,
     return 0;
 }
 
+static int ensure_directory_path(const char *path, mode_t mode,
+                                 const char *stage);
+
+static int bind_android_runtime_tree(const char *root, const char *source,
+                                     const char *relative, bool required) {
+    struct stat source_stat;
+    if (lstat(source, &source_stat) != 0) {
+        if (!required && errno == ENOENT) return 0;
+        return fail_errno("android_runtime_source", 45);
+    }
+    if (!S_ISDIR(source_stat.st_mode)) {
+        if (!required) return 0;
+        return fail_message("android_runtime_source",
+                            "required_source_is_not_a_directory", 45);
+    }
+    char target[PATH_MAX];
+    if (joined_path(target, sizeof(target), root, relative) != 0) {
+        return fail_errno("android_runtime_target_path", 45);
+    }
+    int result = ensure_directory_path(target, 0755,
+                                       "android_runtime_target_directory");
+    if (result != 0) return result;
+    result = bind_recursively(source, target, "android_runtime_rbind",
+                              "android_runtime_make_rslave");
+    if (result != 0) return result;
+    /* Keep execution enabled for Android's linker and APEX libraries while
+       denying writes, devices and set-id transitions inside the chroot. */
+    if (mount(NULL, target, NULL,
+              MS_BIND | MS_REMOUNT | MS_RDONLY | MS_NOSUID | MS_NODEV,
+              NULL) != 0) {
+        return fail_errno("android_runtime_read_only", 45);
+    }
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_STAGE android_runtime_read_only source=%s target=/%s\n",
+            (long long) realtime_seconds(), source, relative);
+    return 0;
+}
+
 static int make_bind_read_only(const char *path, const char *stage) {
     if (mount(path, path, NULL, MS_BIND, NULL) != 0) return fail_errno(stage, 42);
     if (mount(NULL, path, NULL,
@@ -2096,6 +2134,17 @@ static int prepare_child_mounts(const char *root, const char *control_dir,
     dprintf(STDERR_FILENO, "[%lld] BFU_DEBIAN_STAGE dev_rbind_slave\n",
             (long long) realtime_seconds());
     result = configure_host_usb_mount(root, host_usb_policy);
+    if (result != 0) return result;
+
+    /* A static Debian-facing client starts one private bionic NDK worker per
+       invocation. Expose Android's immutable runtime only; app data and CE
+       storage remain outside the chroot in both BFU and AFU. */
+    result = bind_android_runtime_tree(root, "/system", "system", true);
+    if (result != 0) return result;
+    result = bind_android_runtime_tree(root, "/apex", "apex", true);
+    if (result != 0) return result;
+    result = bind_android_runtime_tree(root, "/linkerconfig", "linkerconfig",
+                                       false);
     if (result != 0) return result;
 
     if (joined_path(path, sizeof(path), root, "sys") != 0) {

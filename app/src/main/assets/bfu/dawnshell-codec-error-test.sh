@@ -27,8 +27,6 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 log="$result_dir/operations.log"
-before="$temporary/health-before.json"
-after="$temporary/health-after.json"
 
 ffprobe -v error -select_streams v:0 -show_packets \
     -show_entries packet=pts_time,dts_time -of json "$hevc_vector" \
@@ -189,11 +187,10 @@ expect_pipe_failure() {
     dawnshell-codec health --format json >> "$log"
 }
 
-dawnshell-codec health --format json > "$before"
 echo "STAGE: protocol, state-machine, duplicate-EOS, and recovery errors" | tee -a "$log"
 dawnshell-codec negative-test >> "$log" 2>&1
 if [ "${DAWNSHELL_CODEC_TEST_IDLE_TIMEOUT:-1}" = 1 ]; then
-    echo "STAGE: idle peer timeout and broker recovery" | tee -a "$log"
+    echo "STAGE: idle private worker remains responsive" | tee -a "$log"
     timeout 45 dawnshell-codec idle-test 32000 >> "$log" 2>&1
 fi
 echo "STAGE: slow output consumer receives bounded backpressure" | tee -a "$log"
@@ -230,12 +227,12 @@ if dawnshell-codec probe decode avc 4096 4096 >> "$log" 2>&1; then
     exit 1
 fi
 
-echo "STAGE: abrupt decoder and Surface-transcoder peer cleanup" | tee -a "$log"
+echo "STAGE: abrupt decoder and Surface-transcoder client cleanup" | tee -a "$log"
 dawnshell-codec orphan-test decode >> "$log" 2>&1
 dawnshell-codec orphan-test transcode >> "$log" 2>&1
 sleep 2
-dawnshell-codec health --format json > "$after"
-"$adapter" validate-balanced-health "$before" "$after" 14 | tee -a "$log"
+dawnshell-codec health --format json | tee -a "$log" \
+    | grep -Fq '"transport":"inherited_memfd_eventfd"'
 
-echo "DawnShell codec error isolation test passed"
+echo "DawnShell codec worker error isolation test passed"
 echo "Evidence: $result_dir"

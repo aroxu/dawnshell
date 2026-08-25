@@ -21,9 +21,9 @@ import java.util.Locale;
  * File-backed hardware AVC decoder test.
  *
  * <p>The compressed media is downloaded into Device Protected Storage and is
- * consumed directly by MediaExtractor/MediaCodec. No media payload crosses the
- * local control socket. The socket bridge remains available for interactive
- * FFmpeg integration, but its packet framing cannot affect this test.
+ * consumed directly by MediaExtractor/MediaCodec. No interprocess media
+ * payload is involved. Interactive FFmpeg integration uses a separate,
+ * on-demand NDK worker and cannot affect this app-local test.
  */
 final class HardwareCodecFileSelfTest {
 
@@ -44,7 +44,7 @@ final class HardwareCodecFileSelfTest {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
         long started = SystemClock.elapsedRealtime();
         writeStatus(deContext, "RUNNING token=" + token + " stage=validate_input");
-        HardwareCodecProbe.recordBrokerEvent(deContext,
+        HardwareCodecProbe.recordRuntimeEvent(deContext,
                 "FILE_SELF_TEST_STARTED token=" + token + " source=" + TEST_URL
                         + " transport=file");
         try {
@@ -68,7 +68,7 @@ final class HardwareCodecFileSelfTest {
             report.put("input_sha256", sha256);
             report.put("downloaded_by", "debian_wget");
             report.put("transport", "device_protected_file");
-            report.put("media_socket_bytes", 0);
+            report.put("interprocess_media_bytes", 0);
             report.put("mime", decode.mime);
             report.put("width", decode.width);
             report.put("height", decode.height);
@@ -90,19 +90,19 @@ final class HardwareCodecFileSelfTest {
                     + " samples=" + decode.queuedSamples
                     + " frames=" + decode.decodedFrames
                     + " eos=" + decode.sawEos
-                    + " transport=device_protected_file socket_media_bytes=0"
+                    + " transport=device_protected_file interprocess_media_bytes=0"
                     + " elapsed_ms=" + (SystemClock.elapsedRealtime() - started);
             writeStatus(deContext, summary);
-            HardwareCodecProbe.recordBrokerEvent(deContext,
+            HardwareCodecProbe.recordRuntimeEvent(deContext,
                     "FILE_SELF_TEST_" + summary);
             return new Result(true, summary);
         } catch (Exception e) {
             String summary = "FAILED token=" + token + " error="
                     + clean(e.getClass().getSimpleName() + ": " + e.getMessage())
-                    + " transport=device_protected_file socket_media_bytes=0"
+                    + " transport=device_protected_file interprocess_media_bytes=0"
                     + " elapsed_ms=" + (SystemClock.elapsedRealtime() - started);
             writeStatus(deContext, summary);
-            HardwareCodecProbe.recordBrokerEvent(deContext,
+            HardwareCodecProbe.recordRuntimeEvent(deContext,
                     "FILE_SELF_TEST_" + summary);
             return new Result(false, summary);
         }
@@ -269,7 +269,7 @@ final class HardwareCodecFileSelfTest {
         try {
             writeAtomic(new File(directory(context), STATUS_FILE), value + "\n");
         } catch (IOException e) {
-            HardwareCodecProbe.recordBrokerEvent(context,
+            HardwareCodecProbe.recordRuntimeEvent(context,
                     "FILE_SELF_TEST_STATUS_WRITE_FAILED error=" + clean(e.getMessage()));
         }
     }

@@ -42,7 +42,6 @@ final class HardwareCodecProbe {
     private static final String STATUS_FILE = "probe.status";
     private static final String LOG_FILE = "probe.log";
     private static final String CAPABILITIES_FILE = "capabilities.json";
-    private static final String BROKER_STATUS_FILE = "broker.status";
     private static final int MAX_LOG_BYTES = 128 * 1024;
     private static final int ROTATE_LOG_BYTES = 512 * 1024;
     private static final Object FILE_LOCK = new Object();
@@ -169,11 +168,6 @@ final class HardwareCodecProbe {
                 CAPABILITIES_FILE), 512 * 1024);
     }
 
-    static String readBrokerStatus(Context context) throws IOException {
-        return readSmallFile(file(BfuPreferences.deviceProtectedContext(context),
-                BROKER_STATUS_FILE), 16 * 1024);
-    }
-
     static String readLogTail(Context context) throws IOException {
         File log = file(BfuPreferences.deviceProtectedContext(context), LOG_FILE);
         if (!log.isFile()) return "";
@@ -227,17 +221,8 @@ final class HardwareCodecProbe {
         return selections;
     }
 
-    static void recordBrokerEvent(Context context, String value) {
-        append(BfuPreferences.deviceProtectedContext(context), "BROKER " + value);
-    }
-
-    static void writeBrokerStatus(Context context, String value) {
-        try {
-            writeAtomic(file(BfuPreferences.deviceProtectedContext(context),
-                    BROKER_STATUS_FILE), clean(value) + "\n");
-        } catch (IOException | RuntimeException e) {
-            Log.e(TAG, "Could not persist codec broker status", e);
-        }
+    static void recordRuntimeEvent(Context context, String value) {
+        append(BfuPreferences.deviceProtectedContext(context), "RUNTIME " + value);
     }
 
     private static JSONObject describeType(MediaCodecInfo info, String type) {
@@ -438,10 +423,10 @@ final class HardwareCodecProbe {
                     output.write(line.getBytes(StandardCharsets.UTF_8));
                     output.getFD().sync();
                 }
-                // The broker runs in a separate process, so FILE_LOCK does not
-                // serialise it against the app. Re-applying the mode on every
-                // append raced with the other process and could leave the file
-                // with no permissions at all, silencing this log.
+                // Diagnostics may run in the isolated :codec process, so
+                // FILE_LOCK does not serialise it against the main app.
+                // Re-applying the mode on every append raced with the other
+                // process and could leave the file inaccessible.
                 if (created || !log.canRead() || !log.canWrite()) setOwnerOnly(log);
             }
             Log.i(TAG, clean(value));

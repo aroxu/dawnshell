@@ -1,19 +1,25 @@
 #define _GNU_SOURCE
 
+#include "dawnshell_codec_transport.h"
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <fcntl.h>
-#include <stddef.h>
+#include <poll.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
+#include <sys/eventfd.h>
+#include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
-#include <sys/un.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -55,14 +61,8 @@
 #define DSCB_COLOR_YUV420_SEMIPLANAR 21u
 #define DSCB_COLOR_YUV420_FLEXIBLE 0x7f420888u
 #define DSCB_BUFFER_FLAG_CODEC_CONFIG 2u
-#define DSCB_SOCKET_NAME "dawnshell.codec.v1"
-/* A single AF_UNIX datagram-sized write larger than the kernel's socket
-   buffer fails with EMSGSIZE, and Android's LocalSocket buffer is far below
-   one video frame. Anything above this size therefore travels through a
-   memfd the app writes directly, which has no such limit. */
-#define DSCB_SHARED_MEMORY_THRESHOLD (4u * 1024u)
-/* Bounded socket write size that stays below conservative kernel buffers. */
-#define DSCB_SOCKET_CHUNK (8u * 1024u)
+#define DSCB_WORKER_START_TIMEOUT_MS 10000
+#define DSCB_WORKER_RPC_TIMEOUT_MS 35000
 
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC 0x0001u
@@ -79,6 +79,25 @@ struct response {
 
 static uint32_t next_request_id = 1;
 static int shared_memory_supported = 0;
+
+struct worker_transport {
+    void *mapping;
+    struct dscw_transport_control *control;
+    int memfd;
+    int request_eventfd;
+    int response_eventfd;
+    pid_t child;
+    uint32_t sequence;
+    bool started;
+};
+
+static struct worker_transport worker = {
+        .mapping = MAP_FAILED,
+        .memfd = -1,
+        .request_eventfd = -1,
+        .response_eventfd = -1,
+        .child = -1,
+};
 
 static void put_u16(uint8_t *destination, uint16_t value) {
     value = htons(value);
@@ -109,62 +128,6 @@ static uint32_t get_u32(const uint8_t *source) {
 
 static uint64_t get_u64(const uint8_t *source) {
     return ((uint64_t)get_u32(source) << 32) | get_u32(source + 4);
-}
-
-static int write_all(int descriptor, const void *buffer, size_t length) {
-    const uint8_t *bytes = buffer;
-    while (length > 0) {
-        /* A write larger than the kernel socket buffer fails outright with
-           EMSGSIZE instead of writing a partial record, so each write stays
-           within a bounded chunk. */
-        size_t attempt = length > DSCB_SOCKET_CHUNK ? DSCB_SOCKET_CHUNK : length;
-        ssize_t count = write(descriptor, bytes, attempt);
-        if (count < 0 && errno == EINTR) continue;
-        if (count <= 0) return -1;
-        bytes += (size_t)count;
-        length -= (size_t)count;
-    }
-    return 0;
-}
-
-static int read_all(int descriptor, void *buffer, size_t length) {
-    uint8_t *bytes = buffer;
-    while (length > 0) {
-        ssize_t count = read(descriptor, bytes, length);
-        if (count < 0 && errno == EINTR) continue;
-        if (count <= 0) return -1;
-        bytes += (size_t)count;
-        length -= (size_t)count;
-    }
-    return 0;
-}
-
-static int pread_all(int descriptor, void *buffer, size_t length) {
-    uint8_t *bytes = buffer;
-    off_t offset = 0;
-    while (length > 0) {
-        ssize_t count = pread(descriptor, bytes, length, offset);
-        if (count < 0 && errno == EINTR) continue;
-        if (count <= 0) return -1;
-        bytes += (size_t)count;
-        length -= (size_t)count;
-        offset += count;
-    }
-    return 0;
-}
-
-static int pwrite_all(int descriptor, const void *buffer, size_t length) {
-    const uint8_t *bytes = buffer;
-    off_t offset = 0;
-    while (length > 0) {
-        ssize_t count = pwrite(descriptor, bytes, length, offset);
-        if (count < 0 && errno == EINTR) continue;
-        if (count <= 0) return -1;
-        bytes += (size_t)count;
-        length -= (size_t)count;
-        offset += count;
-    }
-    return 0;
 }
 
 static int create_shared_memory(const char *name, size_t length) {
@@ -199,47 +162,18 @@ static int read_record_header(uint8_t header[16]) {
     return 1;
 }
 
-static int connect_broker(void) {
-    int descriptor = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (descriptor < 0) return -1;
-    struct sockaddr_un address;
-    memset(&address, 0, sizeof(address));
-    address.sun_family = AF_UNIX;
-    const size_t name_length = strlen(DSCB_SOCKET_NAME);
-    if (name_length + 1 >= sizeof(address.sun_path)) {
-        close(descriptor);
-        errno = ENAMETOOLONG;
-        return -1;
-    }
-    address.sun_path[0] = '\0';
-    memcpy(address.sun_path + 1, DSCB_SOCKET_NAME, name_length);
-    const socklen_t length = (socklen_t)(offsetof(struct sockaddr_un, sun_path)
-            + 1 + name_length);
-    if (connect(descriptor, (struct sockaddr *)&address, length) != 0) {
-        int saved = errno;
-        close(descriptor);
-        errno = saved;
-        return -1;
-    }
-    // A default AF_UNIX buffer is too small for one maximum media record, so
-    // an unsplit send fails with EMSGSIZE. Best-effort enlarge both directions.
-    const int buffer_bytes = (int)(DSCB_MAX_PAYLOAD + 64u * 1024u);
-    (void)setsockopt(descriptor, SOL_SOCKET, SO_SNDBUF,
-                     &buffer_bytes, sizeof(buffer_bytes));
-    (void)setsockopt(descriptor, SOL_SOCKET, SO_RCVBUF,
-                     &buffer_bytes, sizeof(buffer_bytes));
-    return descriptor;
-}
-
 static void free_response(struct response *response) {
     free(response->payload);
     memset(response, 0, sizeof(*response));
 }
 
-static int read_response(int descriptor, uint16_t type, uint32_t request_id,
-                         struct response *response) {
-    uint8_t header[DSCB_HEADER_BYTES];
-    if (read_all(descriptor, header, sizeof(header)) != 0) return -1;
+static int parse_response(const uint8_t *header, uint32_t response_bytes,
+                          uint16_t type, uint32_t request_id,
+                          struct response *response) {
+    if (response_bytes < DSCB_HEADER_BYTES) {
+        errno = EPROTO;
+        return -1;
+    }
     if (get_u32(header) != DSCB_MAGIC || get_u16(header + 4) != DSCB_VERSION
             || get_u16(header + 6) != (uint16_t)(type | DSCB_RESPONSE_BIT)
             || get_u32(header + 24) != request_id || get_u32(header + 8) != 0) {
@@ -252,18 +186,16 @@ static int read_response(int descriptor, uint16_t type, uint32_t request_id,
     response->payload_length = get_u32(header + 20);
     response->request_id = get_u32(header + 24);
     response->status = (int32_t)get_u32(header + 28);
-    if (response->payload_length > DSCB_MAX_PAYLOAD) {
+    if (response->payload_length > DSCB_MAX_PAYLOAD
+            || response_bytes != DSCB_HEADER_BYTES + response->payload_length) {
         errno = EOVERFLOW;
         return -1;
     }
     if (response->payload_length > 0) {
         response->payload = malloc((size_t)response->payload_length + 1);
         if (response->payload == NULL) return -1;
-        if (read_all(descriptor, response->payload,
-                     response->payload_length) != 0) {
-            free_response(response);
-            return -1;
-        }
+        memcpy(response->payload, header + DSCB_HEADER_BYTES,
+               response->payload_length);
         response->payload[response->payload_length] = '\0';
     }
     return 0;
@@ -281,64 +213,234 @@ static void make_request_header(uint8_t header[DSCB_HEADER_BYTES], uint16_t type
     put_u32(header + 24, request_id);
 }
 
+static int wait_eventfd(int descriptor, int timeout_ms) {
+    struct pollfd wait = {.fd = descriptor, .events = POLLIN};
+    int result;
+    do {
+        result = poll(&wait, 1, timeout_ms);
+    } while (result < 0 && errno == EINTR);
+    if (result == 0) {
+        errno = ETIMEDOUT;
+        return -1;
+    }
+    if (result < 0 || (wait.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+        if (result >= 0) errno = EPIPE;
+        return -1;
+    }
+    uint64_t value;
+    ssize_t count;
+    do {
+        count = read(descriptor, &value, sizeof(value));
+    } while (count < 0 && errno == EINTR);
+    return count == (ssize_t)sizeof(value) ? 0 : -1;
+}
+
+static int signal_eventfd(int descriptor) {
+    const uint64_t value = 1;
+    ssize_t count;
+    do {
+        count = write(descriptor, &value, sizeof(value));
+    } while (count < 0 && errno == EINTR);
+    return count == (ssize_t)sizeof(value) ? 0 : -1;
+}
+
+static bool reap_worker_for(unsigned int timeout_ms) {
+    if (worker.child <= 0) return true;
+    unsigned int waited_ms = 0;
+    for (;;) {
+        int status;
+        pid_t result = waitpid(worker.child, &status, WNOHANG);
+        if (result == worker.child || (result < 0 && errno == ECHILD)) {
+            worker.child = -1;
+            return true;
+        }
+        if (result < 0 && errno != EINTR) return false;
+        if (waited_ms >= timeout_ms) return false;
+        usleep(10000);
+        waited_ms += 10;
+    }
+}
+
+static const char *worker_path(char path[4096]) {
+    const char *configured = getenv("DAWNSHELL_CODEC_WORKER");
+    if (configured != NULL && configured[0] != '\0') return configured;
+    const char *installed = "/usr/local/libexec/dawnshell-codec-worker";
+    if (access(installed, X_OK) == 0) return installed;
+    ssize_t length = readlink("/proc/self/exe", path, 4095);
+    if (length <= 0 || length >= 4095) return installed;
+    path[length] = '\0';
+    char *slash = strrchr(path, '/');
+    if (slash == NULL) return installed;
+    strcpy(slash + 1, "dawnshell-codec-worker");
+    return path;
+}
+
+static void stop_worker(void) {
+    if (!worker.started) return;
+    if (worker.control != NULL) {
+        __atomic_fetch_or(&worker.control->flags, DSCW_FLAG_SHUTDOWN,
+                          __ATOMIC_RELEASE);
+        (void)signal_eventfd(worker.request_eventfd);
+    }
+    if (worker.child > 0) {
+        if (!reap_worker_for(500)) {
+            (void)kill(worker.child, SIGTERM);
+        }
+        if (!reap_worker_for(1000) && worker.child > 0) {
+            (void)kill(worker.child, SIGKILL);
+            int status;
+            while (waitpid(worker.child, &status, 0) < 0 && errno == EINTR) {}
+            worker.child = -1;
+        }
+    }
+    if (worker.mapping != MAP_FAILED) {
+        (void)munmap(worker.mapping, DSCW_MAPPING_BYTES);
+    }
+    if (worker.memfd >= 0) close(worker.memfd);
+    if (worker.request_eventfd >= 0) close(worker.request_eventfd);
+    if (worker.response_eventfd >= 0) close(worker.response_eventfd);
+    worker.mapping = MAP_FAILED;
+    worker.control = NULL;
+    worker.memfd = -1;
+    worker.request_eventfd = -1;
+    worker.response_eventfd = -1;
+    worker.child = -1;
+    worker.started = false;
+}
+
+static int child_install_descriptor(int source, int target) {
+    int temporary = fcntl(source, F_DUPFD_CLOEXEC, 64);
+    if (temporary < 0) return -1;
+    int result = dup2(temporary, target);
+    int saved = errno;
+    close(temporary);
+    if (result < 0) {
+        errno = saved;
+        return -1;
+    }
+    int flags = fcntl(target, F_GETFD);
+    if (flags < 0 || fcntl(target, F_SETFD, flags & ~FD_CLOEXEC) != 0) return -1;
+    return 0;
+}
+
+static int start_worker(void) {
+    if (worker.started) return dup(worker.memfd);
+    worker.memfd = create_shared_memory("dawnshell-codec-transport",
+                                        DSCW_MAPPING_BYTES);
+    worker.request_eventfd = eventfd(0, EFD_CLOEXEC);
+    worker.response_eventfd = eventfd(0, EFD_CLOEXEC);
+    if (worker.memfd < 0 || worker.request_eventfd < 0
+            || worker.response_eventfd < 0) goto failure;
+    worker.mapping = mmap(NULL, DSCW_MAPPING_BYTES, PROT_READ | PROT_WRITE,
+                          MAP_SHARED, worker.memfd, 0);
+    if (worker.mapping == MAP_FAILED) goto failure;
+    memset(worker.mapping, 0, DSCW_MAPPING_BYTES);
+    worker.control = worker.mapping;
+    worker.control->magic = DSCW_TRANSPORT_MAGIC;
+    worker.control->version = DSCW_TRANSPORT_VERSION;
+    worker.control->mapping_bytes = DSCW_MAPPING_BYTES;
+    worker.control->slot_bytes = DSCW_SLOT_BYTES;
+    worker.control->parent_pid = (uint32_t)getpid();
+    worker.sequence = 0;
+
+    char discovered_path[4096];
+    const char *path = worker_path(discovered_path);
+    worker.child = fork();
+    if (worker.child < 0) goto failure;
+    if (worker.child == 0) {
+        if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || getppid() == 1
+                || child_install_descriptor(worker.memfd,
+                        DSCW_WORKER_MEMFD) != 0
+                || child_install_descriptor(worker.request_eventfd,
+                        DSCW_WORKER_REQUEST_EVENTFD) != 0
+                || child_install_descriptor(worker.response_eventfd,
+                        DSCW_WORKER_RESPONSE_EVENTFD) != 0) {
+            _exit(126);
+        }
+        execl(path, path, "--inherited-transport", (char *)NULL);
+        _exit(127);
+    }
+    bool ready = false;
+    for (int waited_ms = 0; waited_ms < DSCB_WORKER_START_TIMEOUT_MS;
+            waited_ms += 100) {
+        if (wait_eventfd(worker.response_eventfd, 100) == 0) {
+            ready = true;
+            break;
+        }
+        if (errno != ETIMEDOUT) goto failure;
+        int status;
+        pid_t exited = waitpid(worker.child, &status, WNOHANG);
+        if (exited == worker.child) {
+            if (WIFEXITED(status)) {
+                fprintf(stderr,
+                        "dawnshell-codec: worker exited during startup status=%d\n",
+                        WEXITSTATUS(status));
+            } else if (WIFSIGNALED(status)) {
+                fprintf(stderr,
+                        "dawnshell-codec: worker died during startup signal=%d\n",
+                        WTERMSIG(status));
+            }
+            worker.child = -1;
+            errno = ECHILD;
+            goto failure;
+        }
+        if (exited < 0 && errno != EINTR) goto failure;
+    }
+    if (!ready) {
+        errno = ETIMEDOUT;
+        goto failure;
+    }
+    uint32_t flags = __atomic_load_n(&worker.control->flags, __ATOMIC_ACQUIRE);
+    if ((flags & DSCW_FLAG_WORKER_READY) == 0
+            || (flags & DSCW_FLAG_WORKER_FAILED) != 0) {
+        errno = EPROTO;
+        goto failure;
+    }
+    worker.started = true;
+    if (atexit(stop_worker) != 0) goto failure;
+    return dup(worker.memfd);
+
+failure: {
+        int saved = errno;
+        worker.started = true;
+        stop_worker();
+        errno = saved;
+        return -1;
+    }
+}
+
 static int rpc(int descriptor, uint16_t type, uint64_t session_id,
                const void *payload, uint32_t payload_length,
                struct response *response) {
-    uint8_t header[DSCB_HEADER_BYTES];
-    const uint32_t request_id = next_request_id++;
-    make_request_header(header, type, session_id, payload_length, request_id);
-    if (write_all(descriptor, header, sizeof(header)) != 0
-            || (payload_length > 0
-            && write_all(descriptor, payload, payload_length) != 0)) return -1;
-    return read_response(descriptor, type, request_id, response);
-}
-
-static int rpc_with_fd(int descriptor, uint16_t type, uint64_t session_id,
-                       const void *payload, uint32_t payload_length,
-                       int shared_descriptor, struct response *response) {
-    /* Only the header travels with the descriptor. Attaching a large payload
-       to the same sendmsg() can exceed the socket buffer and fail with
-       EMSGSIZE, and the ancillary descriptor would be lost with it. Any
-       remaining bytes are streamed afterwards in bounded writes. */
-    uint8_t *request = malloc(DSCB_HEADER_BYTES);
-    if (request == NULL) return -1;
-    const uint32_t request_id = next_request_id++;
-    make_request_header(request, type, session_id, payload_length, request_id);
-    struct iovec vector = {.iov_base = request, .iov_len = DSCB_HEADER_BYTES};
-    char control[CMSG_SPACE(sizeof(int))];
-    memset(control, 0, sizeof(control));
-    struct msghdr message;
-    memset(&message, 0, sizeof(message));
-    message.msg_iov = &vector;
-    message.msg_iovlen = 1;
-    message.msg_control = control;
-    message.msg_controllen = sizeof(control);
-    struct cmsghdr *control_header = CMSG_FIRSTHDR(&message);
-    control_header->cmsg_level = SOL_SOCKET;
-    control_header->cmsg_type = SCM_RIGHTS;
-    control_header->cmsg_len = CMSG_LEN(sizeof(int));
-    memcpy(CMSG_DATA(control_header), &shared_descriptor, sizeof(int));
-    ssize_t sent;
-    do {
-        sent = sendmsg(descriptor, &message, MSG_NOSIGNAL);
-    } while (sent < 0 && errno == EINTR);
-    if (sent <= 0 || (size_t)sent > DSCB_HEADER_BYTES) {
-        free(request);
+    (void)descriptor;
+    if (!worker.started || payload_length > DSCB_MAX_PAYLOAD) {
+        errno = payload_length > DSCB_MAX_PAYLOAD ? EOVERFLOW : EPIPE;
         return -1;
     }
-    int result = 0;
-    if ((size_t)sent < DSCB_HEADER_BYTES
-            && write_all(descriptor, request + sent,
-                         DSCB_HEADER_BYTES - (size_t)sent) != 0) {
-        result = -1;
-    } else if (payload_length > 0
-            && write_all(descriptor, payload, payload_length) != 0) {
-        result = -1;
-    } else {
-        result = read_response(descriptor, type, request_id, response);
+    uint8_t *request = dscw_request_slot(worker.mapping);
+    const uint32_t request_id = next_request_id++;
+    make_request_header(request, type, session_id, payload_length, request_id);
+    if (payload_length > 0) memcpy(request + DSCB_HEADER_BYTES, payload,
+                                   payload_length);
+    uint32_t sequence = ++worker.sequence;
+    if (sequence == 0) sequence = ++worker.sequence;
+    __atomic_store_n(&worker.control->request_bytes,
+            DSCB_HEADER_BYTES + payload_length, __ATOMIC_RELEASE);
+    __atomic_store_n(&worker.control->request_sequence, sequence,
+                     __ATOMIC_RELEASE);
+    if (signal_eventfd(worker.request_eventfd) != 0
+            || wait_eventfd(worker.response_eventfd,
+                            DSCB_WORKER_RPC_TIMEOUT_MS) != 0) return -1;
+    uint32_t response_sequence = __atomic_load_n(
+            &worker.control->response_sequence, __ATOMIC_ACQUIRE);
+    uint32_t response_bytes = __atomic_load_n(&worker.control->response_bytes,
+                                              __ATOMIC_ACQUIRE);
+    if (response_sequence != sequence || response_bytes > DSCW_SLOT_BYTES) {
+        errno = EPROTO;
+        return -1;
     }
-    free(request);
-    return result;
+    return parse_response(dscw_response_slot(worker.mapping), response_bytes,
+                          type, request_id, response);
 }
 
 static int report_error(const char *operation, const struct response *response) {
@@ -358,11 +460,9 @@ static int hello(int descriptor) {
     int result = 0;
     if (response.status != DSCB_OK) {
         result = report_error("hello", &response);
-    } else if ((getenv("DAWNSHELL_CODEC_DISABLE_SHM") == NULL
-            || strcmp(getenv("DAWNSHELL_CODEC_DISABLE_SHM"), "1") != 0)
-            && response.payload != NULL
+    } else if (response.payload != NULL
             && strstr((const char *)response.payload,
-                      "memfd_scm_rights_with_socket_fallback") != NULL) {
+                      "inherited_memfd_eventfd") != NULL) {
         shared_memory_supported = 1;
     }
     free_response(&response);
@@ -558,112 +658,6 @@ static int expect_status(int descriptor, uint16_t type, uint64_t session_id,
     return result;
 }
 
-static int expect_header_rejection(size_t offset, uint32_t value,
-                                   int32_t expected, const char *name) {
-    int descriptor = connect_broker();
-    if (descriptor < 0) {
-        fprintf(stderr, "dawnshell-codec: negative-test %s connect failed: %s\n",
-                name, strerror(errno));
-        return 1;
-    }
-    uint8_t header[DSCB_HEADER_BYTES];
-    uint32_t request_id = next_request_id++;
-    make_request_header(header, DSCB_HELLO, 0, 0, request_id);
-    if (offset == 4) {
-        put_u16(header + offset, (uint16_t)value);
-    } else {
-        put_u32(header + offset, value);
-    }
-    struct response response;
-    int result = 0;
-    if (write_all(descriptor, header, sizeof(header)) != 0
-            || read_response(descriptor, DSCB_HELLO,
-                             offset == 24 ? value : request_id,
-                             &response) != 0) {
-        fprintf(stderr,
-                "dawnshell-codec: negative-test %s framing transport failed: %s\n",
-                name, strerror(errno));
-        result = 1;
-    } else {
-        if (response.status != expected) {
-            fprintf(stderr,
-                    "dawnshell-codec: negative-test %s status=%" PRId32
-                    " expected=%" PRId32 "\n",
-                    name, response.status, expected);
-            result = 1;
-        }
-        free_response(&response);
-    }
-    close(descriptor);
-    usleep(20000);
-    return result;
-}
-
-static int expect_truncated_payload_rejection(void) {
-    int descriptor = connect_broker();
-    if (descriptor < 0) return 1;
-    uint8_t header[DSCB_HEADER_BYTES];
-    make_request_header(header, DSCB_HEALTH, 0, 1, next_request_id++);
-    int result = 0;
-    if (write_all(descriptor, header, sizeof(header)) != 0
-            || shutdown(descriptor, SHUT_WR) != 0) {
-        result = 1;
-    } else {
-        uint8_t byte;
-        ssize_t count;
-        do {
-            count = read(descriptor, &byte, 1);
-        } while (count < 0 && errno == EINTR);
-        if (count != 0) result = 1;
-    }
-    close(descriptor);
-    usleep(20000);
-    if (result != 0) {
-        fprintf(stderr,
-                "dawnshell-codec: negative-test truncated-protocol-payload was not closed\n");
-    }
-    return result;
-}
-
-static int run_peer_limit_test(void) {
-    int peers[3] = {-1, -1, -1};
-    int overflow = -1;
-    int result = 0;
-    for (size_t index = 0; index < 3; index++) {
-        peers[index] = connect_broker();
-        if (peers[index] < 0 || hello(peers[index]) != 0) {
-            fprintf(stderr,
-                    "dawnshell-codec: peer-limit-test could not reserve peer %zu\n",
-                    index + 2);
-            result = 1;
-            goto cleanup;
-        }
-    }
-    overflow = connect_broker();
-    if (overflow < 0) {
-        fprintf(stderr,
-                "dawnshell-codec: peer-limit-test overflow connect failed too early\n");
-        result = 1;
-        goto cleanup;
-    }
-    if (hello(overflow) == 0) {
-        fprintf(stderr,
-                "dawnshell-codec: peer-limit-test fifth peer was not rejected\n");
-        result = 1;
-        goto cleanup;
-    }
-    fprintf(stderr,
-            "dawnshell-codec: peer-limit-test passed max_peers=4 overflow=rejected\n");
-
-cleanup:
-    if (overflow >= 0) close(overflow);
-    for (size_t index = 0; index < 3; index++) {
-        if (peers[index] >= 0) close(peers[index]);
-    }
-    usleep(100000);
-    return result;
-}
-
 static int run_negative_test(int descriptor) {
     const uint8_t unexpected_payload = 0;
     if (expect_status(descriptor, DSCB_HEALTH, 0, &unexpected_payload, 1,
@@ -675,18 +669,7 @@ static int run_negative_test(int descriptor) {
                              NULL, 0, DSCB_ERROR_SESSION,
                              "unknown-statistics-session") != 0
             || expect_status(descriptor, 0x1234u, 0, NULL, 0,
-                             DSCB_ERROR_UNSUPPORTED, "unknown-message-type") != 0
-            || expect_header_rejection(0, DSCB_MAGIC ^ 1u,
-                                       DSCB_ERROR_PROTOCOL, "invalid-magic") != 0
-            || expect_header_rejection(4, DSCB_VERSION + 1u,
-                                       DSCB_ERROR_VERSION, "invalid-version") != 0
-            || expect_header_rejection(8, 1u,
-                                       DSCB_ERROR_PROTOCOL, "invalid-header-flags") != 0
-            || expect_header_rejection(24, 0u,
-                                       DSCB_ERROR_PROTOCOL, "zero-request-id") != 0
-            || expect_header_rejection(20, DSCB_MAX_PAYLOAD + 1u,
-                                       DSCB_ERROR_LIMIT, "oversized-payload") != 0
-            || expect_truncated_payload_rejection() != 0) {
+                             DSCB_ERROR_UNSUPPORTED, "unknown-message-type") != 0) {
         return 1;
     }
     uint8_t invalid_create[28];
@@ -790,11 +773,10 @@ static int run_negative_test(int descriptor) {
         return 1;
     }
     close_session(descriptor, encoder_session_id);
-    if (run_peer_limit_test() != 0) return 1;
     if (print_health(descriptor) != 0) return 1;
     fprintf(stderr,
-            "dawnshell-codec: negative-test passed rejected=16"
-            " session=responsive broker=responsive\n");
+            "dawnshell-codec: negative-test passed rejected=10"
+            " session=responsive worker=responsive transport=inherited_memfd_eventfd\n");
     return 0;
 }
 
@@ -806,72 +788,12 @@ static void close_session(int descriptor, uint64_t session_id) {
 static int queue_input(int descriptor, uint64_t session_id,
                        const uint8_t header[16], const uint8_t *data,
                        uint32_t length) {
-    int shared_descriptor = -1;
-    // A frame larger than the kernel's socket buffer cannot be sent inline at
-    // all: the write fails with EMSGSIZE regardless of chunking, because the
-    // receiver must hold one whole record. Shared memory is therefore
-    // mandatory above the threshold rather than an optimization.
-    int shared_memory_required = length >= DSCB_SHARED_MEMORY_THRESHOLD;
-    if (shared_memory_supported && shared_memory_required) {
-        shared_descriptor = create_shared_memory("dawnshell-codec-input", length);
-        if (shared_descriptor >= 0
-                && pwrite_all(shared_descriptor, data, length) != 0) {
-            close(shared_descriptor);
-            shared_descriptor = -1;
-        }
-        if (shared_descriptor < 0) {
-            fprintf(stderr, "dawnshell-codec: could not stage a %" PRIu32
-                    "-byte frame in shared memory: %s\n", length,
-                    strerror(errno));
-            return -1;
-        }
+    if (!shared_memory_supported) {
+        fprintf(stderr, "dawnshell-codec: inherited shared transport is unavailable\n");
+        return -1;
     }
-    if (shared_descriptor >= 0) {
-        int result;
-        for (;;) {
-            struct response response;
-            if (rpc_with_fd(descriptor, DSCB_INPUT_SHARED_MEMORY, session_id,
-                    header, 16, shared_descriptor, &response) != 0) {
-                result = -1;
-                break;
-            }
-            if (response.status == DSCB_AGAIN) {
-                free_response(&response);
-                usleep(2000);
-                /* The broker closes the received descriptor after every
-                   request, so a retry must carry a fresh one. */
-                close(shared_descriptor);
-                shared_descriptor = create_shared_memory(
-                        "dawnshell-codec-input", length);
-                if (shared_descriptor < 0
-                        || pwrite_all(shared_descriptor, data, length) != 0) {
-                    if (shared_descriptor >= 0) close(shared_descriptor);
-                    shared_descriptor = -1;
-                    result = 2;
-                    break;
-                }
-                continue;
-            }
-            if (response.status == DSCB_ERROR_UNSUPPORTED) {
-                shared_memory_supported = 0;
-                result = 2;
-            } else {
-                result = response.status == DSCB_OK
-                        ? 0 : report_error("shared input", &response);
-            }
-            free_response(&response);
-            break;
-        }
-        if (shared_descriptor >= 0) close(shared_descriptor);
-        if (result != 2) return result;
-    }
-    // Falling through means shared memory is unavailable or the broker
-    // rejected it. An inline send of a full frame would fail as "Message too
-    // long", so report the real cause instead.
-    if (shared_memory_required) {
-        fprintf(stderr, "dawnshell-codec: shared memory is unavailable for a %"
-                PRIu32 "-byte frame; the socket cannot carry it inline\n",
-                length);
+    if (length > DSCB_MAX_PAYLOAD - 16u) {
+        errno = EOVERFLOW;
         return -1;
     }
     uint8_t *payload = malloc((size_t)length + 16);
@@ -897,59 +819,6 @@ static int queue_input(int descriptor, uint64_t session_id,
     }
     free(payload);
     return result;
-}
-
-static int output_shared_memory(int descriptor, uint64_t session_id,
-                                uint32_t timeout_ms, struct response *response) {
-    if (!shared_memory_supported) return 1;
-    int shared_descriptor = create_shared_memory("dawnshell-codec-output",
-                                                  DSCB_MAX_PAYLOAD);
-    if (shared_descriptor < 0) return 1;
-    uint8_t request[8];
-    put_u32(request, timeout_ms);
-    put_u32(request + 4, DSCB_MAX_PAYLOAD);
-    int result = rpc_with_fd(descriptor, DSCB_OUTPUT_SHARED_MEMORY, session_id,
-                             request, sizeof(request), shared_descriptor, response);
-    if (result != 0) {
-        close(shared_descriptor);
-        return -1;
-    }
-    if (response->status == DSCB_ERROR_UNSUPPORTED) {
-        shared_memory_supported = 0;
-        free_response(response);
-        close(shared_descriptor);
-        return 1;
-    }
-    if (response->status == DSCB_OK) {
-        if (response->payload_length != 4) {
-            free_response(response);
-            close(shared_descriptor);
-            errno = EPROTO;
-            return -1;
-        }
-        uint32_t actual_length = get_u32(response->payload);
-        free(response->payload);
-        response->payload = NULL;
-        response->payload_length = actual_length;
-        if (actual_length > DSCB_MAX_PAYLOAD) {
-            close(shared_descriptor);
-            errno = EOVERFLOW;
-            return -1;
-        }
-        if (actual_length > 0) {
-            response->payload = malloc((size_t)actual_length + 1);
-            if (response->payload == NULL
-                    || pread_all(shared_descriptor, response->payload,
-                                 actual_length) != 0) {
-                free_response(response);
-                close(shared_descriptor);
-                return -1;
-            }
-            response->payload[actual_length] = '\0';
-        }
-    }
-    close(shared_descriptor);
-    return 0;
 }
 
 static int queue_eos(int descriptor, uint64_t session_id, uint64_t pts) {
@@ -983,10 +852,7 @@ static int drain_output(int descriptor, uint64_t session_id, uint32_t timeout_ms
     uint8_t request[4];
     put_u32(request, timeout_ms);
     struct response response;
-    int shared_result = output_shared_memory(descriptor, session_id, timeout_ms,
-                                             &response);
-    if (shared_result < 0) return -1;
-    if (shared_result > 0 && rpc(descriptor, DSCB_OUTPUT, session_id, request,
+    if (rpc(descriptor, DSCB_OUTPUT, session_id, request,
             sizeof(request), &response) != 0) return -1;
     int result = 0;
     if (response.status == DSCB_AGAIN) {
@@ -1057,10 +923,7 @@ static int drain_decode_test(int descriptor, uint64_t session_id,
     uint8_t request[4];
     put_u32(request, timeout_ms);
     struct response response;
-    int shared_result = output_shared_memory(descriptor, session_id, timeout_ms,
-                                             &response);
-    if (shared_result < 0) return -1;
-    if (shared_result > 0 && rpc(descriptor, DSCB_OUTPUT, session_id, request,
+    if (rpc(descriptor, DSCB_OUTPUT, session_id, request,
             sizeof(request), &response) != 0) return -1;
     int result = 0;
     if (response.status == DSCB_AGAIN) {
@@ -1590,14 +1453,16 @@ static int run_idle_timeout_test(int descriptor, uint32_t duration_ms) {
         }
     }
     struct response response;
-    if (rpc(descriptor, DSCB_HEALTH, 0, NULL, 0, &response) == 0) {
+    if (rpc(descriptor, DSCB_HEALTH, 0, NULL, 0, &response) != 0
+            || response.status != DSCB_OK) {
         free_response(&response);
         fprintf(stderr,
-                "dawnshell-codec: idle-test peer remained connected unexpectedly\n");
+                "dawnshell-codec: idle-test worker became unavailable\n");
         return 1;
     }
+    free_response(&response);
     fprintf(stderr,
-            "dawnshell-codec: idle-test passed broker closed idle peer\n");
+            "dawnshell-codec: idle-test passed private worker remained responsive\n");
     return 0;
 }
 
@@ -1933,10 +1798,10 @@ int main(int argc, char **argv) {
         }
         return inspect_vector(argv[2], frames);
     }
-    int descriptor = connect_broker();
+    int descriptor = start_worker();
     if (descriptor < 0) {
-        fprintf(stderr, "dawnshell-codec: connect @%s failed: %s\n",
-                DSCB_SOCKET_NAME, strerror(errno));
+        fprintf(stderr, "dawnshell-codec: start private NDK worker failed: %s\n",
+                strerror(errno));
         return 3;
     }
     if (hello(descriptor) != 0) {

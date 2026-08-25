@@ -11,7 +11,6 @@ import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
-import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,9 +18,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Direct-Boot-aware, crash-isolated Android process for MediaCodec access.
  *
- * The process owns both the bounded hardware capability probe and the
- * root-authenticated local Debian codec protocol, without coupling a vendor
- * codec crash to PID 1 or SSH.
+ * The process owns only app-local capability and file self-tests. Debian
+ * commands launch a private NDK MediaCodec worker on demand and do not connect
+ * to this service.
  */
 public final class HardwareCodecService extends Service {
 
@@ -42,7 +41,6 @@ public final class HardwareCodecService extends Service {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean probeRunning = new AtomicBoolean(false);
     private final AtomicBoolean fileSelfTestRunning = new AtomicBoolean(false);
-    private HardwareCodecBroker broker;
 
     static void ensureStarted(Context context, boolean bootRetry) {
         Intent intent = new Intent(context, HardwareCodecService.class)
@@ -90,20 +88,13 @@ public final class HardwareCodecService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
-        try {
-            ensureBrokerStarted();
-        } catch (IOException e) {
-            Log.e(TAG, "Could not start hardware codec local broker", e);
-            HardwareCodecProbe.recordBrokerEvent(this,
-                    "START_FAILED error=" + BfuSu.sanitize(e.getMessage()));
-        }
         if (ACTION_FILE_SELF_TEST.equals(action)) {
             long token = intent == null ? System.currentTimeMillis()
                     : intent.getLongExtra(EXTRA_TEST_TOKEN, System.currentTimeMillis());
             if (fileSelfTestRunning.compareAndSet(false, true)) {
                 executor.execute(() -> runFileSelfTest(token));
             } else {
-                HardwareCodecProbe.recordBrokerEvent(this,
+                HardwareCodecProbe.recordRuntimeEvent(this,
                         "FILE_SELF_TEST_REJECTED already_running=true token=" + token);
             }
         } else {
@@ -156,12 +147,6 @@ public final class HardwareCodecService extends Service {
 
     @Override
     public void onDestroy() {
-        synchronized (this) {
-            if (broker != null) {
-                broker.close();
-                broker = null;
-            }
-        }
         executor.shutdownNow();
         stopForeground(true);
         super.onDestroy();
@@ -170,18 +155,6 @@ public final class HardwareCodecService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    private synchronized void ensureBrokerStarted() throws IOException {
-        if (broker != null) return;
-        HardwareCodecBroker candidate = new HardwareCodecBroker(this);
-        try {
-            candidate.start();
-            broker = candidate;
-        } catch (IOException | RuntimeException e) {
-            candidate.close();
-            throw e;
-        }
     }
 
     private Notification buildNotification() {

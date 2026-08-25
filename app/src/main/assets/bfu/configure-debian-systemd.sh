@@ -87,6 +87,8 @@ esac
 [ -f "$AUTHORIZED_KEYS" ] || fail 16 "save at least one SSH public key first"
 [ ! -L "$AUTHORIZED_KEYS" ] || fail 16 "authorized_keys symlinks are forbidden"
 [ -x "$BIN/dawnshell-codec" ] || fail 16 "source-built hardware codec client is missing"
+[ -x "$BIN/dawnshell-codec-worker" ] || \
+    fail 16 "source-built NDK MediaCodec worker is missing"
 [ -f "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
     fail 16 "hardware codec FFmpeg adapter is missing"
 [ ! -L "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
@@ -194,6 +196,35 @@ mount --rbind /dev "$ROOT/dev"
 mount --make-rslave "$ROOT/dev"
 mount --rbind /sys "$ROOT/sys"
 mount --make-rslave "$ROOT/sys"
+
+bind_android_runtime_tree() {
+    source="$1"
+    relative="$2"
+    required="$3"
+    if [ ! -d "$source" ]; then
+        [ "$required" = false ] && return 0
+        fail 18 "required Android runtime tree is missing: $source"
+    fi
+    target="$ROOT/$relative"
+    if [ -e "$target" ] && [ ! -d "$target" ]; then
+        fail 18 "Android runtime mount target is unsafe: /$relative"
+    fi
+    mkdir -p "$target"
+    mount --rbind "$source" "$target" || \
+        fail 18 "could not bind Android runtime tree: $source"
+    mount --make-rslave "$target" || \
+        fail 18 "could not isolate Android runtime tree: $source"
+    mount -o remount,bind,ro,nosuid,nodev "$target" || \
+        fail 18 "could not make Android runtime tree read-only: $source"
+    echo "Bound read-only Android runtime tree $source -> /$relative"
+}
+
+# The static Debian-facing client execs a private dynamic bionic worker. Only
+# Android's read-only runtime trees are exposed; no app data or CE storage is
+# mounted into the chroot.
+bind_android_runtime_tree /system system true
+bind_android_runtime_tree /apex apex true
+bind_android_runtime_tree /linkerconfig linkerconfig false
 mount -t proc -o nosuid,nodev,noexec proc "$ROOT/proc"
 mount -t tmpfs -o nosuid,nodev,mode=0755,size=64m tmpfs "$ROOT/run"
 mkdir -p "$ROOT/run/lock"
@@ -202,8 +233,8 @@ cp "$AUTHORIZED_KEYS" "$ROOT/run/dawnshell-authorized-keys"
 chmod 0600 "$ROOT/run/dawnshell-authorized-keys"
 chown 0:0 "$ROOT/run/dawnshell-authorized-keys"
 
-# The client is a static Android ELF, so it remains executable inside the
-# Debian chroot without exposing /system or app-private libraries.
+# The Debian-facing client is static. Its private dynamic NDK worker resolves
+# only the read-only Android runtime trees mounted above.
 mkdir -p "$ROOT/usr/local/bin"
 for destination in "$ROOT/usr/local" "$ROOT/usr/local/bin"; do
     if [ ! -d "$destination" ] || [ -L "$destination" ]; then
@@ -223,6 +254,12 @@ if [ ! -d "$ROOT/usr/local/libexec" ] || [ -L "$ROOT/usr/local/libexec" ]; then
 fi
 [ "$(stat -c '%u:%g' "$ROOT/usr/local/libexec")" = "0:0" ] || \
     fail 18 "rootfs codec adapter destination is not root-owned"
+cp "$BIN/dawnshell-codec-worker" \
+    "$ROOT/usr/local/libexec/dawnshell-codec-worker.new"
+chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-worker.new"
+chmod 0755 "$ROOT/usr/local/libexec/dawnshell-codec-worker.new"
+mv "$ROOT/usr/local/libexec/dawnshell-codec-worker.new" \
+    "$ROOT/usr/local/libexec/dawnshell-codec-worker"
 cp "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" \
     "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
 chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
@@ -479,11 +516,8 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-before_health="$temporary/health-before.json"
-after_health="$temporary/health-after.json"
 decoded="$temporary/decoded.i420"
-shared_log="$temporary/decode-shared.log"
-socket_log="$temporary/decode-socket.log"
+decode_log="$temporary/decode.log"
 transcode_log="$temporary/transcode.log"
 encoded="$temporary/transcoded.h264"
 bframe_decoded="$temporary/bframe-decoded.i420"
@@ -494,8 +528,6 @@ software_time="$temporary/software-decode.time"
 hardware_time="$temporary/hardware-decode.time"
 software_hash="$temporary/software-decode.sha256"
 hardware_hash="$temporary/hardware-decode.sha256"
-baseline_before="$temporary/baseline-before.json"
-baseline_after="$temporary/baseline-after.json"
 baseline_decode_log="$temporary/baseline-decode.log"
 baseline_ffmpeg_log="$temporary/baseline-ffmpeg.log"
 baseline_json="$temporary/cpu-baseline.json"
@@ -506,43 +538,23 @@ quality_psnr_log="$temporary/quality-psnr.log"
 quality_ssim_log="$temporary/quality-ssim.log"
 quality_json="$temporary/quality.json"
 
-dawnshell-codec health --format json > "$before_health"
-
-echo "STAGE: 720p hardware decode through shared memory"
+echo "STAGE: 720p hardware decode through private NDK worker"
 if dawnshell-codec decode-test "$vector_720" 1280 720 30 30 \
-    > "$decoded" 2> "$shared_log"; then
+    > "$decoded" 2> "$decode_log"; then
     :
 else
     status=$?
-    cat "$shared_log" >&2
+    cat "$decode_log" >&2
     exit "$status"
 fi
 actual="$(sha256sum "$decoded" | awk '{print $1}')"
 [ "$actual" = "$expected_720" ] || {
-    cat "$shared_log" >&2
-    echo "720p shared-memory decode checksum mismatch: $actual" >&2
+    cat "$decode_log" >&2
+    echo "720p NDK worker decode checksum mismatch: $actual" >&2
     exit 1
 }
+"$adapter" validate-decoder-stats "$decode_log" 30
 rm -f "$decoded"
-
-echo "STAGE: 720p hardware decode through bounded socket fallback"
-if DAWNSHELL_CODEC_DISABLE_SHM=1 \
-    dawnshell-codec decode-test "$vector_720" 1280 720 30 30 \
-    > "$decoded" 2> "$socket_log"; then
-    :
-else
-    status=$?
-    cat "$socket_log" >&2
-    exit "$status"
-fi
-actual="$(sha256sum "$decoded" | awk '{print $1}')"
-[ "$actual" = "$expected_720" ] || {
-    cat "$socket_log" >&2
-    echo "720p socket decode checksum mismatch: $actual" >&2
-    exit 1
-}
-rm -f "$decoded"
-"$adapter" compare-decode-transports "$shared_log" "$socket_log" 30
 
 echo "STAGE: MP4 B-frame demux, timestamp reorder, and hardware decode"
 if dawnshell-hwdecode "$vector_bframes" "$bframe_decoded" \
@@ -582,7 +594,6 @@ fi
     echo "software 1080p decode checksum mismatch" >&2
     exit 1
 }
-dawnshell-codec health --format json > "$baseline_before"
 # shellcheck disable=SC2016 # Positional arguments expand in the child shell.
 if /usr/bin/time -f 'wall_seconds=%e\nuser_seconds=%U\nsystem_seconds=%S\nmax_rss_kb=%M' \
     -o "$hardware_time" /bin/sh -c '
@@ -601,8 +612,7 @@ fi
     echo "hardware 1080p decode checksum mismatch" >&2
     exit 1
 }
-dawnshell-codec health --format json > "$baseline_after"
-"$adapter" compare-cpu-baseline "$baseline_before" "$baseline_after" \
+"$adapter" compare-cpu-baseline "$baseline_decode_log" \
     "$hardware_time" "$software_time" "$baseline_json"
 cat "$baseline_json"
 
@@ -664,7 +674,7 @@ hevc_frames="$(ffprobe -v error -f h264 -count_frames -select_streams v:0 \
     exit 1
 }
 
-echo "STAGE: abrupt peer cleanup and Surface resource reuse"
+echo "STAGE: abrupt client cleanup and Surface resource reuse"
 for _ in 1 2 3 4 5; do
     if ! dawnshell-codec orphan-test decode \
         >> "$temporary/orphan.log" 2>&1; then
@@ -681,15 +691,15 @@ for _ in 1 2; do
     fi
     sleep 1
 done
-dawnshell-codec health --format json > "$after_health"
-"$adapter" validate-cleanup "$before_health" "$after_health" 14
+dawnshell-codec health --format json | \
+    grep -Fq '"transport":"inherited_memfd_eventfd"'
 
-echo "STAGE: malformed-input, EOS state-machine, and broker recovery regression"
+echo "STAGE: malformed-input, EOS state-machine, and worker recovery regression"
 /usr/local/bin/dawnshell-codec-error-test
 echo "STAGE: bounded concurrent session regression"
 /usr/local/bin/dawnshell-codec-concurrency-test
 
-echo "DawnShell hardware codec performance test passed: 720p/1080p checksum and CPU baseline, B-frame MP4 decode, objective encode quality, shared-memory/socket comparison, AVC/HEVC Surface transcode, malformed-input isolation, concurrent sessions, cleanup"
+echo "DawnShell hardware codec performance test passed: 720p/1080p checksum and CPU baseline, B-frame MP4 decode, objective encode quality, inherited memfd/eventfd transport, AVC/HEVC Surface transcode, malformed-input isolation, concurrent workers, cleanup"
 EOF_CODEC_PERFORMANCE_TEST
 chmod 0755 /usr/local/bin/dawnshell-codec-performance-test
 chown 0:0 /usr/local/bin/dawnshell-codec-performance-test
