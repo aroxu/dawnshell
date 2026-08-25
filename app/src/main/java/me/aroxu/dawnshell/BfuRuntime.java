@@ -43,6 +43,7 @@ final class BfuRuntime {
         final File hostUsbConfiguratorScript;
         final File codecFfmpegAdapterScript;
         final File codecLiveEncodeScript;
+        final File gpuStatusScript;
         final File codecLongRunScript;
         final File codecConcurrencyTestScript;
         final File codecErrorTestScript;
@@ -94,6 +95,7 @@ final class BfuRuntime {
                     "dawnshell-codec-ffmpeg.py");
             codecLiveEncodeScript = new File(scripts,
                     "dawnshell-live-encode.sh");
+            gpuStatusScript = new File(scripts, "gsmi.sh");
             codecLongRunScript = new File(scripts,
                     "dawnshell-codec-long-run.sh");
             codecConcurrencyTestScript = new File(scripts,
@@ -217,6 +219,8 @@ final class BfuRuntime {
                 layout.codecFfmpegAdapterScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-live-encode.sh",
                 layout.codecLiveEncodeScript, true);
+        copyPrivateAsset(deContext, "bfu/gsmi.sh",
+                layout.gpuStatusScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-codec-long-run.sh",
                 layout.codecLongRunScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-codec-concurrency-test.sh",

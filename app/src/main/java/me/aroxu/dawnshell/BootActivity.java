@@ -1277,6 +1277,7 @@ public class BootActivity extends AppCompatActivity {
         // for them before the DawnShell-specific tool names.
         showCodecGuideText(R.string.dawnshell_codec_ffmpeg_guide_title,
                 getString(R.string.dawnshell_codec_mediacodec_syntax_body)
+                        + getString(R.string.dawnshell_gpu_status_body)
                         + getString(R.string.dawnshell_codec_ffmpeg_guide_body));
     }
 

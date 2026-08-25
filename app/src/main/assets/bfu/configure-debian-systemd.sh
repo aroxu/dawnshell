@@ -95,6 +95,10 @@ esac
     fail 16 "hardware live encoder is missing"
 [ ! -L "$BFU_ROOT/scripts/dawnshell-live-encode.sh" ] || \
     fail 16 "hardware live encoder symlinks are forbidden"
+[ -f "$BFU_ROOT/scripts/gsmi.sh" ] || \
+    fail 16 "GPU status tool is missing"
+[ ! -L "$BFU_ROOT/scripts/gsmi.sh" ] || \
+    fail 16 "GPU status tool symlinks are forbidden"
 [ -f "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" ] || \
     fail 16 "hardware codec long-run test is missing"
 [ ! -L "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" ] || \
@@ -231,6 +235,11 @@ chown 0:0 "$ROOT/usr/local/bin/dawnshell-live-encode.new"
 chmod 0755 "$ROOT/usr/local/bin/dawnshell-live-encode.new"
 mv "$ROOT/usr/local/bin/dawnshell-live-encode.new" \
     "$ROOT/usr/local/bin/dawnshell-live-encode"
+cp "$BFU_ROOT/scripts/gsmi.sh" "$ROOT/usr/local/bin/dawnshell-gsmi.new"
+chown 0:0 "$ROOT/usr/local/bin/dawnshell-gsmi.new"
+chmod 0755 "$ROOT/usr/local/bin/dawnshell-gsmi.new"
+mv "$ROOT/usr/local/bin/dawnshell-gsmi.new" \
+    "$ROOT/usr/local/bin/dawnshell-gsmi"
 cp "$BFU_ROOT/scripts/dawnshell-codec-long-run.sh" \
     "$ROOT/usr/local/bin/dawnshell-codec-long-run.new"
 chown 0:0 "$ROOT/usr/local/bin/dawnshell-codec-long-run.new"
@@ -1169,6 +1178,14 @@ EOF_CODEC_AUTO_FFMPEG
 chmod 0755 /usr/local/bin/dawnshell-ffmpeg
 chown 0:0 /usr/local/bin/dawnshell-ffmpeg
 
+# Expose the GPU monitor under the short nvidia-smi-style name as well.
+ln -sfn /usr/local/bin/dawnshell-gsmi /usr/local/bin/gsmi.new
+mv -T /usr/local/bin/gsmi.new /usr/local/bin/gsmi
+[ "$(readlink /usr/local/bin/gsmi)" = /usr/local/bin/dawnshell-gsmi ] || {
+    echo "ERROR: the gsmi symlink was not installed"
+    exit 35
+}
+
 # Put the bridge on the default PATH under the plain "ffmpeg" name so ordinary
 # programs reach hardware without being rebuilt or reconfigured. Debian ships
 # FFmpeg in /usr/bin, and /usr/local/bin precedes it, so this shadows the stock
@@ -1431,6 +1448,8 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ -x /usr/local/bin/dawnshell-hwtranscode ]
 [ -x /usr/local/bin/dawnshell-live-encode ]
 [ -x /usr/local/bin/dawnshell-ffmpeg ]
+[ -x /usr/local/bin/dawnshell-gsmi ]
+[ -x /usr/local/bin/gsmi ]
 [ -x /usr/local/bin/dawnshell-ffmpeg-integration ]
 [ "$(readlink /usr/local/bin/ffmpeg)" = /usr/local/bin/dawnshell-ffmpeg ]
 [ -x /usr/local/bin/dawnshell-codec-performance-test ]
@@ -1458,6 +1477,7 @@ hardware_codec_decode=/usr/local/bin/dawnshell-hwdecode
 hardware_codec_encode=/usr/local/bin/dawnshell-hwencode
 hardware_codec_transcode=/usr/local/bin/dawnshell-hwtranscode
 hardware_codec_live_encode=/usr/local/bin/dawnshell-live-encode
+gpu_status_tool=/usr/local/bin/gsmi
 hardware_codec_ffmpeg=/usr/local/bin/dawnshell-ffmpeg
 hardware_codec_ffmpeg_integration=enabled
 hardware_codec_ffmpeg_link=/usr/local/bin/ffmpeg

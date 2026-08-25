@@ -185,6 +185,7 @@ GPL/LGPL 등 별도 라이선스를 유지합니다. 자세한 내용은
 - [사용자 매뉴얼](docs/user-guide.ko.md)
 - [FFmpeg 하드웨어 코덱 사용법](docs/ffmpeg-hardware-codec.ko.md)
 - [순정 FFmpeg 문법 호환성 (MediaCodec)](docs/ffmpeg-mediacodec-compatibility.ko.md)
+- [gsmi GPU 상태 모니터](docs/gpu-status-tool.ko.md)
 - [쉬운 용어집](docs/glossary.ko.md)
 - [아키텍처](docs/architecture.ko.md)
 - [보안 모델](docs/security.ko.md)
