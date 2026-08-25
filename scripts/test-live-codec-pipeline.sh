@@ -65,7 +65,7 @@ assert pathlib.Path(sys.argv[1]).read_bytes() == (
 )
 PYTHON_ANNEXB
 
-"$live_encoder" --print-plan \
+bash "$live_encoder" --print-plan \
     --input /dev/video0 --input-format v4l2 --input-pixel-format mjpeg \
     --size 1280x720 --fps 30 --bitrate 4000000 \
     --output "$temporary/live/index.m3u8" --output-mode hls \
@@ -77,7 +77,7 @@ grep -Fq 'dawnshell-codec pipe encode avc 1280 720 30 4000000' \
 grep -Fq 'hls_time=2' "$temporary/plan.log"
 grep -Fq 'recording.mp4' "$temporary/plan.log"
 
-if "$live_encoder" --input x --size 1279x720 --fps 30 --output out.mp4 \
+if bash "$live_encoder" --input x --size 1279x720 --fps 30 --output out.mp4 \
         > /dev/null 2>&1; then
     echo "odd dimensions were accepted" >&2
     exit 1
