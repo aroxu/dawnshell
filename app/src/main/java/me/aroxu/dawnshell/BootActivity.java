@@ -1273,8 +1273,11 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void showFfmpegCodecGuide() {
-        showCodecGuide(R.string.dawnshell_codec_ffmpeg_guide_title,
-                R.string.dawnshell_codec_ffmpeg_guide_body);
+        // Upstream MediaCodec spellings come first because most callers reach
+        // for them before the DawnShell-specific tool names.
+        showCodecGuideText(R.string.dawnshell_codec_ffmpeg_guide_title,
+                getString(R.string.dawnshell_codec_mediacodec_syntax_body)
+                        + getString(R.string.dawnshell_codec_ffmpeg_guide_body));
     }
 
     private void showLiveCodecGuide() {
@@ -1283,7 +1286,10 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void showCodecGuide(int titleResource, int bodyResource) {
-        String guide = getString(bodyResource);
+        showCodecGuideText(titleResource, getString(bodyResource));
+    }
+
+    private void showCodecGuideText(int titleResource, String guide) {
         TextView content = new AppCompatTextView(this);
         content.setText(guide);
         content.setTextIsSelectable(true);

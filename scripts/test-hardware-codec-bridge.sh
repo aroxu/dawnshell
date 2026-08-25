@@ -24,6 +24,8 @@ english_strings="$repo_dir/app/src/main/res/values/strings.xml"
 korean_strings="$repo_dir/app/src/main/res/values-ko/strings.xml"
 ffmpeg_guide="$repo_dir/docs/ffmpeg-hardware-codec.md"
 ffmpeg_guide_ko="$repo_dir/docs/ffmpeg-hardware-codec.ko.md"
+mediacodec_guide="$repo_dir/docs/ffmpeg-mediacodec-compatibility.md"
+mediacodec_guide_ko="$repo_dir/docs/ffmpeg-mediacodec-compatibility.ko.md"
 
 grep -Fq 'MAGIC = 0x44534342' "$java_protocol"
 grep -Fq 'VERSION = 1' "$java_protocol"
@@ -131,6 +133,46 @@ grep -Fq 'sudo env DAWNSHELL_FFMPEG_BRIDGE=require' \
     "$ffmpeg_guide" "$ffmpeg_guide_ko"
 grep -Fq 'dawnshell-live-encode' "$ffmpeg_guide" "$ffmpeg_guide_ko"
 grep -Fq -- '--hls-delete-segments' "$ffmpeg_guide" "$ffmpeg_guide_ko"
+
+# The upstream-syntax contract must stay documented in both languages, since a
+# silent software fallback behind an explicit -c:v h264_mediacodec would
+# invalidate any performance or battery measurement.
+test -f "$mediacodec_guide"
+test -f "$mediacodec_guide_ko"
+for mediacodec_doc in "$mediacodec_guide" "$mediacodec_guide_ko"; do
+    grep -Fq -- '-hwaccel mediacodec' "$mediacodec_doc"
+    grep -Fq 'h264_mediacodec' "$mediacodec_doc"
+    grep -Fq 'hevc_mediacodec' "$mediacodec_doc"
+    grep -Fq 'libmediandk' "$mediacodec_doc"
+    grep -Fq 'DAWNSHELL_FFMPEG_BRIDGE=off' "$mediacodec_doc"
+    grep -Fq 'explicit=mediacodec' "$mediacodec_doc"
+    grep -Fq 'plan-ffmpeg' "$mediacodec_doc"
+done
+grep -Fq 'ffmpeg-mediacodec-compatibility.md' "$repo_dir/README.md" \
+    "$ffmpeg_guide" "$repo_dir/docs/user-guide.md"
+grep -Fq 'ffmpeg-mediacodec-compatibility.ko.md' "$repo_dir/README.ko.md" \
+    "$ffmpeg_guide_ko" "$repo_dir/docs/user-guide.ko.md"
+grep -Fq 'dawnshell_codec_mediacodec_syntax_body' "$english_strings" \
+    "$korean_strings" "$activity"
+grep -Fq 'h264_mediacodec' "$english_strings" "$korean_strings"
+
+# Every relative Markdown link in the new documents must resolve on disk.
+python3 - "$mediacodec_guide" "$mediacodec_guide_ko" <<'PYTHON_VERIFY_LINKS'
+import pathlib
+import re
+import sys
+
+for argument in sys.argv[1:]:
+    document = pathlib.Path(argument)
+    text = document.read_text(encoding="utf-8")
+    for target in re.findall(r"\]\(([^)]+)\)", text):
+        if target.startswith(("http://", "https://", "#")):
+            continue
+        resolved = (document.parent / target.split("#", 1)[0]).resolve()
+        if not resolved.exists():
+            raise SystemExit(f"{document.name}: broken link {target}")
+print("MediaCodec compatibility documents have no broken links")
+PYTHON_VERIFY_LINKS
 
 grep -Fq '#define DSCB_MAGIC 0x44534342u' "$client"
 grep -Fq '#define DSCB_VERSION 1u' "$client"

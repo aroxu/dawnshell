@@ -45,8 +45,33 @@ expect_plan 'action=transcode input=in.mkv output=out.mp4 codec=hevc' \
 expect_plan 'action=decode input=in.mp4 output=out.yuv' -i in.mp4 out.yuv
 expect_plan 'action=decode input=in.mp4 output=frames.i420' -i in.mp4 frames.i420
 
+# Upstream MediaCodec spellings must reach the bridge unchanged.
+expect_plan 'action=encode input=in.mp4 output=out.mp4 codec=avc bitrate=4000000 explicit=mediacodec' \
+    -i in.mp4 -c:v h264_mediacodec -b:v 4M out.mp4
+expect_plan 'action=encode input=in.mp4 output=out.mp4 codec=hevc explicit=mediacodec' \
+    -i in.mp4 -c:v hevc_mediacodec out.mp4
+expect_plan 'action=transcode input=in.mp4 output=out.mp4 codec=avc bitrate=6000000 explicit=mediacodec' \
+    -hwaccel mediacodec -i in.mp4 -c:v h264_mediacodec -b:v 6M out.mp4
+expect_plan 'action=transcode input=in.mp4 output=out.mp4 codec=avc explicit=mediacodec' \
+    -hwaccel mediacodec -i in.mp4 -c:v libx264 out.mp4
+expect_plan 'action=decode input=in.mp4 output=out.yuv explicit=mediacodec' \
+    -hwaccel mediacodec -i in.mp4 out.yuv
+# A hardware decoder named before -i selects the decoder, not the encoder.
+expect_plan 'action=transcode input=in.mp4 output=out.mp4 codec=avc explicit=mediacodec' \
+    -c:v h264_mediacodec -i in.mp4 -c:v libx264 out.mp4
+# Software decoders and neutral -hwaccel values stay supported.
+expect_plan 'action=transcode input=in.mp4 output=out.mp4 codec=avc' \
+    -c:v h264 -i in.mp4 -c:v libx264 out.mp4
+expect_plan 'action=transcode input=in.mp4 output=out.mp4 codec=avc' \
+    -hwaccel auto -i in.mp4 -c:v libx264 out.mp4
+
 # Anything the bridge cannot reproduce exactly must stay on plain FFmpeg.
 expect_passthrough -i in.mp4 -vf scale=640:480 -c:v libx264 out.mp4
+expect_passthrough -hwaccel cuda -i in.mp4 -c:v libx264 out.mp4
+expect_passthrough -c:v vp9 -i in.webm -c:v libx264 out.mp4
+# An unsupported request still reports that hardware was named explicitly.
+expect_plan 'action=passthrough reason=unsupported_option explicit=mediacodec' \
+    -i in.mp4 -vf scale=2:2 -c:v h264_mediacodec out.mp4
 expect_passthrough -i in.mp4 -c:v copy out.mp4
 expect_passthrough -i a.mp4 -i b.mp4 -c:v libx264 out.mp4
 expect_passthrough -i in.mp4 -c:v libvpx-vp9 out.webm
@@ -112,7 +137,7 @@ PYTHON_VERIFY_PATH
 
 stub_dir="$wrapper_dir/stubs"
 mkdir -p "$stub_dir"
-for stub in ffmpeg dawnshell-hwdecode dawnshell-hwtranscode; do
+for stub in ffmpeg dawnshell-hwdecode dawnshell-hwencode dawnshell-hwtranscode; do
     printf '#!/bin/sh\necho "STUB %s $*"\n' "$stub" > "$stub_dir/$stub"
     chmod 0755 "$stub_dir/$stub"
 done
@@ -123,6 +148,7 @@ python_binary="$(command -v python3)"
 sed -e "s#^real_ffmpeg=.*#real_ffmpeg=$stub_dir/ffmpeg#" \
     -e "s#/usr/local/libexec/dawnshell-codec-ffmpeg.py#$python_binary $adapter#g" \
     -e "s#/usr/local/bin/dawnshell-hwdecode#$stub_dir/dawnshell-hwdecode#g" \
+    -e "s#/usr/local/bin/dawnshell-hwencode#$stub_dir/dawnshell-hwencode#g" \
     -e "s#/usr/local/bin/dawnshell-hwtranscode#$stub_dir/dawnshell-hwtranscode#g" \
     "$wrapper_dir/dawnshell-ffmpeg" > "$runnable"
 chmod 0755 "$runnable"
@@ -145,6 +171,17 @@ expect_run "STUB dawnshell-hwtranscode in.mp4 out.mp4 3000000" \
 expect_run "STUB dawnshell-hwtranscode in.mp4 out.mp4 4000000" \
     -i in.mp4 -c:v libx264 out.mp4
 expect_run "STUB dawnshell-hwdecode in.mp4 out.yuv" -i in.mp4 out.yuv
+
+# Upstream MediaCodec spellings must execute on hardware end to end.
+expect_run "STUB dawnshell-hwencode in.mp4 out.mp4 4000000 avc" \
+    -i in.mp4 -c:v h264_mediacodec out.mp4
+expect_run "STUB dawnshell-hwencode in.mp4 out.mp4 2500000 hevc" \
+    -i in.mp4 -c:v hevc_mediacodec -b:v 2500k out.mp4
+expect_run "STUB dawnshell-hwtranscode in.mp4 out.mp4 6000000" \
+    -hwaccel mediacodec -i in.mp4 -c:v h264_mediacodec -b:v 6M out.mp4
+expect_run "STUB dawnshell-hwdecode in.mp4 out.yuv" \
+    -hwaccel mediacodec -i in.mp4 out.yuv
+
 expect_run "STUB ffmpeg -i in.mp4 -vf scale=640:480 -c:v libx264 out.mp4" \
     -i in.mp4 -vf scale=640:480 -c:v libx264 out.mp4
 expect_run "STUB ffmpeg -i in.mp4 -c:v copy out.mp4" -i in.mp4 -c:v copy out.mp4
@@ -154,6 +191,16 @@ expect_run "STUB ffmpeg -i in.mp4 -c:v libx265 out.mp4" \
 
 DAWNSHELL_FFMPEG_BRIDGE=off expect_run \
     "STUB ffmpeg -i in.mp4 -c:v libx264 out.mp4" -i in.mp4 -c:v libx264 out.mp4
+# Explicit MediaCodec must obey an explicit off switch.
+DAWNSHELL_FFMPEG_BRIDGE=off expect_run \
+    "STUB ffmpeg -i in.mp4 -c:v h264_mediacodec out.mp4" \
+    -i in.mp4 -c:v h264_mediacodec out.mp4
+# Naming MediaCodec must fail loudly instead of falling back silently.
+if "$runnable" -i in.mp4 -vf scale=2:2 -c:v h264_mediacodec out.mp4 \
+        >/dev/null 2>&1; then
+    echo "FAIL: explicit mediacodec fell back to software" >&2
+    exit 1
+fi
 if DAWNSHELL_FFMPEG_BRIDGE=require "$runnable" \
         -i in.mp4 -vf scale=2:2 -c:v libx264 out.mp4 >/dev/null 2>&1; then
     echo "FAIL: require mode accepted an unsupported command" >&2

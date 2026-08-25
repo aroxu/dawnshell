@@ -744,15 +744,26 @@ def positive_int(value):
 HARDWARE_ENCODERS = {
     "libx264": "avc",
     "h264": "avc",
+    "h264_mediacodec": "avc",
     "libx265": "hevc",
     "hevc": "hevc",
+    "hevc_mediacodec": "hevc",
 }
+# Upstream FFmpeg spells the Android codecs this way. Accepting the exact
+# names lets ordinary FFmpeg command lines reach the bridge unchanged.
+MEDIACODEC_ENCODERS = {"h264_mediacodec", "hevc_mediacodec"}
+MEDIACODEC_DECODERS = {"h264_mediacodec", "hevc_mediacodec"}
+# Decoders the bridge can honour by ignoring them: FFmpeg would have picked
+# the same software decoder for the demuxed elementary stream anyway.
+SOFTWARE_VIDEO_DECODERS = {"h264", "hevc"}
+VIDEO_CODEC_OPTIONS = ("-c:v", "-codec:v", "-vcodec")
 RAW_VIDEO_SUFFIXES = (".i420", ".yuv")
 # Options the bridge reproduces exactly. Anything else falls back to plain
 # FFmpeg so a filter, scaler, or muxer flag is never silently dropped.
 PASSTHROUGH_FLAGS = {"-hide_banner", "-y", "-n", "-an", "-nostdin"}
 IGNORED_VALUE_OPTIONS = {"-loglevel", "-v", "-threads", "-stats_period",
-                         "-pix_fmt", "-f", "-r"}
+                         "-pix_fmt", "-f", "-r", "-hwaccel_output_format",
+                         "-hwaccel_device", "-hwaccel_flags"}
 
 
 class UnsupportedCommand(Exception):
@@ -776,12 +787,30 @@ def parse_bitrate(value):
     return parsed
 
 
+def requests_mediacodec(argv):
+    """Report whether the caller named MediaCodec explicitly.
+
+    This runs independently of full command parsing so an unsupported option
+    never hides the fact that hardware was requested by name.
+    """
+    for index, token in enumerate(argv):
+        if index + 1 >= len(argv):
+            break
+        value = argv[index + 1]
+        if token == "-hwaccel" and value == "mediacodec":
+            return True
+        if token in VIDEO_CODEC_OPTIONS and value in MEDIACODEC_ENCODERS:
+            return True
+    return False
+
+
 def parse_ffmpeg_command(argv):
     """Return a bridge plan for an FFmpeg command or raise UnsupportedCommand."""
     inputs = []
     output = None
     video_codec = None
     bitrate = None
+    hardware_decode = False
     index = 0
     while index < len(argv):
         token = argv[index]
@@ -799,8 +828,20 @@ def parse_ffmpeg_command(argv):
         value = argv[index + 1]
         if token == "-i":
             inputs.append(value)
-        elif token in ("-c:v", "-codec:v", "-vcodec"):
-            video_codec = value
+        elif token in VIDEO_CODEC_OPTIONS:
+            # FFmpeg applies an option to the next file on the command line,
+            # so -c:v before the first -i selects a decoder, not an encoder.
+            if inputs:
+                video_codec = value
+            elif value in MEDIACODEC_DECODERS:
+                hardware_decode = True
+            elif value not in SOFTWARE_VIDEO_DECODERS:
+                raise UnsupportedCommand("unsupported_decoder")
+        elif token == "-hwaccel":
+            if value == "mediacodec":
+                hardware_decode = True
+            elif value not in ("auto", "none"):
+                raise UnsupportedCommand("unsupported_hwaccel")
         elif token == "-b:v":
             bitrate = parse_bitrate(value)
         elif token == "-map":
@@ -823,20 +864,33 @@ def parse_ffmpeg_command(argv):
         raise UnsupportedCommand("no_video_encoder")
     if video_codec not in HARDWARE_ENCODERS:
         raise UnsupportedCommand("unsupported_encoder")
+    codec = HARDWARE_ENCODERS[video_codec]
+    if video_codec in MEDIACODEC_ENCODERS and not (codec == "avc" and hardware_decode):
+        # Hardware encode only. Surface zero-copy needs an AVC target plus an
+        # explicit hardware decode request, so everything else decodes in
+        # FFmpeg and encodes on the Android encoder.
+        return {
+            "action": "encode",
+            "input": inputs[0],
+            "output": output,
+            "codec": codec,
+            "bitrate": bitrate,
+        }
     return {
         "action": "transcode",
         "input": inputs[0],
         "output": output,
-        "codec": HARDWARE_ENCODERS[video_codec],
+        "codec": codec,
         "bitrate": bitrate,
     }
 
 
 def plan_ffmpeg(argv):
+    explicit = " explicit=mediacodec" if requests_mediacodec(argv) else ""
     try:
         plan = parse_ffmpeg_command(argv)
     except UnsupportedCommand as error:
-        print(f"action=passthrough reason={error}")
+        print(f"action=passthrough reason={error}{explicit}")
         return
     fields = ["action=" + plan["action"], "input=" + plan["input"],
               "output=" + plan["output"]]
@@ -844,6 +898,8 @@ def plan_ffmpeg(argv):
         fields.append("codec=" + plan["codec"])
     if plan.get("bitrate"):
         fields.append("bitrate=" + str(plan["bitrate"]))
+    if explicit:
+        fields.append(explicit.strip())
     print(" ".join(fields))
 
 

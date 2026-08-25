@@ -1094,6 +1094,13 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # bridge can reproduce exactly run on the Android hardware codec. Everything
 # else is handed to the real FFmpeg unchanged, so behaviour never silently
 # differs from what the caller asked for.
+#
+# Upstream FFmpeg spellings are accepted as-is:
+#   -hwaccel mediacodec        hardware decode
+#   -c:v h264_mediacodec       hardware AVC encode
+#   -c:v hevc_mediacodec       hardware HEVC encode
+# Naming MediaCodec explicitly is treated as a hard requirement, so such a
+# command fails loudly instead of quietly using libx264.
 
 real_ffmpeg=/usr/bin/ffmpeg
 [ -x "$real_ffmpeg" ] || {
@@ -1117,10 +1124,18 @@ field() {
     printf '%s\n' "$plan" | tr ' ' '\n' | sed -n "s/^$1=//p" | head -n 1
 }
 
+explicit="$(field explicit)"
+mode="${DAWNSHELL_FFMPEG_BRIDGE:-auto}"
+# An explicit MediaCodec request must never degrade into a silent software
+# encode, so treat it exactly like require mode.
+if [ "$explicit" = mediacodec ] && [ "$mode" != off ]; then
+    mode=require
+fi
+
 case "$action" in
-    decode|transcode) ;;
+    decode|encode|transcode) ;;
     *)
-        if [ "${DAWNSHELL_FFMPEG_BRIDGE:-auto}" = require ]; then
+        if [ "$mode" = require ]; then
             echo "dawnshell-ffmpeg: hardware bridge required but unavailable: ${plan:-no plan}" >&2
             exit 3
         fi
@@ -1138,8 +1153,12 @@ fi
 
 codec="$(field codec)"
 bitrate="$(field bitrate)"
+if [ "$action" = encode ]; then
+    exec /usr/local/bin/dawnshell-hwencode "$input" "$output" \
+        "${bitrate:-4000000}" "$codec"
+fi
 if [ "$codec" != avc ]; then
-    if [ "${DAWNSHELL_FFMPEG_BRIDGE:-auto}" = require ]; then
+    if [ "$mode" = require ]; then
         echo "dawnshell-ffmpeg: Surface transcode only produces H.264" >&2
         exit 3
     fi
