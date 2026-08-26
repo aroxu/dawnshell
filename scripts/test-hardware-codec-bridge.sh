@@ -141,6 +141,14 @@ PYTHON_EXTRACT_WRAPPERS
 bash -n "$wrapper_dir/dawnshell-hwdecode"
 bash -n "$wrapper_dir/dawnshell-hwencode"
 bash -n "$wrapper_dir/dawnshell-hwtranscode"
+grep -Fq -- '-stats_period 0.5 -stats' "$wrapper_dir/dawnshell-hwencode"
+# FFmpeg diagnostics and frame/fps/time/speed progress must remain live while
+# also being retained for stage-failure diagnostics.
+# shellcheck disable=SC2016
+grep -Fq '2> >(tee "$ffmpeg_log" >&2)' "$wrapper_dir/dawnshell-hwencode"
+# shellcheck disable=SC2016
+grep -Fq -- '-map 0:v:0 -map 1:a? -c:v copy -c:a copy' \
+    "$wrapper_dir/dawnshell-hwencode"
 grep -Fq 'cat > /usr/local/bin/dawnshell-ffmpeg' "$configurator"
 # Literal generated-script fragments; expansion here would test the host shell.
 # shellcheck disable=SC2016

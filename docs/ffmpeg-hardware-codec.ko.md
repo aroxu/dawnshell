@@ -84,10 +84,23 @@ HEVC로 인코드합니다.
 ```sh
 sudo dawnshell-hwencode input.mp4 output.mp4 4000000 avc
 sudo dawnshell-hwencode input.mp4 output.hevc 4000000 hevc
+
+# 첫 번째 입력 오디오를 재인코딩하지 않고 유지합니다.
+sudo dawnshell-hwencode input.mp4 output.mp4 4000000 avc copy
 ```
 
-인자는 `INPUT OUTPUT [BITRATE] [avc|hevc]` 순서입니다. bitrate 범위는
-1000~100000000 bit/s입니다.
+인자는 `INPUT OUTPUT [BITRATE] [avc|hevc] [none|copy]` 순서입니다. bitrate 범위는
+1000~100000000 bit/s입니다. 일반 FFmpeg 문법도 지원합니다.
+
+```sh
+sudo ffmpeg -y -i input.mp4 -c:a copy \
+  -c:v h264_mediacodec output.mp4
+```
+
+`-c:a copy`는 입력의 첫 번째 오디오 stream을 재인코딩하지 않고 하드웨어 인코딩된
+영상과 mux합니다. 입력에 오디오가 없어도 optional mapping으로 정상 완료됩니다.
+wrapper는 FFmpeg 배너, stream mapping과 실시간 `frame/fps/time/speed` 출력을
+숨기지 않으며, 같은 stderr를 실패 진단 로그에도 보존합니다.
 
 ### Surface 하드웨어 트랜스코드
 

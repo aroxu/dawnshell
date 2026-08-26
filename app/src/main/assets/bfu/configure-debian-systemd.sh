@@ -858,16 +858,17 @@ export LC_ALL=C
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 usage() {
-    echo "usage: dawnshell-hwencode INPUT OUTPUT [BITRATE] [avc|hevc]" >&2
+    echo "usage: dawnshell-hwencode INPUT OUTPUT [BITRATE] [avc|hevc] [none|copy]" >&2
     echo "Codec defaults from a raw output suffix; otherwise AVC. Containers are stream-copied." >&2
     exit 2
 }
 
-[ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage
+[ "$#" -ge 2 ] && [ "$#" -le 5 ] || usage
 input="$1"
 output="$2"
 bit_rate="${3:-4000000}"
 codec="${4:-}"
+audio_mode="${5:-none}"
 [ -f "$input" ] || {
     echo "dawnshell-hwencode: input is not a regular file: $input" >&2
     exit 2
@@ -894,6 +895,13 @@ case "$codec" in
         ;;
     *)
         echo "dawnshell-hwencode: codec must be avc or hevc" >&2
+        exit 2
+        ;;
+esac
+case "$audio_mode" in
+    none|copy) ;;
+    *)
+        echo "dawnshell-hwencode: audio mode must be none or copy" >&2
         exit 2
         ;;
 esac
@@ -947,8 +955,9 @@ echo "DawnShell hardware encode: codec=$codec size=${width}x${height} rate=$fram
 # errexit would abort before the per-stage status can be inspected, so relax
 # it for exactly this pipeline and restore it immediately afterwards.
 set +e
-ffmpeg -hide_banner -loglevel error -i "$input" -map 0:v:0 -an \
-    -pix_fmt yuv420p -f rawvideo pipe:1 2> "$ffmpeg_log" \
+ffmpeg -stats_period 0.5 -stats -i "$input" -map 0:v:0 -an \
+    -pix_fmt yuv420p -f rawvideo pipe:1 \
+        2> >(tee "$ffmpeg_log" >&2) \
     | /usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 \
         - "$width" "$height" "$frame_rate" - 2> "$pack_log" \
     | /usr/local/bin/dawnshell-codec pipe encode "$codec" "$width" "$height" \
@@ -956,6 +965,9 @@ ffmpeg -hide_banner -loglevel error -i "$input" -map 0:v:0 -an \
 # PIPESTATUS is only valid immediately after the pipeline, and appending
 # "|| true" would overwrite it, so capture it as the very next command.
 stage_status="${PIPESTATUS[*]}"
+# The live stderr mirror runs as a process substitution. Finish draining it
+# before inspecting or deleting the diagnostic log.
+wait || true
 set -e
 failed=0
 index=0
@@ -971,7 +983,9 @@ for status in $stage_status; do
     failed=1
 done
 if [ "$failed" -ne 0 ]; then
-    for stage_log in "$ffmpeg_log" "$pack_log" "$client_log"; do
+    # FFmpeg stderr was already mirrored live. Only print the two stages that
+    # remain intentionally buffered so diagnostics are not duplicated.
+    for stage_log in "$pack_log" "$client_log"; do
         [ ! -s "$stage_log" ] || {
             echo "--- $stage_log ---" >&2
             cat "$stage_log" >&2
@@ -995,6 +1009,10 @@ output_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
     "$client_log" "$output_frames" "$integer_rate" "$bit_rate"
 case "$codec:$output" in
     avc:*.h264|avc:*.H264|avc:*.264|hevc:*.hevc|hevc:*.HEVC|hevc:*.h265|hevc:*.H265|hevc:*.265)
+        [ "$audio_mode" = none ] || {
+            echo "dawnshell-hwencode: raw elementary output cannot contain copied audio" >&2
+            exit 4
+        }
         cp -- "$annex_b" "$output"
         ;;
     avc:*.hevc|avc:*.HEVC|avc:*.h265|avc:*.H265|avc:*.265|hevc:*.h264|hevc:*.H264|hevc:*.264)
@@ -1002,8 +1020,15 @@ case "$codec:$output" in
         exit 4
         ;;
     *)
-        ffmpeg -hide_banner -loglevel error -y -r "$frame_rate" -f "$elementary_format" \
-            -i "$annex_b" -map 0:v:0 -an -c:v copy "$output"
+        if [ "$audio_mode" = copy ]; then
+            ffmpeg -stats_period 0.5 -stats -y -r "$frame_rate" \
+                -f "$elementary_format" -i "$annex_b" -i "$input" \
+                -map 0:v:0 -map 1:a? -c:v copy -c:a copy "$output"
+        else
+            ffmpeg -stats_period 0.5 -stats -y -r "$frame_rate" \
+                -f "$elementary_format" -i "$annex_b" \
+                -map 0:v:0 -an -c:v copy "$output"
+        fi
         ;;
 esac
 echo "DawnShell hardware encode complete: frames=$output_frames output=$output"
@@ -1222,7 +1247,12 @@ fi
 
 codec="$(field codec)"
 bitrate="$(field bitrate)"
+audio="$(field audio)"
 if [ "$action" = encode ]; then
+    if [ "$audio" = copy ]; then
+        exec /usr/local/bin/dawnshell-hwencode "$input" "$output" \
+            "${bitrate:-4000000}" "$codec" copy
+    fi
     exec /usr/local/bin/dawnshell-hwencode "$input" "$output" \
         "${bitrate:-4000000}" "$codec"
 fi

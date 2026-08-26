@@ -67,6 +67,9 @@ sudo dawnshell-hwdecode input.mp4 output.i420
 sudo dawnshell-hwencode input.mp4 output.mp4 4000000 avc
 sudo dawnshell-hwencode input.mp4 output.hevc 4000000 hevc
 
+# Keep the first input audio stream without re-encoding it.
+sudo dawnshell-hwencode input.mp4 output.mp4 4000000 avc copy
+
 # Surface hardware decode followed by AVC hardware encode.
 sudo dawnshell-hwtranscode input.mp4 output.mp4 4000000
 ```
@@ -74,6 +77,19 @@ sudo dawnshell-hwtranscode input.mp4 output.mp4 4000000
 `dawnshell-hwdecode` should use `.i420` or `.yuv` when testing decode alone. A
 container output makes `/usr/bin/ffmpeg` software-encode the decoded frames.
 `dawnshell-hwtranscode` produces video-only AVC.
+
+The ordinary FFmpeg spelling is also supported. `-c:a copy` remuxes the first
+input audio stream with the hardware-encoded video; if the input has no audio,
+the optional mapping still succeeds:
+
+```sh
+sudo ffmpeg -y -i input.mp4 -c:a copy \
+  -c:v h264_mediacodec output.mp4
+```
+
+The wrapper leaves FFmpeg's banner, stream mapping, and live
+`frame/fps/time/speed` lines visible. The same stderr is retained for failure
+diagnostics.
 
 ## Live HLS and USB-webcam encoding
 

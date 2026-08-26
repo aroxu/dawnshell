@@ -48,6 +48,8 @@ expect_plan 'action=decode input=in.mp4 output=frames.i420' -i in.mp4 frames.i42
 # Upstream MediaCodec spellings must reach the bridge unchanged.
 expect_plan 'action=encode input=in.mp4 output=out.mp4 codec=avc bitrate=4000000 explicit=mediacodec' \
     -i in.mp4 -c:v h264_mediacodec -b:v 4M out.mp4
+expect_plan 'action=encode input=in.mp4 output=out.mp4 codec=avc audio=copy explicit=mediacodec' \
+    -y -i in.mp4 -c:a copy -c:v h264_mediacodec out.mp4
 expect_plan 'action=encode input=in.mp4 output=out.mp4 codec=hevc explicit=mediacodec' \
     -i in.mp4 -c:v hevc_mediacodec out.mp4
 expect_plan 'action=transcode input=in.mp4 output=out.mp4 codec=avc bitrate=6000000 explicit=mediacodec' \
@@ -77,6 +79,10 @@ expect_passthrough -i a.mp4 -i b.mp4 -c:v libx264 out.mp4
 expect_passthrough -i in.mp4 -c:v libvpx-vp9 out.webm
 expect_passthrough -i in.mp4 -c:v libx264 -crf 23 out.mp4
 expect_passthrough -i in.mp4 -c:v libx264 -preset slow out.mp4
+expect_plan 'action=passthrough reason=unsupported_audio_codec explicit=mediacodec' \
+    -i in.mp4 -c:a aac -c:v h264_mediacodec out.mp4
+expect_plan 'action=passthrough reason=audio_copy_requires_bytebuffer_encode explicit=mediacodec' \
+    -hwaccel mediacodec -i in.mp4 -c:a copy -c:v h264_mediacodec out.mp4
 expect_passthrough -i in.mp4 -map 0:a:0 -c:v libx264 out.mp4
 expect_passthrough -i in.mp4 out.mp4
 expect_passthrough -i in.mp4 -c:v libx264 -b:v 999 out.mp4
@@ -203,6 +209,8 @@ expect_run "STUB dawnshell-hwencode in.mp4 out.mp4 4000000 avc" \
     -i in.mp4 -c:v h264_mediacodec out.mp4
 expect_run "STUB dawnshell-hwencode in.mp4 out.mp4 2500000 hevc" \
     -i in.mp4 -c:v hevc_mediacodec -b:v 2500k out.mp4
+expect_run "STUB dawnshell-hwencode in.mp4 out.mp4 4000000 avc copy" \
+    -y -i in.mp4 -c:a copy -c:v h264_mediacodec out.mp4
 expect_run "STUB dawnshell-hwtranscode in.mp4 out.mp4 6000000" \
     -hwaccel mediacodec -i in.mp4 -c:v h264_mediacodec -b:v 6M out.mp4
 expect_run "STUB dawnshell-hwdecode in.mp4 out.yuv" \

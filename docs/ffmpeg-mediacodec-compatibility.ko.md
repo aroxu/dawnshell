@@ -113,6 +113,7 @@ hash -r
 | `-hwaccel mediacodec` + raw 출력 | 하드웨어 디코드 | `dawnshell-hwdecode` |
 | `-c:v h264_mediacodec` | 하드웨어 AVC 인코드 | `dawnshell-hwencode` |
 | `-c:v hevc_mediacodec` | 하드웨어 HEVC 인코드 | `dawnshell-hwencode` |
+| MediaCodec 인코드와 `-c:a copy` | 첫 번째 입력 오디오 stream 복사 | 하드웨어 인코드 + 최종 stream-copy mux |
 | `-hwaccel mediacodec` + `-c:v h264_mediacodec` | Surface zero-copy 트랜스코드 | `dawnshell-hwtranscode` |
 | `-hwaccel mediacodec` + `-c:v libx264` | Surface zero-copy 트랜스코드 | `dawnshell-hwtranscode` |
 | `-c:v h264_mediacodec` (입력 앞) | 하드웨어 **디코더** 지정 | 출력 코덱에 따름 |
@@ -128,6 +129,13 @@ FFmpeg의 옵션 위치 규칙을 그대로 따릅니다. 즉 `-i` **앞**의 `-
 ```sh
 sudo ffmpeg -hide_banner -y -i input.mp4 -map 0:v:0 -an \
   -c:v h264_mediacodec -b:v 4M output.mp4
+```
+
+오디오를 유지하는 하드웨어 AVC 인코드입니다.
+
+```sh
+sudo ffmpeg -y -i input.mp4 -c:a copy \
+  -c:v h264_mediacodec output.mp4
 ```
 
 Surface zero-copy 트랜스코드입니다.
@@ -186,6 +194,8 @@ DAWNSHELL_FFMPEG_BRIDGE=off sudo -E ffmpeg -i input.mp4 \
 - 짝수 해상도 16~4096
 - 1~240 fps
 - bitrate 1000~100000000 bit/s
+- ByteBuffer 하드웨어 인코드에서 첫 번째 optional 입력 오디오 stream용
+  `-c:a copy`
 - `-hide_banner`, `-y`, `-n`, `-an`, `-nostdin`, `-loglevel`, `-v`,
   `-threads`, `-stats_period`, `-pix_fmt`, `-f`, `-r`, 제한된 `-map`,
   `-hwaccel_output_format`, `-hwaccel_device`, `-hwaccel_flags`
@@ -197,18 +207,11 @@ DAWNSHELL_FFMPEG_BRIDGE=off sudo -E ffmpeg -i input.mp4 \
 - 복수 입력 또는 복수 출력
 - `-c:v copy`
 - VP9, AV1 등 미지원 코덱
-- 오디오 인코드·필터·mapping
+- 오디오 인코드·필터와 임의 오디오 mapping
 - `-hwaccel cuda` 등 다른 가속기
 
-하드웨어 경로는 영상 전용입니다. 오디오를 유지하려면 이후에 다시 mux합니다.
-
-```sh
-sudo ffmpeg -y -i input.mp4 -map 0:v:0 -an \
-  -c:v h264_mediacodec -b:v 4M video-only.mp4
-
-/usr/bin/ffmpeg -y -i video-only.mp4 -i input.mp4 \
-  -map 0:v:0 -map 1:a? -c:v copy -c:a copy final.mp4
-```
+ByteBuffer 하드웨어 인코드 경로는 `-c:a copy`로 첫 번째 optional 오디오 stream을
+유지할 수 있습니다. Surface zero-copy 트랜스코드는 계속 영상 전용입니다.
 
 ## 7. 순정 FFmpeg와 다른 점
 
@@ -218,7 +221,7 @@ sudo ffmpeg -y -i input.mp4 -map 0:v:0 -an \
 | --- | --- | --- |
 | 코덱 호출 주체 | FFmpeg 프로세스 | private bionic NDK worker |
 | 권한 | 앱/프로세스 권한 | root가 관리하는 native/chroot 경로 |
-| 오디오 동시 처리 | 가능 | 미지원(별도 mux) |
+| 오디오 동시 처리 | 가능 | ByteBuffer 인코드에서 첫 번째 optional stream-copy |
 | 필터와 하드웨어 조합 | 일부 가능 | 미지원 |
 | `-hwaccel_output_format` | 실제 의미 있음 | 무시 |
 | 실패 시 동작 | 설정에 따름 | 명시 시 오류 종료 |

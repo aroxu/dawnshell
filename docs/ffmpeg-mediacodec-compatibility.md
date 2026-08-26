@@ -113,6 +113,7 @@ else placed at that path. Programs that execute the absolute
 | `-hwaccel mediacodec` + raw output | Hardware decode | `dawnshell-hwdecode` |
 | `-c:v h264_mediacodec` | Hardware AVC encode | `dawnshell-hwencode` |
 | `-c:v hevc_mediacodec` | Hardware HEVC encode | `dawnshell-hwencode` |
+| `-c:a copy` with MediaCodec encode | Copy the first input audio stream into the output | Hardware encode + final stream-copy mux |
 | `-hwaccel mediacodec` + `-c:v h264_mediacodec` | Surface zero-copy transcode | `dawnshell-hwtranscode` |
 | `-hwaccel mediacodec` + `-c:v libx264` | Surface zero-copy transcode | `dawnshell-hwtranscode` |
 | `-c:v h264_mediacodec` before `-i` | Hardware **decoder** selection | Depends on output codec |
@@ -128,6 +129,13 @@ Hardware AVC encode:
 ```sh
 sudo ffmpeg -hide_banner -y -i input.mp4 -map 0:v:0 -an \
   -c:v h264_mediacodec -b:v 4M output.mp4
+```
+
+Hardware AVC encode while preserving audio:
+
+```sh
+sudo ffmpeg -y -i input.mp4 -c:a copy \
+  -c:v h264_mediacodec output.mp4
 ```
 
 Surface zero-copy transcode:
@@ -185,6 +193,8 @@ Supported:
 - Even dimensions from 16 through 4096
 - 1–240 fps
 - Bitrate from 1000 through 100000000 bit/s
+- `-c:a copy` for the first optional input audio stream on ByteBuffer hardware
+  encode
 - `-hide_banner`, `-y`, `-n`, `-an`, `-nostdin`, `-loglevel`, `-v`,
   `-threads`, `-stats_period`, `-pix_fmt`, `-f`, `-r`, limited `-map`,
   `-hwaccel_output_format`, `-hwaccel_device`, `-hwaccel_flags`
@@ -196,18 +206,11 @@ Not supported (software fallback or error):
 - Multiple inputs or outputs
 - `-c:v copy`
 - Unsupported codecs such as VP9 and AV1
-- Audio encoding, filtering, and mapping
+- Audio encoding and filtering; arbitrary audio mapping
 - Other accelerators such as `-hwaccel cuda`
 
-The hardware route is video only. Mux audio afterward:
-
-```sh
-sudo ffmpeg -y -i input.mp4 -map 0:v:0 -an \
-  -c:v h264_mediacodec -b:v 4M video-only.mp4
-
-/usr/bin/ffmpeg -y -i video-only.mp4 -i input.mp4 \
-  -map 0:v:0 -map 1:a? -c:v copy -c:a copy final.mp4
-```
+The ByteBuffer hardware encode route can preserve the first optional audio
+stream with `-c:a copy`. Surface zero-copy transcode remains video-only.
 
 ## 7. Differences from upstream FFmpeg
 
@@ -215,7 +218,7 @@ sudo ffmpeg -y -i input.mp4 -map 0:v:0 -an \
 | --- | --- | --- |
 | Codec caller | The FFmpeg process | Private bionic NDK worker |
 | Privileges | App/process permissions | Root-managed native/chroot path |
-| Simultaneous audio | Supported | Not supported; mux separately |
+| Simultaneous audio | Supported | First optional audio stream-copy on ByteBuffer encode |
 | Filters plus hardware | Partially supported | Not supported |
 | `-hwaccel_output_format` | Meaningful | Accepted and ignored |
 | Failure behavior | Configuration dependent | Error when hardware was named |

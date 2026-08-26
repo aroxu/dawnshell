@@ -507,6 +507,7 @@ MEDIACODEC_DECODERS = {"h264_mediacodec", "hevc_mediacodec"}
 # the same software decoder for the demuxed elementary stream anyway.
 SOFTWARE_VIDEO_DECODERS = {"h264", "hevc"}
 VIDEO_CODEC_OPTIONS = ("-c:v", "-codec:v", "-vcodec")
+AUDIO_CODEC_OPTIONS = ("-c:a", "-codec:a", "-acodec")
 RAW_VIDEO_SUFFIXES = (".i420", ".yuv")
 # Options the bridge reproduces exactly. Anything else falls back to plain
 # FFmpeg so a filter, scaler, or muxer flag is never silently dropped.
@@ -559,8 +560,10 @@ def parse_ffmpeg_command(argv):
     inputs = []
     output = None
     video_codec = None
+    audio_codec = None
     bitrate = None
     hardware_decode = False
+    audio_disabled = False
     index = 0
     while index < len(argv):
         token = argv[index]
@@ -571,6 +574,8 @@ def parse_ffmpeg_command(argv):
             index += 1
             continue
         if token in PASSTHROUGH_FLAGS:
+            if token == "-an":
+                audio_disabled = True
             index += 1
             continue
         if index + 1 >= len(argv):
@@ -587,6 +592,12 @@ def parse_ffmpeg_command(argv):
                 hardware_decode = True
             elif value not in SOFTWARE_VIDEO_DECODERS:
                 raise UnsupportedCommand("unsupported_decoder")
+        elif token in AUDIO_CODEC_OPTIONS:
+            if not inputs:
+                raise UnsupportedCommand("unsupported_audio_decoder")
+            if value != "copy" or audio_disabled:
+                raise UnsupportedCommand("unsupported_audio_codec")
+            audio_codec = value
         elif token == "-hwaccel":
             if value == "mediacodec":
                 hardware_decode = True
@@ -605,6 +616,8 @@ def parse_ffmpeg_command(argv):
         raise UnsupportedCommand("requires_single_input")
     if output is None:
         raise UnsupportedCommand("missing_output")
+    if audio_disabled and audio_codec is not None:
+        raise UnsupportedCommand("conflicting_audio_options")
     if video_codec == "copy":
         raise UnsupportedCommand("stream_copy")
 
@@ -625,7 +638,10 @@ def parse_ffmpeg_command(argv):
             "output": output,
             "codec": codec,
             "bitrate": bitrate,
+            "audio": audio_codec,
         }
+    if audio_codec is not None:
+        raise UnsupportedCommand("audio_copy_requires_bytebuffer_encode")
     return {
         "action": "transcode",
         "input": inputs[0],
@@ -648,6 +664,8 @@ def plan_ffmpeg(argv):
         fields.append("codec=" + plan["codec"])
     if plan.get("bitrate"):
         fields.append("bitrate=" + str(plan["bitrate"]))
+    if plan.get("audio"):
+        fields.append("audio=" + plan["audio"])
     if explicit:
         fields.append(explicit.strip())
     print(" ".join(fields))
