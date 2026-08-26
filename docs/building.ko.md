@@ -155,12 +155,17 @@ git push origin v0.3.0
 동작합니다.
 
 - pull request: 전체 빌드와 검사를 실행하고 artifact를 보관합니다.
-- `main`: debug 서명의 `continuous` prerelease를 갱신합니다.
+- `main`: 공개 debug 키로 서명한 `continuous` 일반 Release를 갱신하고 Latest로
+  표시합니다.
 - `vMAJOR.MINOR.PATCH` tag: 개인 키로 빌드하고 검증한 뒤 정식 Release를 만듭니다.
 
 CI는 ShellCheck, Markdown 링크·제목 anchor·영문/국문 문서 쌍 검사, 세 ABI 소스 빌드,
 정책 회귀 검사, Android lint/unit test,
 `apksigner`, 대응 소스와 라이선스 검사를 모두 통과해야 합니다.
+
+`continuous`는 저장소의 공개 개발 키로 서명되므로 같은 키로 서명한 APK끼리만
+Android에서 업데이트할 수 있습니다. 버전 tag Release는 설정된 비공개 제품용
+키를 사용합니다.
 
 ## 라이선스 준수
 

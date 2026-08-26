@@ -133,8 +133,8 @@ done
 {
     printf '# DawnShell %s\n\n' "$version"
     if [[ "$apk_suffix" == debug ]]; then
-        printf '> Continuous prerelease: this APK uses the public development signing key. '
-        printf 'Use a versioned release for production installation.\n\n'
+        printf '> Continuous release: this APK uses the public development signing key. '
+        printf 'Android accepts updates only from APKs signed by the same key.\n\n'
     fi
     printf 'Built from commit [`%s`](https://github.com/aroxu/dawnshell/commit/%s).\n\n' \
         "$revision" "$revision"

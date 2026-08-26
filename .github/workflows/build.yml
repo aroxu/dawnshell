@@ -280,11 +280,12 @@ jobs:
             gh release edit continuous \
               --title "DawnShell Continuous" \
               --notes-file release-assets/RELEASE_NOTES.md \
-              --prerelease
+              --prerelease=false \
+              --latest
           else
             gh release create continuous release-assets/* \
               --target "$GITHUB_SHA" \
               --title "DawnShell Continuous" \
               --notes-file release-assets/RELEASE_NOTES.md \
-              --prerelease
+              --latest
           fi

@@ -123,9 +123,13 @@ git push origin v0.3.0
 `.github/workflows/build.yml` runs on pull requests, `main`, manual dispatch,
 and version tags. It also checks shell scripts, Markdown links, heading anchors,
 and English/Korean document pairs. `main` updates the debug-signed `continuous`
-prerelease; a
+release and marks it as the latest release; a
 `vMAJOR.MINOR.PATCH` tag builds with private signing, verifies the complete
 distribution, and publishes a stable release.
+
+The continuously updated release is intentionally signed with the repository's
+public development key. Android can update it only with another APK signed by
+that same key. Version tags use the configured private production key instead.
 
 ## License compliance
 
