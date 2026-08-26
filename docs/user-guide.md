@@ -342,6 +342,12 @@ ssh -i ./dawnshell-ed25519 -p 22 debian@PHONE_IP
 Treat `tailscaled.state` as a device credential available before PIN entry. Do
 not store reusable authentication keys in the BFU rootfs.
 
+After system configuration, DawnShell places a croc compatibility wrapper in
+`/usr/local/bin`. Explicit send files and receive codes automatically ignore an
+idle non-TTY stdin, while `printf 'data' | croc send` keeps upstream's piped
+transfer behavior. See [croc troubleshooting](troubleshooting.md#croc-waits-forever-before-sending-or-receiving)
+for diagnostics and the `/usr/bin/croc` bypass.
+
 ## 11. Backup and removal
 
 Back up the exported SSH client key, important Debian configuration and user

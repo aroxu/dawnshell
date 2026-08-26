@@ -172,6 +172,41 @@ DawnShell은 주소가 없어도 SSH listener를 유지합니다. Android가 나
 Tailscale의 `network is unreachable`도 먼저 Android가 기본 경로를 가지고 있는지
 확인합니다. BFU rootfs에 재사용 auth key를 저장하지 마세요.
 
+## croc 송수신이 시작되지 않고 계속 기다립니다
+
+`croc`은 명시적인 파일 이름보다 먼저 non-TTY 표준 입력을 읽습니다. SSH 명령
+실행기나 프로세스 관리자가 아무 데이터도 쓰지 않은 입력 pipe를 계속 열어 두면,
+croc은 public IP 초기화 직후 입력을 기다리며 멈춘 것처럼 보입니다.
+
+DawnShell 업데이트 후 **Debian 13 systemd + SSH 구성**을 다시 실행하세요. 이 작업은
+`/usr/local/bin/croc` 호환 래퍼를 설치합니다. 래퍼는 명시적인 파일, text payload,
+수신 code 또는 수신용 `CROC_SECRET`이 있을 때만 `--ignore-stdin`을 자동으로
+추가합니다. 의도적인 pipe 전송은 그대로 유지합니다.
+
+```sh
+type -a croc
+croc --debug --transport relay send file.bin
+croc --debug --transport relay RECEIVE-CODE
+
+# 명시적인 파일이 없는 pipe 전송은 기존 croc 동작을 유지합니다.
+printf 'hello\n' | croc send
+
+# DawnShell 래퍼를 우회해 원본 croc을 직접 진단합니다. 수동 설치본은
+# libexec에 보존되고 Debian 패키지판은 /usr/bin에 남습니다.
+/usr/local/libexec/dawnshell-croc-real --debug send file.bin
+/usr/bin/croc --debug send file.bin
+```
+
+기존 `/usr/local/bin/croc` 수동 설치본은
+`/usr/local/libexec/dawnshell-croc-real`에 보존하고, Debian 패키지의
+`/usr/bin/croc`은 이동하지 않습니다. 래퍼는 relay를 강제로 선택하거나 전송
+secret을 저장하지 않습니다. 그래도 기다린다면 upstream 옵션을 직접 지정하고
+debug 출력을 보관하세요.
+
+```sh
+croc --debug --ignore-stdin --transport relay send file.bin
+```
+
 ## 시작·중지·재시작이 실패합니다
 
 버튼 요청은 즉시 전달됩니다. **서버 수명 주기** 로그에서 요청 시각과 첫 실패

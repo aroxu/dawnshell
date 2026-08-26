@@ -403,6 +403,13 @@ Tailscale을 커널 네트워크 모드로 사용하면 `tailscale0` 장치와 �
 Android와 공유됩니다. 재사용 인증 키를 BFU rootfs에 저장하지 마세요.
 `tailscaled.state`도 PIN 입력 전 사용할 수 있는 기기 인증 정보로 취급합니다.
 
+시스템 구성 후 DawnShell은 `/usr/local/bin`에 croc 호환 래퍼를 설치합니다. 명시적인
+송신 파일과 수신 code는 열린 non-TTY stdin을 자동으로 무시하지만,
+`printf 'data' | croc send`처럼 파일 인자가 없는 pipe 전송은 원래 동작을
+유지합니다. 진단과 `/usr/bin/croc` 우회 방법은
+[croc 문제 해결](troubleshooting.ko.md#croc-송수신이-시작되지-않고-계속-기다립니다)을
+참고하세요.
+
 ## 12. 백업과 제거
 
 다음 항목을 백업하는 것을 권장합니다.

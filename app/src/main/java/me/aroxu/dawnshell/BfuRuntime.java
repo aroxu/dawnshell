@@ -42,6 +42,7 @@ final class BfuRuntime {
         final File systemdConfiguratorScript;
         final File dockerNetworkConfiguratorScript;
         final File hostUsbConfiguratorScript;
+        final File crocCompatibilityScript;
         final File codecFfmpegAdapterScript;
         final File codecLiveEncodeScript;
         final File gpuStatusScript;
@@ -93,6 +94,8 @@ final class BfuRuntime {
                     "configure-docker-network.sh");
             hostUsbConfiguratorScript = new File(scripts,
                     "configure-host-usb.sh");
+            crocCompatibilityScript = new File(scripts,
+                    "dawnshell-croc.sh");
             codecFfmpegAdapterScript = new File(scripts,
                     "dawnshell-codec-ffmpeg.py");
             codecLiveEncodeScript = new File(scripts,
@@ -219,6 +222,8 @@ final class BfuRuntime {
                 layout.dockerNetworkConfiguratorScript, true);
         copyPrivateAsset(deContext, "bfu/configure-host-usb.sh",
                 layout.hostUsbConfiguratorScript, true);
+        copyPrivateAsset(deContext, "bfu/dawnshell-croc.sh",
+                layout.crocCompatibilityScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-codec-ffmpeg.py",
                 layout.codecFfmpegAdapterScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-live-encode.sh",

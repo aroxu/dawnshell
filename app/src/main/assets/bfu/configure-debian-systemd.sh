@@ -93,6 +93,10 @@ esac
     fail 16 "hardware codec FFmpeg adapter is missing"
 [ ! -L "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
     fail 16 "hardware codec FFmpeg adapter symlinks are forbidden"
+[ -f "$BFU_ROOT/scripts/dawnshell-croc.sh" ] || \
+    fail 16 "croc compatibility wrapper is missing"
+[ ! -L "$BFU_ROOT/scripts/dawnshell-croc.sh" ] || \
+    fail 16 "croc compatibility wrapper symlinks are forbidden"
 [ -f "$BFU_ROOT/scripts/dawnshell-live-encode.sh" ] || \
     fail 16 "hardware live encoder is missing"
 [ ! -L "$BFU_ROOT/scripts/dawnshell-live-encode.sh" ] || \
@@ -254,6 +258,50 @@ if [ ! -d "$ROOT/usr/local/libexec" ] || [ -L "$ROOT/usr/local/libexec" ]; then
 fi
 [ "$(stat -c '%u:%g' "$ROOT/usr/local/libexec")" = "0:0" ] || \
     fail 18 "rootfs codec adapter destination is not root-owned"
+
+# Preserve a manually installed /usr/local/bin/croc before placing DawnShell's
+# compatibility wrapper first in PATH. Debian-packaged croc remains untouched
+# at /usr/bin/croc. Unknown symlinks are never replaced automatically.
+croc_entry="$ROOT/usr/local/bin/croc"
+croc_wrapper=/usr/local/bin/dawnshell-croc
+croc_preserved="$ROOT/usr/local/libexec/dawnshell-croc-real"
+install_croc_link=true
+if [ -L "$croc_entry" ]; then
+    if [ "$(readlink "$croc_entry")" != "$croc_wrapper" ]; then
+        echo "WARNING: preserving unmanaged /usr/local/bin/croc symlink"
+        echo "USAGE: invoke /usr/local/bin/dawnshell-croc for non-TTY compatibility"
+        install_croc_link=false
+    fi
+elif [ -e "$croc_entry" ]; then
+    [ -f "$croc_entry" ] && [ -x "$croc_entry" ] || \
+        fail 18 "existing /usr/local/bin/croc is not a regular executable"
+    [ "$(stat -c '%u:%g' "$croc_entry")" = "0:0" ] || \
+        fail 18 "existing /usr/local/bin/croc is not root-owned"
+    if [ -e "$croc_preserved" ]; then
+        if "$TOOLBOX" cmp -s "$croc_entry" "$croc_preserved"; then
+            rm "$croc_entry"
+        else
+            echo "WARNING: a different preserved croc binary already exists"
+            echo "USAGE: invoke /usr/local/bin/dawnshell-croc explicitly"
+            install_croc_link=false
+        fi
+    else
+        mv "$croc_entry" "$croc_preserved"
+        chown 0:0 "$croc_preserved"
+        chmod 0755 "$croc_preserved"
+        echo "Preserved manually installed croc at /usr/local/libexec/dawnshell-croc-real"
+    fi
+fi
+cp "$BFU_ROOT/scripts/dawnshell-croc.sh" \
+    "$ROOT/usr/local/bin/dawnshell-croc.new"
+chown 0:0 "$ROOT/usr/local/bin/dawnshell-croc.new"
+chmod 0755 "$ROOT/usr/local/bin/dawnshell-croc.new"
+mv "$ROOT/usr/local/bin/dawnshell-croc.new" \
+    "$ROOT/usr/local/bin/dawnshell-croc"
+if [ "$install_croc_link" = true ]; then
+    ln -sfn "$croc_wrapper" "$ROOT/usr/local/bin/croc.new"
+    mv "$ROOT/usr/local/bin/croc.new" "$croc_entry"
+fi
 cp "$BIN/dawnshell-codec-worker" \
     "$ROOT/usr/local/libexec/dawnshell-codec-worker.new"
 chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-worker.new"

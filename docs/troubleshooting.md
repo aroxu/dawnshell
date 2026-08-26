@@ -135,6 +135,42 @@ Wi-Fi credentials that a ROM keeps unavailable during BFU. Treat Tailscale
 state as a BFU-available device credential and never store reusable auth keys
 in setup scripts.
 
+## croc waits forever before sending or receiving
+
+`croc` reads non-TTY standard input before it considers an explicit filename.
+An SSH command runner or process supervisor can leave that input pipe open
+without writing anything, so croc stops immediately after its initial public-IP
+message and appears to hang.
+
+Re-run **Configure Debian 13 systemd + SSH** after updating DawnShell. The
+configuration installs `/usr/local/bin/croc`, a narrow compatibility wrapper
+that adds `--ignore-stdin` only for an explicit file, text payload, receive code,
+or `CROC_SECRET` receive request. A bare piped transfer remains unchanged.
+
+```sh
+type -a croc
+croc --debug --transport relay send file.bin
+croc --debug --transport relay RECEIVE-CODE
+
+# Intentional stdin transfer is still handled by upstream croc.
+printf 'hello\n' | croc send
+
+# Bypass DawnShell's compatibility wrapper for diagnosis. A manually
+# installed binary is preserved in libexec; a Debian package uses /usr/bin.
+/usr/local/libexec/dawnshell-croc-real --debug send file.bin
+/usr/bin/croc --debug send file.bin
+```
+
+The wrapper preserves a manually installed `/usr/local/bin/croc` as
+`/usr/local/libexec/dawnshell-croc-real`; a Debian package at `/usr/bin/croc`
+is never moved. It does not choose a relay or store transfer secrets.
+If a command still waits, add upstream's flag explicitly and retain the debug
+output:
+
+```sh
+croc --debug --ignore-stdin --transport relay send file.bin
+```
+
 ## Start, stop, or restart fails
 
 Lifecycle requests are delivered immediately. Check the first failure in the

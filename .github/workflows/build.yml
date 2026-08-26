@@ -151,6 +151,7 @@ jobs:
             scripts/test-compatibility-policy.sh \
             scripts/test-rootfs-path-resolution.sh \
             scripts/test-lifecycle-control-policy.sh \
+            scripts/test-croc-compatibility-wrapper.sh \
             scripts/test-documentation.sh ; do
             echo "::group::$stage"
             stage_log="$RUNNER_TEMP/$(basename "$stage").log"
