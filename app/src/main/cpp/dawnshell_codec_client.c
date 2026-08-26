@@ -323,6 +323,40 @@ static int child_install_descriptor(int source, int target) {
     return 0;
 }
 
+/*
+ * A direct bionic executable does not get an app class-loader namespace.
+ * Android 10+ can therefore resolve libmedia.so from /system but omit the
+ * ICU APEX from the default namespace's transitive search path.  Restrict the
+ * worker override to the immutable architecture-matching ICU directory.  On
+ * pre-APEX Android the file is absent and the platform linker keeps its normal
+ * legacy search configuration.
+ */
+static int child_configure_android_linker(void) {
+    static const char *const unsafe_variables[] = {
+        "LD_AUDIT", "LD_CONFIG_FILE", "LD_DEBUG", "LD_PRELOAD",
+        "LD_LIBRARY_PATH"
+    };
+    for (size_t index = 0;
+            index < sizeof(unsafe_variables) / sizeof(unsafe_variables[0]);
+            index++) {
+        if (unsetenv(unsafe_variables[index]) != 0) return -1;
+    }
+#if defined(__LP64__)
+    static const char icu_directory[] = "/apex/com.android.i18n/lib64";
+    static const char icu_library[] =
+            "/apex/com.android.i18n/lib64/libandroidicu.so";
+#else
+    static const char icu_directory[] = "/apex/com.android.i18n/lib";
+    static const char icu_library[] =
+            "/apex/com.android.i18n/lib/libandroidicu.so";
+#endif
+    if (access(icu_library, R_OK) == 0
+            && setenv("LD_LIBRARY_PATH", icu_directory, 1) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
 static int start_worker(void) {
     if (worker.started) return dup(worker.memfd);
     worker.memfd = create_shared_memory("dawnshell-codec-transport",
@@ -354,7 +388,8 @@ static int start_worker(void) {
                 || child_install_descriptor(worker.request_eventfd,
                         DSCW_WORKER_REQUEST_EVENTFD) != 0
                 || child_install_descriptor(worker.response_eventfd,
-                        DSCW_WORKER_RESPONSE_EVENTFD) != 0) {
+                        DSCW_WORKER_RESPONSE_EVENTFD) != 0
+                || child_configure_android_linker() != 0) {
             _exit(126);
         }
         execl(path, path, "--inherited-transport", (char *)NULL);

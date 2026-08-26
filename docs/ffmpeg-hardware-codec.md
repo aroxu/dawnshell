@@ -296,3 +296,11 @@ missing or the worker exited before its ready handshake. `hardware codec ...
 unavailable` means the Android platform did not expose a permitted hardware
 component. `Connection refused` belongs to obsolete socket-based builds and is
 not an expected error in this architecture.
+
+If startup prints `libandroidicu.so not found`, Debian still has an older static
+client that did not expose Android's immutable ICU APEX to the private worker.
+Update DawnShell, open the app, and run **Configure Debian 13 systemd + SSH**
+again. The current client removes inherited linker-control variables and adds
+only the ABI-matching `/apex/com.android.i18n/lib[64]` directory when it exists.
+Confirm the replacement with `sudo dawnshell-codec health --format json`; a
+working installation reports `worker_state=ready`.

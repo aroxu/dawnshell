@@ -383,3 +383,11 @@ handshake 전에 worker가 종료된 경우입니다. `hardware codec ... unavai
 Android 플랫폼에서 허용된 하드웨어 component를 찾지 못한 경우입니다.
 `Connection refused`는 폐기된 socket 기반 빌드의 오류이며 현재 구조에서는 나오면
 안 됩니다.
+
+시작 로그에 `libandroidicu.so not found`가 나오면 Debian에 Android의 읽기 전용 ICU
+APEX를 private worker에 노출하지 않는 구형 정적 client가 남아 있는 것입니다.
+DawnShell을 업데이트하고 앱을 연 뒤 **Debian 13 systemd + SSH 구성**을 다시
+실행합니다. 현재 client는 상속된 linker 제어 환경 변수를 제거하고, 파일이 있는
+경우 ABI에 맞는 `/apex/com.android.i18n/lib[64]`만 검색 경로에 추가합니다.
+`sudo dawnshell-codec health --format json`의 `worker_state=ready`로 교체 성공을
+확인할 수 있습니다.

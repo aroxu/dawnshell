@@ -86,6 +86,9 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
   transcode gate, and abrupt-client resource cleanup test path.
 - [x] Recorded earlier AFU app-local MediaCodec probe evidence. This historical
   probe does not validate the current inherited-FD NDK worker path.
+- [x] Verified the current inherited-FD private NDK worker after unlock by
+  encoding a 10-second, 1920x1080 HEVC stream (300 frames at approximately
+  8 Mbit/s) on an Android 16 ARM64 device.
 - [ ] Verify vendor AVC hardware instance creation on a locked real device.
 - [ ] Verify fixed-vector decode, encode, inherited memfd/eventfd transport, and Surface
   transcode before and after first unlock.
@@ -99,6 +102,8 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [x] First-unlock continuity.
 - [x] cgroup v1 delegation through Docker cgroup initialization.
 - [x] Shared host networking and Tailscale routes.
+- [x] AFU private NDK worker startup and 1080p HEVC hardware encode through
+  the inherited `memfd`/`eventfd` transport.
 
 ## Remaining validation
 

@@ -92,6 +92,8 @@ ABI(Application Binary Interface)의 의미는
   비정상 client 자원 정리 성능 검사 경로를 구현했습니다.
 - [x] 이전 AFU 앱 내부 MediaCodec probe 결과를 기록했습니다. 이 과거 probe는
   현재 inherited-FD NDK worker 경로의 검증 결과가 아닙니다.
+- [x] Android 16 ARM64 실기기의 잠금 해제 후 환경에서 현재 inherited-FD private
+  NDK worker로 10초, 1920x1080 HEVC 영상(300 frame, 약 8 Mbit/s)을 인코딩했습니다.
 - [x] B-frame MP4와 HEVC container 고정 vector, streaming FFmpeg wrapper,
   software CPU 기준선과 hardware encode PSNR/SSIM 검사를 구현했습니다.
 - [x] malformed H.264/HEVC, EOS, 동시 private worker, parent 종료 후 정리 및
@@ -119,6 +121,8 @@ ABI(Application Binary Interface)의 의미는
 - [x] 첫 잠금 해제 뒤 같은 Debian과 SSH가 유지되었습니다.
 - [x] cgroup v1 위임으로 Docker의 cgroup 초기화를 통과했습니다.
 - [x] 호스트 네트워크 공유와 Tailscale 경로를 확인했습니다.
+- [x] AFU에서 private NDK worker를 시작하고 inherited `memfd`/`eventfd` 전송으로
+  1080p HEVC 하드웨어 인코딩을 완료했습니다.
 
 ## 남은 검증
 

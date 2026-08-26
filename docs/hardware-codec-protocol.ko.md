@@ -51,6 +51,15 @@ mount에는 read-only, `nosuid`, `nodev`를 적용하되 Android linker 실행�
 `noexec`는 적용하지 않습니다. 일반 Termux CE, DawnShell 앱 데이터, Android의 다른
 쓰기 가능한 데이터 tree는 코덱을 위해 bind하지 않습니다.
 
+정적 client는 worker를 `exec`하기 전에 상속된 `LD_PRELOAD`, `LD_AUDIT`,
+`LD_DEBUG`, `LD_CONFIG_FILE`, `LD_LIBRARY_PATH`를 제거합니다. Android의 읽기 전용
+ICU APEX가 있으면 ABI에 맞는 `/apex/com.android.i18n/lib[64]` 디렉터리만
+`LD_LIBRARY_PATH`로 설정합니다. 직접 실행한 bionic ELF에는 앱 class-loader
+namespace가 없기 때문에 일부 Android linker 설정은 `/system/lib[64]/libmedia.so`는
+찾아도 전이 의존성인 `libandroidicu.so`를 찾지 못합니다. 이 제한된 경로가 해당
+문제를 해결합니다. APEX가 없는 구형 Android에서는 override를 설정하지 않아 기존
+legacy linker 검색을 그대로 사용합니다.
+
 ## transport control page
 
 control page에는 다음 값이 있습니다.

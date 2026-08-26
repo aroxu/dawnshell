@@ -50,6 +50,15 @@ executable because the Android linker and APEX libraries must run. No Termux CE,
 DawnShell app data, credential, or other writable Android data tree is mounted
 for the codec path.
 
+Before `exec`, the static client removes inherited `LD_PRELOAD`, `LD_AUDIT`,
+`LD_DEBUG`, `LD_CONFIG_FILE`, and `LD_LIBRARY_PATH`. When Android's immutable
+ICU APEX exists, it then sets `LD_LIBRARY_PATH` to only the ABI-matching
+`/apex/com.android.i18n/lib[64]` directory. Direct bionic executables do not
+receive an app class-loader namespace, and some Android linker configurations
+otherwise resolve `/system/lib[64]/libmedia.so` without making its transitive
+`libandroidicu.so` dependency visible. Pre-APEX Android keeps its normal legacy
+linker search because this override is not set when the ICU library is absent.
+
 ## Transport control page
 
 The page stores transport magic `DSCW` (`0x44534357`), version 1, mapping and
