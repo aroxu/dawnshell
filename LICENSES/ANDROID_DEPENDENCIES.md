@@ -1,5 +1,8 @@
 # Android dependency notices
 
+[Project home](../README.md) · [Documentation](../docs/README.md) ·
+[License bundle](README.md)
+
 The following libraries are packaged into the DawnShell APK through Gradle.
 Their resolved versions are fixed by `app/build.gradle` and the transitive
 dependency metadata fetched by Gradle.

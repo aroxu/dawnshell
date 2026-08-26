@@ -2,7 +2,7 @@
 
 [한국어](ffmpeg-hardware-codec.ko.md)
 
-[Project home](../README.md) · [User manual](user-guide.md) ·
+[Documentation](README.md) · [User manual](user-guide.md) ·
 [Testing](testing.md)
 
 Looking for `-hwaccel mediacodec` or `-c:v h264_mediacodec`? Those upstream
@@ -271,18 +271,27 @@ hash -r
 | `require` | Fail unless a hardware plan can be produced |
 | `off` | Always use `/usr/bin/ffmpeg` |
 
-The automatic hardware route currently accepts one input and output, H.264 or
-HEVC input, AVC (`libx264`/`h264`) output or raw `.i420`/`.yuv`, even dimensions
-from 16 through 4096, 1–240 fps, and a bitrate from 1000 through 100000000.
+The automatic hardware route accepts one input and output, H.264 or HEVC input,
+AVC aliases or `h264_mediacodec`, ByteBuffer HEVC output through
+`hevc_mediacodec`, raw `.i420`/`.yuv`, even dimensions from 16 through 4096,
+1–240 fps, and a bitrate from 1000 through 100000000.
 
-Filters, CRF/preset options, multiple inputs or outputs, stream copy,
-unsupported codecs, and audio processing fall back to plain FFmpeg or fail in
-`require` mode. Specify `-an` because hardware output is video-only. To retain
-audio, mux it afterward:
+Filters, CRF/preset options, multiple inputs or outputs, video stream copy,
+unsupported codecs, and audio encoding/filtering fall back to plain FFmpeg or
+fail in `require` mode. ByteBuffer encode can preserve the first optional audio
+stream with `-c:a copy`:
+
+```sh
+sudo ffmpeg -y -i input.mp4 -c:a copy \
+  -c:v h264_mediacodec -b:v 4M final.mp4
+```
+
+Surface transcode remains video-only. For an unsupported audio layout, mux it
+afterward:
 
 ```sh
 sudo env DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg \
-  -y -i input.mp4 -map 0:v:0 -an -c:v libx264 -b:v 4M video-only.mp4
+  -y -i input.mp4 -map 0:v:0 -an -c:v h264_mediacodec -b:v 4M video-only.mp4
 
 /usr/bin/ffmpeg -y -i video-only.mp4 -i input.mp4 \
   -map 0:v:0 -map 1:a? -c:v copy -c:a copy final.mp4

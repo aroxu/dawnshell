@@ -1,6 +1,6 @@
 # Bundled third-party notices
 
-[한국어](THIRD_PARTY_NOTICES.ko.md)
+[한국어](THIRD_PARTY_NOTICES.ko.md) · [Documentation](../docs/README.md) · [Build and release](../docs/building.md)
 
 DawnShell application code is MIT licensed. The APK also aggregates separately
 executed programs and public Debian keys under their upstream terms.

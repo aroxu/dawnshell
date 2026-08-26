@@ -1,6 +1,6 @@
 # Debian systemd와 SSH 구성
 
-[English](debian-systemd.md) · [쉬운 용어집](glossary.ko.md)
+[English](debian-systemd.md) · [문서 홈](README.ko.md) · [쉬운 용어집](glossary.ko.md)
 
 이 문서는 설치된 Debian rootfs에 systemd와 OpenSSH를 구성하고, BFU(Before
 First Unlock)에서 계속 실행하는 방법을 설명합니다.

@@ -1,6 +1,6 @@
 # DawnShell 보안 모델
 
-[English](security.md) · [쉬운 용어집](glossary.ko.md)
+[English](security.md) · [문서 홈](README.ko.md) · [쉬운 용어집](glossary.ko.md)
 
 DawnShell은 PIN 입력 전에도 root 권한으로 Debian과 네트워크 서비스를
 시작합니다. 편리한 만큼 일반 Android 앱보다 강한 주의가 필요합니다.
@@ -114,11 +114,13 @@ root 네트워크 변경이 Android 전체에 영향을 줄 수 있다는 뜻입
 Ethernet, VPN, Tailscale, SSH를 끊을 수 있으므로 별도 복구 경로가 있을 때만
 사용해 주세요.
 
-Docker 호스트 IPC 호환 옵션은 기본적으로 꺼져 있습니다. 관리형 CLI 래퍼가
+Docker 호스트 IPC 호환 옵션은 일부 커널의 private IPC/mqueue 작업이 Android
+전체를 재부팅하는 문제를 피하기 위해 기본으로 켜져 있습니다. 관리형 CLI 래퍼가
 컨테이너 생성에 `--ipc=host`를 추가하므로 컨테이너가 Android 및 Debian과
-공유하는 IPC 객체를 보거나 변경할 수 있습니다. private IPC/mqueue 경로가
-고장 난 커널에서만 사용하고 신뢰하지 않는 컨테이너는 실행하지 마세요. private
-IPC가 필요하고 커널이 지원한다면 `/usr/bin/docker`로 래퍼를 우회할 수 있습니다.
+공유하는 IPC 객체를 보거나 변경할 수 있습니다. 이 기본값은 안정성을 위한 것이지
+격리가 강하다는 뜻이 아닙니다. 신뢰하지 않는 컨테이너에는 사용하지 마세요.
+명시적인 `--ipc`/`ipc:` 값은 우선하지만, DawnShell이 위험한 namespace 생성을
+차단한 커널에서는 private IPC 컨테이너가 권한 오류로 실패할 수 있습니다.
 
 ## 호스트 USB
 
@@ -141,10 +143,11 @@ USB/gadget controller를 독점 허용 목록에 넣지 마세요.
 
 코덱 브리지는 기본적으로 꺼져 있으며 외부 TCP 포트를 열지 않습니다. secure/DRM
 코덱은 목록과 생성 대상에서 제외하고 소프트웨어 코덱으로 자동 전환하지 않습니다.
-코덱 프로세스는 앱의 별도 Android 프로세스에 격리됩니다. DE에는 코덱 이름,
-capability와 오류만 저장하며 영상 frame, bitstream, 파일 경로와 인증 정보는
-저장하지 않습니다. 신뢰하지 않는 영상의 자동 처리는 실제 frame protocol이
-구현된 뒤에도 기본 비활성 상태를 유지해야 합니다.
+앱의 `:codec` 프로세스는 capability와 파일 기반 진단만 담당합니다. 실제 Debian
+영상 명령은 명령마다 별도 bionic NDK worker를 만들고, public listener 없이 상속된
+`memfd`/`eventfd`만 사용합니다. DE에는 코덱 이름, capability와 오류만 저장하며
+영상 frame, bitstream, 파일 경로와 인증 정보는 저장하지 않습니다. 신뢰하지 않는
+영상의 자동 처리는 기본 비활성 상태를 유지해야 합니다.
 
 ## 로그
 

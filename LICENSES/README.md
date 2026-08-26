@@ -1,5 +1,7 @@
 # DawnShell license bundle
 
+[Project home](../README.md) · [Documentation](../docs/README.md) · [Build and release](../docs/building.md)
+
 DawnShell application source is licensed under MIT. The APK is an aggregate
 that also carries separately executed native command-line programs, public
 Debian archive keys, and Android libraries under their respective licenses.
@@ -28,7 +30,8 @@ Android-specific patches, configuration and build scripts are committed under
 
 ## Android libraries
 
-See `ANDROID_DEPENDENCIES.md`. Apache-licensed dependencies use
+[Android dependency notices](ANDROID_DEPENDENCIES.md) lists the Gradle-packaged
+Android libraries. Apache-licensed dependencies use
 `Apache-2.0.txt`; EdDSA-Java uses `CC0-1.0.txt`.
 
 ## Release rule

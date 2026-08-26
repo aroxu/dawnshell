@@ -2,11 +2,15 @@
 
 [한국어](installation.ko.md)
 
-[Project home](../README.md) · [User manual](user-guide.md) ·
+[Documentation](README.md) · [User manual](user-guide.md) ·
 [Glossary](glossary.md) · [Latest release](https://github.com/aroxu/dawnshell/releases/latest)
 
 This guide uses the signed APK from GitHub Releases. APK means Android Package,
 the file installed on an Android device.
+
+At the end, permanent root works, Debian 13 and systemd run from
+`/data/local/debian`, the generated key logs in over TCP 22, and the same SSH
+server remains available before and after first unlock.
 
 ## 1. Check the requirements
 
@@ -28,33 +32,45 @@ DawnShell from battery, sleep, and automatic-start restrictions.
 
 ## 2. Download and verify the release
 
-Download these files from [DawnShell Releases](https://github.com/aroxu/dawnshell/releases):
+Download the APK and `SHA256SUMS` from
+[DawnShell Releases](https://github.com/aroxu/dawnshell/releases). Download every
+release asset when you want `sha256sum -c` to verify the whole set.
 
 ```text
 dawnshell-<version>.apk
 SHA256SUMS
 ```
 
-On Linux:
+On Linux with every asset downloaded:
 
 ```sh
 sha256sum -c SHA256SUMS
 ```
 
-On macOS with the built-in tools:
+With only the APK and checksum file:
+
+```sh
+apk='dawnshell-0.3.0.apk'
+grep "  $apk\$" SHA256SUMS | sha256sum -c -
+```
+
+On macOS with every asset and the built-in tools:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
 ```
 
-On Windows PowerShell:
+On Windows PowerShell, compare the APK with its matching entry:
 
 ```powershell
-Get-FileHash .\dawnshell-0.3.0.apk -Algorithm SHA256
-Get-Content .\SHA256SUMS
+$apk = 'dawnshell-0.3.0.apk'
+$actual = (Get-FileHash ".\$apk" -Algorithm SHA256).Hash.ToLowerInvariant()
+$expected = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($apk))$" }) -split '\s+')[0]
+$actual -eq $expected
 ```
 
-Do not install a file whose checksum differs. Ordinary workflow artifacts may be
+Change the filename for the downloaded version. Do not install unless the final
+PowerShell result is `True` and a matching entry was found. Ordinary workflow artifacts may be
 debug-signed test builds; regular users should install a tagged Release APK.
 See [Google's app-signing guide](https://developer.android.com/studio/publish/app-signing).
 
@@ -90,6 +106,9 @@ Recommended initial values:
 - Keep the BFU CE-readable override disabled.
 - Select automatic cgroup v2-to-v1 fallback.
 - Select safe host-network-only Docker mode.
+- Keep the recommended Docker host-IPC compatibility switch enabled.
+- Keep raw USB sharing off.
+- Keep experimental hardware video acceleration off initially.
 
 Tap **Save and provision BFU runtime**. This stores non-secret settings and the
 ABI-specific runtime in Device Encrypted storage. Google explains why DE is
@@ -164,3 +183,5 @@ exported SSH private key before updates.
 - [Security model](security.md)
 - [Rootfs installation details](rootfs-installation.md)
 - [Testing](testing.md)
+- [Troubleshooting](troubleshooting.md)
+- [Documentation home](README.md)

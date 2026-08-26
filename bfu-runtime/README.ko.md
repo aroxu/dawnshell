@@ -1,6 +1,6 @@
 # DawnShell 내장 부트스트랩 런타임
 
-[English](README.md) · [쉬운 용어집](../docs/glossary.ko.md)
+[English](README.md) · [문서 홈](../docs/README.ko.md) · [빌드와 배포](../docs/building.ko.md)
 
 이 디렉터리에는 Android에서 Debian 13 rootfs를 설치하고 시작하는 데 필요한
 최소 도구의 소스, 패치, 설정과 버전 잠금 정보가 있습니다.
@@ -25,6 +25,10 @@ ABI는 CPU에 맞는 네이티브 실행 파일 규칙입니다.
 - 최소 빌드 설정: `config/`
 - 빌드 스크립트: `../scripts/build-bootstrap-runtime.sh`
 - 서드파티 라이선스: [THIRD_PARTY_NOTICES.ko.md](THIRD_PARTY_NOTICES.ko.md)
+
+일반 사용자는 이 디렉터리의 파일을 휴대전화에 직접 복사할 필요가 없습니다. 앱이
+현재 ABI에 맞는 검증된 결과만 DE 저장소에 배치합니다. 소스를 바꿨다면 전체
+`scripts/build-all.sh`를 실행해 세 ABI와 라이선스 검사를 함께 통과시키세요.
 
 실제 기기의 키, PID(Process Identifier), 로그와 `authorized_keys`는 이 저장소에
 커밋하지 않습니다. 앱의 DE(Device Encrypted) 저장소 또는 검토된 Debian

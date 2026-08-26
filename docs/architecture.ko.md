@@ -1,6 +1,6 @@
 # DawnShell 아키텍처
 
-[English](architecture.md) · [쉬운 용어집](glossary.ko.md)
+[English](architecture.md) · [문서 홈](README.ko.md) · [쉬운 용어집](glossary.ko.md)
 
 이 문서는 DawnShell이 BFU(Before First Unlock, 최초 잠금 해제 전)에서 Debian을
 어떻게 시작하고, 어떤 보안 경계를 지키는지 설명합니다.
@@ -154,7 +154,7 @@ listening socket, descriptor 전달, 등록 service, 상주 Debian codec daemon�
 명령 하나가 worker 하나를 소유하며, 부모가 종료되면 자식도 종료되어 session을
 정리합니다. private Debian mount namespace에는 bionic worker 실행에 필요한
 `/system`, `/apex`, 선택적 `/linkerconfig`만 읽기 전용으로 노출합니다. 앱 private
-storage와 일반 Termux CE는 노출하지 않습니다.
+storage와 일반 앱 CE는 노출하지 않습니다.
 
 APK에는 armv7/arm64/x86_64용 정적 client와 동적 NDK worker가 포함됩니다. worker는
 AVC/HEVC byte-buffer decode/encode와 decoder Surface→encoder Surface transcode를

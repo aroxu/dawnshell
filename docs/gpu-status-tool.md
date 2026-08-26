@@ -2,7 +2,7 @@
 
 [한국어](gpu-status-tool.ko.md)
 
-[Project home](../README.md) · [FFmpeg hardware codec](ffmpeg-hardware-codec.md) ·
+[Documentation](README.md) · [FFmpeg hardware codec](ffmpeg-hardware-codec.md) ·
 [User manual](user-guide.md)
 
 ## Summary

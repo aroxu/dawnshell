@@ -1,6 +1,6 @@
 # 내장 서드파티 소프트웨어 안내
 
-[English](THIRD_PARTY_NOTICES.md)
+[English](THIRD_PARTY_NOTICES.md) · [문서 홈](../docs/README.ko.md) · [빌드와 배포](../docs/building.ko.md)
 
 DawnShell 앱 코드는 MIT 라이선스로 배포합니다. APK(Android Package)에는 별도
 프로그램과 공개 Debian 키도 포함되며, 각 구성 요소의 원래 라이선스를 그대로

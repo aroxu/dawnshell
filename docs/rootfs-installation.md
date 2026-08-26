@@ -1,6 +1,6 @@
 # Debian rootfs installation
 
-[한국어](rootfs-installation.ko.md) · [Glossary](glossary.md)
+[한국어](rootfs-installation.ko.md) · [Documentation](README.md) · [Glossary](glossary.md)
 
 A rootfs is Debian's complete root file system. DawnShell installs Debian 13
 Trixie at `/data/local/debian`.

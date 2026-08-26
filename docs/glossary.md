@@ -2,7 +2,7 @@
 
 [한국어](glossary.ko.md)
 
-[Project home](../README.md) · [Installation guide](installation.md) ·
+[Documentation](README.md) · [Installation guide](installation.md) ·
 [User manual](user-guide.md)
 
 This glossary expands the abbreviations used by DawnShell and links to official
@@ -75,6 +75,23 @@ Google or AOSP documentation where the term is part of Android.
 - **OpenSSH:** the SSH implementation that provides the `sshd` server and `ssh`
   client.
 - **D-Bus — Desktop Bus:** the message bus used by Linux services and systemd.
+- **Container:** a process environment that shares the host kernel while
+  separating selected filesystem, PID, and resource views. It is not a virtual
+  machine.
+- **Docker:** a container engine. Inside DawnShell its network, IPC, and cgroup
+  choices can affect Android because the same kernel and network are shared.
+- **FFmpeg:** command-line media processing tools. DawnShell combines Debian
+  FFmpeg demux/mux work with Android MediaCodec.
+- **AVC / H.264 and HEVC / H.265:** two pairs of names for common video
+  compression standards.
+- **MediaCodec:** Android's API for hardware and software media codecs.
+  DawnShell accepts only qualified hardware components as hardware success.
+- **I420 / YUV_420:** an uncompressed planar video format used by the
+  byte-buffer codec path.
+- **VPU — Video Processing Unit:** a dedicated video engine, also called MFC,
+  Venus, or Vcodec on some platforms. It is separate from the 3D GPU.
+- **sysfs:** the `/sys` virtual filesystem that exposes kernel device and driver
+  state.
 
 ## Kernel and network terms
 
@@ -102,3 +119,13 @@ Google or AOSP documentation where the term is part of Android.
 - **SELinux — Security-Enhanced Linux:** mandatory access control used by Android
   to strengthen app and service isolation. See
   [the AOSP app sandbox guide](https://source.android.com/docs/security/app-sandbox).
+- **IPC — Inter-Process Communication:** mechanisms by which processes exchange
+  data. Docker host IPC improves compatibility on affected kernels but weakens
+  isolation by sharing IPC objects.
+- **USBFS / raw USB:** the `/dev/bus/usb/BUS/DEVICE` interface used by libusb and
+  similar tools. Blocking it does not hide resources created by Android kernel
+  drivers.
+- **VID:PID:** a USB vendor and product identifier written as four hexadecimal
+  digits each, such as `0403:6001`.
+- **memfd / eventfd:** anonymous memory-file and event-counter descriptors.
+  DawnShell creates and directly inherits them into a private codec worker.

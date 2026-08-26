@@ -1,6 +1,6 @@
 # DawnShell 개발 진행 상황
 
-[English](progress.md) · [쉬운 용어집](glossary.ko.md)
+[English](progress.md) · [문서 홈](README.ko.md) · [테스트 방법](testing.ko.md)
 
 이 문서는 현재 독립 DawnShell 앱의 구현 상태만 기록합니다. 오래된 시험 앱 이름,
 패키지, 서명 값과 이전 APK 정보는 현재 제품 동작에 도움이 되지 않아 제거했습니다.
@@ -65,6 +65,7 @@ ABI(Application Binary Interface)의 의미는
 - [x] 로그를 별도 화면과 펼침 구조로 나누고 선택, 복사, 스크롤을 지원합니다.
 - [x] SSH 키 생성, 파일 내보내기, 로컬 셸용 명령 복사를 제공합니다.
 - [x] 한국어와 영어 설치 가이드, 사용자 매뉴얼, 기술 문서를 제공합니다.
+- [x] Markdown 링크, 제목 anchor와 영문·국문 문서 쌍을 로컬과 CI에서 검사합니다.
 - [x] 약어를 풀어 쓴 쉬운 용어집과 Google/AOSP 공식 링크를 제공합니다.
 - [x] 과거 제품 명칭과 오래된 마이그레이션 안내를 제거했습니다.
 

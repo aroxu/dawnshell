@@ -1,6 +1,6 @@
 # Debian rootfs 설치 과정
 
-[English](rootfs-installation.md) · [쉬운 용어집](glossary.ko.md)
+[English](rootfs-installation.md) · [문서 홈](README.ko.md) · [쉬운 용어집](glossary.ko.md)
 
 rootfs(root file system)는 Debian의 `/`, `/etc`, `/usr`, `/var` 등이 들어 있는
 전체 파일 구조입니다. DawnShell은 Debian 13 Trixie rootfs를

@@ -1,5 +1,8 @@
 # DawnShell 하드웨어 영상 코덱 구현 결정 기록
 
+[English](media-codec-bridge-plan.md) · [문서 홈](README.ko.md) ·
+[worker 프로토콜](hardware-codec-protocol.ko.md) · [FFmpeg 사용법](ffmpeg-hardware-codec.ko.md)
+
 이 문서는 초기 설계안이 아니라 현재 구현의 결정 기록입니다. 실제 wire format은
 [하드웨어 코덱 worker protocol](hardware-codec-protocol.ko.md), 사용법은
 [FFmpeg 하드웨어 코덱 안내](ffmpeg-hardware-codec.ko.md)를 기준으로 합니다.
@@ -85,7 +88,7 @@ Debian PID 1, SSH와 Direct Boot handoff는 계속 동작해야 합니다.
 - 상속 FD를 가진 직계 자식만 transport에 접근합니다.
 - payload, session 수, 해상도, frame rate, bitrate와 timeout에 상한이 있습니다.
 - 소프트웨어 codec fallback은 없습니다.
-- worker에는 일반 Termux CE data나 credential을 제공하지 않습니다.
+- worker에는 일반 앱 CE data나 credential을 제공하지 않습니다.
 - 관리되는 native/chroot 실행 경로는 root 전용입니다.
 
 ## 정적 완료 기준

@@ -1,6 +1,7 @@
 # DawnShell NDK hardware codec worker protocol v1
 
-[한국어](hardware-codec-protocol.ko.md)
+[한국어](hardware-codec-protocol.ko.md) · [Documentation](README.md) ·
+[Decision record](media-codec-bridge-plan.md)
 
 This document specifies the internal protocol between Debian 13
 `dawnshell-codec` and the bionic `dawnshell-codec-worker`. This feature is
@@ -46,7 +47,7 @@ the private Debian mount namespace:
 - `/linkerconfig`, when present
 
 They are recursive read-only, `nosuid`, and `nodev` mounts. They remain
-executable because the Android linker and APEX libraries must run. No Termux CE,
+executable because the Android linker and APEX libraries must run. No normal app CE,
 DawnShell app data, credential, or other writable Android data tree is mounted
 for the codec path.
 

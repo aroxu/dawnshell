@@ -1,6 +1,6 @@
 # DawnShell progress
 
-[한국어](progress.ko.md) · [Glossary](glossary.md)
+[한국어](progress.ko.md) · [Documentation](README.md) · [Testing](testing.md)
 
 This file records the current standalone DawnShell implementation only. Obsolete
 prototype package names, signing values, APK hashes, and migration notes have been
@@ -52,6 +52,7 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [x] Complete Korean UI resources.
 - [x] Random SSH key generation, file export, and generic local-shell commands.
 - [x] Friendly Korean and English guides, glossary, and official Android links.
+- [x] Local and CI Markdown link, heading-anchor, and language-pair validation.
 - [x] Removal of obsolete product names and migration guidance.
 - [x] MIT application license and preserved third-party source/license obligations.
 - [x] GitHub Actions builds, checks, signed tag releases, corresponding source,

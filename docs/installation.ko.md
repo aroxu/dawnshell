@@ -2,11 +2,18 @@
 
 [English](installation.md)
 
-[프로젝트 홈](../README.ko.md) · [사용자 매뉴얼](user-guide.ko.md) ·
+[문서 홈](README.ko.md) · [사용자 매뉴얼](user-guide.ko.md) ·
 [쉬운 용어집](glossary.ko.md) · [최신 릴리스](https://github.com/aroxu/dawnshell/releases/latest)
 
 이 가이드는 GitHub Release에 게시된 정식 APK(Android Package, Android 설치
 파일)를 기준으로 설명합니다. 처음 설치하셔도 순서대로 진행하면 됩니다.
+
+설치가 끝나면 다음 네 가지를 확인하게 됩니다.
+
+- DawnShell이 영구 root 권한을 사용할 수 있습니다.
+- Debian 13과 systemd가 `/data/local/debian`에서 실행됩니다.
+- 앱이 만든 SSH 키로 TCP 22에 접속됩니다.
+- 재부팅 후 PIN을 입력하기 전에도 SSH가 되고, 잠금을 풀어도 같은 서버가 유지됩니다.
 
 ## 1. 시작하기 전에 확인합니다
 
@@ -29,14 +36,15 @@ Bridge)는 필수가 아니며 문제를 확인할 때만 선택적으로 사용
 [Google ADB 안내](https://developer.android.com/tools/adb)도 참고할 수 있습니다.
 
 다른 SSH 서버가 이미 TCP 22 포트를 사용한다면 먼저 포트 충돌을 해결합니다.
-Samsung 등 제조사 ROM에서는 DawnShell을 배터리 최적화, 절전, 자동 시작 제한
-대상에서 제외하는 것을 권장합니다.
+일부 제조사 ROM에서는 DawnShell을 배터리 최적화, 절전, 자동 시작 제한 대상에서
+제외하는 것을 권장합니다.
 
 ## 2. Release 파일을 받고 확인합니다
 
 1. [DawnShell Releases](https://github.com/aroxu/dawnshell/releases)에서 최신
    정식 버전을 엽니다.
-2. 다음 두 파일을 같은 폴더에 받습니다.
+2. APK와 `SHA256SUMS`를 같은 폴더에 받습니다. 전체 검증을 한 번에 하려면 Release의
+   다른 파일도 모두 받습니다.
 
 ```text
 dawnshell-<version>.apk
@@ -46,26 +54,36 @@ SHA256SUMS
 `SHA256SUMS`는 다운로드한 파일이 배포 중에 손상되거나 바뀌지 않았는지 확인하는
 목록입니다.
 
-Linux 또는 macOS의 셸에서는 다음과 같이 확인합니다.
+Release 파일을 모두 받은 Linux 셸에서는 다음과 같이 확인합니다.
 
 ```sh
 sha256sum -c SHA256SUMS
 ```
 
-macOS 기본 명령만 사용한다면 다음 명령을 사용합니다.
+APK와 checksum 파일만 받았다면 APK 항목 하나만 검사합니다.
+
+```sh
+apk='dawnshell-0.3.0.apk'
+grep "  $apk\$" SHA256SUMS | sha256sum -c -
+```
+
+Release 파일을 모두 받은 macOS에서 기본 명령만 사용한다면 다음 명령을 사용합니다.
 
 ```sh
 shasum -a 256 -c SHA256SUMS
 ```
 
-Windows PowerShell에서는 다음 두 결과를 비교합니다.
+Windows PowerShell에서는 APK의 실제 hash와 `SHA256SUMS`의 해당 줄을 비교합니다.
 
 ```powershell
-Get-FileHash .\dawnshell-0.3.0.apk -Algorithm SHA256
-Get-Content .\SHA256SUMS
+$apk = 'dawnshell-0.3.0.apk'
+$actual = (Get-FileHash ".\$apk" -Algorithm SHA256).Hash.ToLowerInvariant()
+$expected = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($apk))$" }) -split '\s+')[0]
+$actual -eq $expected
 ```
 
-파일명은 받은 버전에 맞게 바꿉니다. 값이 다르면 설치하지 말고 다시 받습니다.
+파일명은 받은 버전에 맞게 바꿉니다. 마지막 결과가 `True`가 아니거나 APK 항목을
+찾지 못하면 설치하지 말고 다시 받습니다.
 
 GitHub Actions의 일반 artifact는 공개 debug 키로 서명된 시험용 파일일 수
 있습니다. 일반 사용자는 태그에서 만들어진 정식 Release APK를 사용해 주세요.
@@ -102,12 +120,16 @@ Magisk 관리자에서도 DawnShell 권한이 영구 허용인지 다시 확인�
 
 ## 5. Direct Boot 설정을 저장합니다
 
-처음에는 다음 값을 권장합니다.
+처음에는 다음 값을 권장합니다. USB와 영상 가속은 설치가 끝난 뒤 필요한 경우에만
+켭니다.
 
 - **다이렉트 부트 Debian 부트스트랩 활성화**: 켭니다.
 - **CE 저장소를 읽을 수 있는 BFU 환경 허용**: 끕니다.
 - cgroup: **자동: cgroup v2 → v1 전환(권장)**을 선택합니다.
 - Docker 네트워크: **안전한 호스트 네트워크만 사용(권장)**을 선택합니다.
+- Docker host IPC: **컨테이너에 호스트 IPC 사용(권장)**을 켭니다.
+- USB 공유: **끄기: raw USBFS만 차단**을 선택합니다.
+- 하드웨어 영상 가속: 끕니다.
 
 그다음 **BFU 설정 저장 및 런타임 배치**를 누릅니다. 이 버튼은 설정과 기기
 CPU에 맞는 실행 파일을 DE 저장소에 준비합니다. “설정이 변경되었습니다”라는
@@ -206,3 +228,5 @@ Android 잠금을 풀고 기존 SSH 연결과 Debian PID(Process Identifier) 1�
 - 보안 전제와 위험: [보안 모델](security.ko.md)
 - 자세한 설치 내부 동작: [rootfs 설치 문서](rootfs-installation.ko.md)
 - 전체 실기기 검증: [테스트 방법](testing.ko.md)
+- 증상별 해결 방법: [문제 해결 가이드](troubleshooting.ko.md)
+- 전체 문서 목록: [문서 홈](README.ko.md)

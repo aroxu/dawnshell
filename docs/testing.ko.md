@@ -1,6 +1,6 @@
 # DawnShell 테스트 방법
 
-[English](testing.md) · [쉬운 용어집](glossary.ko.md)
+[English](testing.md) · [문서 홈](README.ko.md) · [쉬운 용어집](glossary.ko.md)
 
 이 문서는 실제 Android 기기에서 DawnShell의 설치, BFU 부팅, SSH, 잠금 해제
 연속성과 안전한 종료를 확인하는 방법을 설명합니다.

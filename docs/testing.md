@@ -1,6 +1,6 @@
 # DawnShell testing
 
-[한국어](testing.ko.md) · [Glossary](glossary.md)
+[한국어](testing.ko.md) · [Documentation](README.md) · [Glossary](glossary.md)
 
 This plan validates installation, BFU startup, SSH, unlock continuity, networking,
 cleanup, and destructive boundaries on a physical Android device.

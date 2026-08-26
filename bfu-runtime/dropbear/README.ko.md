@@ -1,9 +1,12 @@
 # Dropbear 조사 메모
 
-[English](README.md)
+[English](README.md) · [문서 홈](../../docs/README.ko.md)
 
 초기 최소 SSH 서버 후보로 Dropbear 2026.94를 조사했습니다. 현재 제품은 Debian
 rootfs 안의 OpenSSH를 사용하므로 이 디렉터리는 소스 조사 메모만 보관합니다.
+
+> 이 코드는 현재 APK의 BFU SSH 경로가 아닙니다. Dropbear를 빌드하거나 복사해도
+> DawnShell의 systemd/OpenSSH 구성이 바뀌지 않습니다.
 
 후보 실행 파일의 검토 기준은 다음과 같습니다.
 

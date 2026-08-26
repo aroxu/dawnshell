@@ -2,7 +2,7 @@
 
 [English](ffmpeg-hardware-codec.md)
 
-[프로젝트 홈](../README.ko.md) · [사용자 매뉴얼](user-guide.ko.md) ·
+[문서 홈](README.ko.md) · [사용자 매뉴얼](user-guide.ko.md) ·
 [테스트 안내](testing.ko.md)
 
 `-hwaccel mediacodec`이나 `-c:v h264_mediacodec` 같은 순정 FFmpeg 문법도
@@ -337,30 +337,40 @@ DAWNSHELL_FFMPEG_BRIDGE=off dawnshell-ffmpeg ...
 - 입력 파일 하나와 출력 파일 하나
 - 첫 번째 영상 stream
 - H.264 또는 HEVC 입력
-- `libx264`/`h264` AVC 출력 또는 `.i420`/`.yuv` 출력
+- `libx264`/`h264` 또는 `h264_mediacodec` AVC 출력
+- `hevc_mediacodec` HEVC 출력(ByteBuffer 인코드 경로)
+- `.i420`/`.yuv` raw 디코드 출력
 - 짝수 해상도 16~4096
 - 1~240 fps
 - bitrate 1000~100000000 bit/s
 - `-hide_banner`, `-y`, `-n`, `-an`, `-nostdin`, `-loglevel`, `-v`,
   `-threads`, `-stats_period`, `-pix_fmt`, `-f`, `-r`, 제한된 `-map`
+- ByteBuffer 하드웨어 인코드에서 첫 번째 optional 오디오 stream의 `-c:a copy`
 
 다음 요청은 일반 FFmpeg로 폴백하거나 `require` 모드에서 실패합니다.
 
 - `-vf`, `-filter` 등 필터와 크기 변환
 - `-crf`, `-preset` 같은 x264/x265 전용 설정
 - 복수 입력 또는 복수 출력
-- 영상 이외 stream mapping
+- 임의의 영상 이외 stream mapping
 - `-c:v copy`
 - VP9, AV1 등 지원하지 않는 코덱
-- 오디오 인코드·필터·mapping 옵션
+- 오디오 인코드·필터와 임의 mapping 옵션
 
-하드웨어 경로는 영상 전용이므로 예제처럼 `-an`을 명시하세요. 원본 오디오를
-유지하려면 영상 작업 후 일반 FFmpeg로 다시 mux합니다.
+Surface transcode는 영상 전용이므로 예제처럼 `-an`을 명시하세요. ByteBuffer
+하드웨어 인코드는 첫 번째 optional 오디오 stream을 `-c:a copy`로 유지할 수
+있습니다.
+
+```sh
+sudo ffmpeg -y -i input.mp4 -c:a copy \
+  -c:v h264_mediacodec -b:v 4M final.mp4
+```
+
+지원 범위 밖의 오디오 조합은 영상 작업 뒤 일반 FFmpeg로 다시 mux합니다.
 
 ```sh
 sudo env DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg \
-  -y -i input.mp4 -map 0:v:0 -an -c:v libx264 -b:v 4M video-only.mp4
-
+  -y -i input.mp4 -map 0:v:0 -an -c:v h264_mediacodec -b:v 4M video-only.mp4
 /usr/bin/ffmpeg -y -i video-only.mp4 -i input.mp4 \
   -map 0:v:0 -map 1:a? -c:v copy -c:a copy final.mp4
 ```

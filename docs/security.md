@@ -1,6 +1,6 @@
 # DawnShell security model
 
-[한국어](security.ko.md) · [Glossary](glossary.md)
+[한국어](security.ko.md) · [Documentation](README.md) · [Glossary](glossary.md)
 
 DawnShell starts Debian and a network service with root privileges before PIN
 entry. Its security rules are therefore stricter than those of an ordinary app.
@@ -64,11 +64,13 @@ affect the whole device. Docker defaults to host-network-only mode with bridge,
 iptables, forwarding, and masquerading disabled. Bridge mode should be used only
 with a separate recovery path.
 
-The Docker host IPC compatibility option is disabled by default. Its managed
-CLI wrapper adds `--ipc=host` to container creation, so containers can observe
-or interfere with IPC objects shared by Android and Debian. Use it only for
-kernels whose private IPC/mqueue path is broken, avoid untrusted containers,
-and use `/usr/bin/docker` when private IPC is required and supported.
+The Docker host IPC compatibility option is enabled by default because private
+IPC/mqueue setup can reboot the whole Android device on affected kernels. Its
+managed CLI wrapper adds `--ipc=host` to container creation, so containers can
+observe or interfere with IPC objects shared by Android and Debian. This is a
+stability default, not a stronger isolation mode. Avoid untrusted containers.
+Explicit `--ipc`/`ipc:` values take priority, but a private-IPC container may
+fail with a permission error where DawnShell blocks dangerous namespace creation.
 
 ## Host USB
 
@@ -92,10 +94,12 @@ Do not put the phone's internal USB/gadget controller in the exclusive allowlist
 
 The codec bridge is disabled by default and opens no external TCP port.
 Secure/DRM codecs are excluded from inventory and creation, and software fallback
-is never automatic. Codec work runs in a separate Android process. DE stores
-only codec names, capabilities, and errors—never frames, bitstreams, media paths,
-or credentials. Automatic processing of untrusted media must remain disabled by
-default when the frame protocol is implemented.
+is never automatic. The app `:codec` process handles capability and file
+diagnostics only. Debian media commands launch one private bionic NDK worker and
+communicate only through inherited `memfd`/`eventfd` objects, with no public
+listener. DE stores only codec names, capabilities, and errors—never frames,
+bitstreams, media paths, or credentials. Automatic processing of untrusted media
+remains opt-in.
 
 ## Signing and releases
 

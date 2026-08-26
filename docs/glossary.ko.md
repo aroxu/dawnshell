@@ -2,7 +2,7 @@
 
 [English](glossary.md)
 
-[프로젝트 홈](../README.ko.md) · [설치 가이드](installation.ko.md) ·
+[문서 홈](README.ko.md) · [설치 가이드](installation.ko.md) ·
 [사용자 매뉴얼](user-guide.ko.md)
 
 처음 보는 약어가 많아도 걱정하지 않으셔도 됩니다. 이 문서는 DawnShell에서
@@ -211,6 +211,48 @@ SSH 프로토콜을 구현한 프로그램 모음입니다. 서버 프로그램�
 Linux 프로그램과 서비스가 서로 메시지를 주고받는 통신 체계입니다. systemd가
 여러 관리 명령을 처리할 때 사용합니다.
 
+### container — 컨테이너
+
+같은 Linux 커널을 공유하면서 파일, 프로세스, 자원 보기를 분리한 실행 환경입니다.
+가상 머신과 달리 자체 커널이 없습니다. DawnShell의 Debian도 Android 커널을
+공유하며, Debian 안의 Docker 컨테이너는 그 커널을 한 번 더 공유합니다.
+
+### Docker
+
+Linux 컨테이너를 만들고 실행하는 도구입니다. DawnShell에서는 Android 네트워크와
+커널을 공유하므로 일반 서버보다 bridge, IPC, cgroup 설정의 영향 범위가 큽니다.
+
+### FFmpeg
+
+영상·음성 파일과 stream을 읽고 변환하고 저장하는 명령행 도구입니다. DawnShell은
+Debian FFmpeg의 container 처리 기능과 Android MediaCodec을 연결합니다.
+
+### AVC / H.264, HEVC / H.265
+
+영상 압축 표준입니다. AVC와 H.264는 같은 표준을, HEVC와 H.265도 같은 표준을
+가리키는 다른 이름입니다.
+
+### MediaCodec
+
+Android가 하드웨어 또는 소프트웨어 영상 코덱을 사용하는 API입니다. DawnShell은
+소프트웨어 코덱을 하드웨어 성공으로 인정하지 않고 AVC/HEVC 작업만 연결합니다.
+
+### I420 / YUV_420
+
+색 밝기와 색차를 나눠 저장하는 raw 영상 형식입니다. 압축되지 않아 파일이 매우
+크며, DawnShell의 ByteBuffer decode/encode 중간 형식으로 사용됩니다.
+
+### VPU — Video Processing Unit
+
+H.264/HEVC 인코딩과 디코딩을 담당하는 전용 영상 엔진의 일반적인 이름입니다.
+제조사에 따라 MFC, Venus, Vcodec처럼 부릅니다. 3D GPU와 다른 장치이므로 VPU가
+동작하는 동안 GPU 사용률이 0%일 수 있습니다.
+
+### sysfs
+
+Linux 커널의 장치와 driver 상태를 파일처럼 보여 주는 `/sys` 가상 파일시스템입니다.
+`gsmi`와 USB 진단 명령이 여기서 가능한 정보를 읽습니다.
+
 ## 커널과 네트워크
 
 ### TCP / IP — Transmission Control Protocol / Internet Protocol
@@ -271,6 +313,29 @@ Linux namespace 종류 중 하나입니다. 프로세스가 보는 호스트 이
 앱과 시스템 서비스를 격리하는 데 SELinux를 사용합니다.
 
 - [AOSP: Android 보안과 앱 격리](https://source.android.com/docs/security/app-sandbox)
+
+### IPC — Inter-Process Communication
+
+프로세스끼리 데이터를 주고받는 기능의 총칭입니다. Docker host IPC는 컨테이너가
+Android 및 Debian과 IPC 객체를 공유하게 하므로 호환성은 좋아질 수 있지만 격리는
+약해집니다.
+
+### USBFS / raw USB
+
+Linux 프로그램이 `/dev/bus/usb/버스/장치` node를 통해 USB request를 직접 보내는
+interface입니다. DawnShell의 USB **끄기**는 이 raw interface를 차단하지만 Android
+driver가 만든 저장장치나 네트워크 interface까지 숨기지는 않습니다.
+
+### VID:PID
+
+USB 장치의 vendor ID와 product ID를 각각 16진수 네 자리로 쓴 값입니다. 예:
+`0403:6001`. 독점 패스스루는 목록과 정확히 일치하는 장치 interface만 분리합니다.
+
+### memfd / eventfd
+
+`memfd`는 메모리에 만든 익명 파일 descriptor이고, `eventfd`는 작은 event counter
+descriptor입니다. DawnShell의 코덱 client가 직접 만든 뒤 직계 worker에게만
+상속하여 영상 record와 알림을 주고받습니다.
 
 ## 자주 헷갈리는 표현
 

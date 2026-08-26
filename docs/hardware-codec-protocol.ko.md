@@ -1,6 +1,7 @@
 # DawnShell NDK 하드웨어 코덱 worker 프로토콜 v1
 
-[English](hardware-codec-protocol.md)
+[English](hardware-codec-protocol.md) · [문서 홈](README.ko.md) ·
+[구현 결정 기록](media-codec-bridge-plan.ko.md)
 
 이 문서는 Debian 13의 `dawnshell-codec`과 Android bionic
 `dawnshell-codec-worker` 사이의 내부 프로토콜을 설명합니다. 이 기능은 GPU
@@ -48,7 +49,7 @@ runtime tree만 Debian에 읽기 전용으로 노출합니다.
 - `/linkerconfig`(기기에 존재할 때)
 
 mount에는 read-only, `nosuid`, `nodev`를 적용하되 Android linker 실행을 위해
-`noexec`는 적용하지 않습니다. 일반 Termux CE, DawnShell 앱 데이터, Android의 다른
+`noexec`는 적용하지 않습니다. 일반 앱 CE, DawnShell 앱 데이터, Android의 다른
 쓰기 가능한 데이터 tree는 코덱을 위해 bind하지 않습니다.
 
 정적 client는 worker를 `exec`하기 전에 상속된 `LD_PRELOAD`, `LD_AUDIT`,

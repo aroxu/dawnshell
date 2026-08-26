@@ -2,11 +2,30 @@
 
 [English](user-guide.md)
 
-[프로젝트 홈](../README.ko.md) · [설치 가이드](installation.ko.md) ·
-[쉬운 용어집](glossary.ko.md) · [문제 해결](#문제-해결)
+[문서 홈](README.ko.md) · [설치 가이드](installation.ko.md) ·
+[쉬운 용어집](glossary.ko.md) · [문제 해결 가이드](troubleshooting.ko.md)
 
 이 문서는 설치를 마친 뒤 DawnShell을 사용하는 방법을 설명합니다. Debian과
 SSH를 아직 구성하지 않았다면 먼저 [설치 가이드](installation.ko.md)를 따라 주세요.
+
+앱 화면은 처음 설정할 때 위에서 아래로 진행하도록 구성되어 있습니다.
+
+| 화면 순서 | 평소에 하는 일 |
+| ---: | --- |
+| 1 · 다이렉트 부트 | root 승인, BFU 자동 시작과 안전 정책 저장 |
+| 2 · Debian 설정 | rootfs 설치, systemd와 SSH 구성 |
+| 3 · 서버 제어 | 시작, 재시작, 상태 확인, 중지 |
+| 4 · SSH 접속 | 키 내보내기, 로컬 접속 명령 복사, 키 교체 |
+| 계정 | `debian`과 `root`의 로컬 암호 설정 |
+| USB 공유 및 패스스루 | raw USBFS 공유 또는 선택 장치 독점 연결 |
+| 하드웨어 영상 가속 | MediaCodec 설정, 검사, FFmpeg 사용법 |
+| 커널 & Docker 호환성 | cgroup과 Docker 네트워크·IPC 정책 |
+| 진단·로그 | 마지막 BFU 증거와 실시간 작업 로그 확인 |
+| 위험 구역 | 검증된 절차로 Debian rootfs 영구 삭제 |
+
+설정 스위치를 바꾸는 것만으로는 적용되지 않는 항목이 있습니다. Direct Boot와
+코덱 설정은 **BFU 설정 저장 및 런타임 배치**, USB는 **USB 공유 정책 적용**,
+Docker는 **Docker 네트워크 정책 적용**을 각각 눌러야 합니다.
 
 ## 먼저 알아둘 내용
 
@@ -132,51 +151,9 @@ Android 재부팅은 이 `reboot` 명령을 통해서만 가능합니다. Debian
 Docker 컨테이너를 시작하거나 정리할 때 기기가 재부팅되는 문제가 이렇게
 차단됩니다.
 
-## 6. 커널과 Docker
+## 6. USB 공유와 패스스루
 
-cgroup(control group)은 Linux가 프로세스 자원과 장치 접근을 관리하는
-기능입니다. 기본값인 **자동: v2 → v1**을 권장합니다. v2가 실제 기기에서
-동작하지 않으면 DawnShell이 정리 후 v1 방식으로 전환합니다.
-
-Docker는 기본적으로 **안전한 호스트 네트워크만 사용**을 선택합니다.
-
-```sh
-docker run --network host ...
-```
-
-DawnShell은 위임된 비공개 cgroup 계층 안에서 Docker의 cgroup driver를
-`cgroupfs`로 고정합니다. 따라서 Android 구형 커널 호환 환경의 systemd에
-컨테이너 transient scope 생성을 요청하지 않습니다. `docker info --format
-'{{.CgroupDriver}}'` 결과가 `cgroupfs`인지 확인할 수 있습니다.
-
-일부 커널은 컨테이너가 자체 IPC 네임스페이스를 만들 때 mqueue 처리에서 커널
-패닉을 일으켜 Android 전체가 재시작됩니다. DawnShell은 Debian을 시작할 때
-IPC 네임스페이스 생성 자체를 차단합니다. 따라서 `docker compose`나 API를
-사용하는 클라이언트도 기기를 멈추게 할 수 없고, 대신 컨테이너가 권한 오류로
-실패합니다.
-
-**컨테이너에 호스트 IPC 사용**은 기본값으로 켜져 있습니다. 이 옵션은
-`/usr/local/bin/docker` 래퍼가 `run`과 `create`에 `--ipc=host`를 자동으로
-추가해, 컨테이너가 차단된 호출을 시도하지 않고 처음부터 정상 실행되게 합니다.
-
-`docker compose`도 자동으로 처리됩니다. Compose는 IPC 설정을 YAML에서 읽으므로
-래퍼가 임시 override 파일을 만들어 각 서비스에 `ipc: host`를 적용합니다.
-compose 파일마다 직접 추가할 필요가 없습니다. 이미 `ipc:`를 지정한 서비스는
-그 값이 유지됩니다.
-
-호스트 IPC는 컨테이너가 Android 및 Debian의 IPC 객체를 공유하므로 격리가
-약해집니다. 사용자가 명시한 `--ipc=...`는 언제나 우선합니다. 변경 후에는
-**Docker 네트워크 정책 적용**을 눌러야 반영됩니다.
-
-bridge 모드는 Android 전체의 방화벽, NAT(Network Address Translation), 경로와
-전달 설정을 변경할 수 있습니다. Wi-Fi, 모바일 데이터, USB Ethernet, VPN,
-Tailscale, 현재 SSH 연결이 끊길 수 있습니다. 별도 복구 방법이 없으면 강제 bridge
-옵션을 사용하지 마세요. 설정은 **Docker 네트워크 정책 적용**을 누를 때만
-반영됩니다.
-
-### USB 패스스루
-
-USB 패스스루는 기본적으로 꺼져 있습니다. **USB 공유 정책 적용**을 누르면 실행
+raw USB 공유는 기본적으로 꺼져 있습니다. **USB 공유 정책 적용**을 누르면 실행
 중인 Debian만 재시작하고, 중지 상태라면 임의로 시작하지 않고 다음 시작부터
 적용합니다. USB Ethernet은 Debian이 Android network namespace를 이미 공유하므로
 이 설정이 필요하지 않습니다.
@@ -213,7 +190,7 @@ USB 시리얼, 저장장치, 카메라, 오디오와 입력 장치는 Android �
 같은 USB 저장장치 파일시스템을 양쪽에서 동시에 마운트하지 마세요. Docker에는
 필요한 노드를 `--device`로 별도 전달하고 `--privileged`는 피하세요.
 
-## 7. 하드웨어 영상 코덱
+## 7. 하드웨어 영상 가속
 
 Debian에서 영상을 인코딩하거나 디코딩할 때 Android의 전용 영상 코덱을 대신
 사용하게 하는 기능입니다. GPU 패스스루가 아닙니다. Debian은 컨테이너 분해와
@@ -222,10 +199,11 @@ Debian에서 영상을 인코딩하거나 디코딩할 때 Android의 전용 영
 
 ### 켜는 방법
 
-1. 앱에서 **하드웨어 영상 코덱 브리지**를 켭니다.
-2. **BFU 설정 저장 및 런타임 배치**를 누릅니다.
+1. 앱에서 **다이렉트 부트에서 하드웨어 코덱 브리지 활성화**를 켭니다.
+2. **저장하고 하드웨어 코덱 검사**를 누릅니다.
 3. **Debian 13 systemd + SSH 구성**을 다시 실행합니다.
-4. **코덱 자체 검사 실행**을 눌러 통과를 확인합니다.
+4. **파일 기반 하드웨어 AVC 디코드 자체 검사 다운로드 및 실행**을 누릅니다.
+5. Debian에서 `sudo dawnshell-codec health --format json`을 실행합니다.
 
 구성이 끝나면 Debian에 다음 명령이 설치됩니다.
 
@@ -235,7 +213,9 @@ Debian에서 영상을 인코딩하거나 디코딩할 때 Android의 전용 영
 | `dawnshell-hwdecode` | H.264/HEVC 디코딩 |
 | `dawnshell-hwencode` | I420 원본 영상을 H.264/HEVC로 인코딩 |
 | `dawnshell-hwtranscode` | H.264/HEVC를 H.264로 재인코딩 |
+| `dawnshell-live-encode` | USB 웹캠·HLS·RTSP 입력을 실시간 AVC로 인코딩 |
 | `dawnshell-codec-self-test` | 코덱 브리지 동작 확인 |
+| `gsmi` | 3D GPU 상태와 DawnShell 코덱 작업을 구분해 표시 |
 
 ### 자동 연동
 
@@ -248,15 +228,19 @@ dawnshell-ffmpeg -i input.mp4 -c:v libx264 -b:v 3M output.mp4
 dawnshell-ffmpeg -i input.mp4 output.yuv
 ```
 
-기존 프로그램이 수정 없이 이 경로를 타게 하려면 `ffmpeg`라는 이름으로 먼저
-찾히게 하면 됩니다.
+Debian 구성 시 기본적으로 `/usr/local/bin/ffmpeg`가 DawnShell 래퍼를 가리킵니다.
+상태를 확인하거나 안전하게 끄고 켜려면 관리 명령을 사용합니다.
 
 ```sh
-ln -s /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg
+dawnshell-ffmpeg-integration status
+sudo dawnshell-ffmpeg-integration disable
+sudo dawnshell-ffmpeg-integration enable
+hash -r
 ```
 
-`/usr/local/bin`이 `/usr/bin`보다 앞에 있으므로 Jellyfin 같은 프로그램도 그대로
-하드웨어 경로를 사용합니다. 되돌리려면 이 심볼릭 링크를 지웁니다.
+`/usr/local/bin`이 `/usr/bin`보다 앞에 있으므로 `ffmpeg`를 이름으로 실행하는
+프로그램은 래퍼를 찾습니다. `/usr/bin/ffmpeg` 절대 경로를 쓰는 프로그램은 항상
+Debian의 원래 FFmpeg를 사용합니다.
 
 동작 방식은 환경 변수로 바꿀 수 있습니다.
 
@@ -276,7 +260,8 @@ DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 out.m
 ### 하드웨어로 처리되는 조건
 
 - 입력이 H.264 또는 HEVC이고 영상 하나만 사용합니다.
-- 출력 코덱이 `libx264`/`h264`이거나, 출력이 `.yuv`/`.i420` 원본입니다.
+- 출력 코덱이 AVC/HEVC MediaCodec 또는 지원되는 AVC 별칭이거나, 출력이
+  `.yuv`/`.i420` 원본입니다.
 - 해상도가 16~4096이고 가로·세로가 짝수입니다.
 - `-b:v`는 1000~100000000 범위입니다.
 
@@ -284,7 +269,7 @@ DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 out.m
 
 - `-vf`, `-filter` 등 필터 사용
 - `-crf`, `-preset` 같은 x264 전용 옵션
-- 입력이 여러 개이거나 오디오를 함께 다루는 경우
+- 입력이 여러 개이거나 오디오를 인코딩·필터링하는 경우
 - `-c:v copy`처럼 코덱 작업이 필요 없는 경우
 - VP9, AV1 등 지원하지 않는 코덱
 
@@ -299,9 +284,24 @@ DAWNSHELL_FFMPEG_BRIDGE=require dawnshell-ffmpeg -i input.mp4 -c:v libx264 out.m
 [순정 FFmpeg 문법 호환성 (MediaCodec)](ffmpeg-mediacodec-compatibility.ko.md)을
 참고하세요.
 
+오디오를 재인코딩하지 않고 유지하는 일반적인 명령은 다음과 같습니다.
+
 ```sh
-dawnshell-codec health --format json
-dawnshell-codec-self-test
+sudo ffmpeg -y -i input.mp4 -c:a copy \
+  -c:v h264_mediacodec -b:v 4M output.mp4
+```
+
+실시간 USB 웹캠과 HLS 사용법은
+[FFmpeg 가이드의 실시간 인코딩 절](ffmpeg-hardware-codec.ko.md#실시간-hlsusb-웹캠-인코딩)을
+참고하세요. 하드웨어 작업 중 상태는 다른 셸에서 다음처럼 확인합니다.
+
+```sh
+gsmi --loop 1
+```
+
+```sh
+sudo dawnshell-codec health --format json
+sudo dawnshell-codec-self-test
 ```
 
 앱의 **파일 기반 하드웨어 AVC 디코드 자체 검사** 버튼은 Debian에 `wget`과
@@ -323,7 +323,51 @@ DE 검사 디렉터리로 넘겨 `MediaExtractor`와 하드웨어 `MediaCodec`�
 BFU에서 코덱이 실패한다면 Android 미디어 서비스가 아직 준비되지 않았을 수
 있습니다. 잠금 해제 후 다시 시도해 차이를 확인하세요.
 
-## 8. 로그 확인
+## 8. 커널과 cgroup
+
+cgroup(control group)은 Linux가 프로세스 자원과 장치 접근을 관리하는
+기능입니다. 기본값인 **자동: cgroup v2 → v1 전환**을 권장합니다.
+
+- 자동은 전용 v2 하위 트리와 device BPF 연결을 실제로 시험하고, 실패한 검사
+  자원을 정리한 뒤 v1으로 전환합니다.
+- v2 강제는 fallback을 끄므로 지원이 부족한 커널에서 Debian이 시작되지 않을 수
+  있습니다.
+- v1 강제는 레거시 devices controller가 필요한 기기 진단용입니다.
+
+선택은 다음 Debian 시작 또는 재시작부터 적용됩니다. 커널 버전 숫자만으로 backend를
+결정하지 않으며 실제 capability 검사 결과를 사용합니다.
+
+## 9. Docker
+
+Docker의 안전한 시작점은 **안전한 호스트 네트워크만 사용**입니다.
+
+```sh
+docker info --format '{{.CgroupDriver}}'
+docker run --rm --network host hello-world
+```
+
+첫 명령 결과는 `cgroupfs`여야 합니다. DawnShell은 Docker가 Android 쪽 systemd에
+container scope를 만들지 않도록 전용 cgroup 안에서 이 driver를 사용합니다.
+
+**컨테이너에 호스트 IPC 사용**은 기본으로 켜져 있습니다. 일부 커널은 container의
+private IPC namespace나 mqueue 설정에서 Android 전체를 재부팅할 수 있기 때문에,
+DawnShell은 위험한 생성 호출을 차단하고 관리형 wrapper가 다음을 적용합니다.
+
+- `docker run`과 `docker create`에 명시적 IPC 설정이 없으면 `--ipc=host` 추가
+- `docker compose`에는 각 service용 임시 `ipc: host` override 생성
+- 사용자가 직접 지정한 `--ipc` 또는 `ipc:`는 그대로 우선
+
+host IPC는 Android, Debian, container가 IPC 객체를 공유하므로 격리가 약해집니다.
+신뢰하지 않는 container에는 적합하지 않습니다. 설정을 바꾼 뒤에는 반드시
+**Docker 네트워크 정책 적용**을 누릅니다.
+
+bridge 모드는 Android 전체의 방화벽, NAT(Network Address Translation), route와
+forwarding을 변경할 수 있습니다. Wi-Fi, 모바일 데이터, USB Ethernet, VPN,
+Tailscale과 현재 SSH 연결이 끊길 수 있습니다. 별도 복구 방법이 없으면 강제 bridge
+옵션을 사용하지 마세요. 오류별 조치는 [문제 해결 가이드](troubleshooting.ko.md#docker가-시작되지-않거나-android-네트워크가-끊깁니다)에
+정리되어 있습니다.
+
+## 10. 로그 확인
 
 상단의 **로그**에서 다음 화면을 열 수 있습니다.
 
@@ -331,6 +375,9 @@ BFU에서 코덱이 실패한다면 Android 미디어 서비스가 아직 준비
 - Debian 설치
 - 시스템 구성
 - 호환성 정책
+- USB 패스스루
+- 하드웨어 영상 코덱
+- 장시간 코덱 검사
 - 서버 수명 주기
 - Direct Boot 진단
 
@@ -338,7 +385,7 @@ BFU에서 코덱이 실패한다면 Android 미디어 서비스가 아직 준비
 복사할 수 있습니다. 이전 줄을 읽기 위해 위로 스크롤하면 자동 따라가기가
 멈춥니다. 오류를 공유할 때는 개인 키와 비밀번호를 추가하지 마세요.
 
-## 9. 네트워크
+## 11. 네트워크
 
 SSH 서버는 Android 네트워크 주소가 아직 없어도 TCP 22에서 대기합니다. Android가
 나중에 Wi-Fi, 모바일 데이터 또는 USB Ethernet 주소를 준비하면 Debian을 다시
@@ -356,7 +403,7 @@ Tailscale을 커널 네트워크 모드로 사용하면 `tailscale0` 장치와 �
 Android와 공유됩니다. 재사용 인증 키를 BFU rootfs에 저장하지 마세요.
 `tailscaled.state`도 PIN 입력 전 사용할 수 있는 기기 인증 정보로 취급합니다.
 
-## 10. 백업과 제거
+## 12. 백업과 제거
 
 다음 항목을 백업하는 것을 권장합니다.
 
@@ -374,55 +421,17 @@ Debian까지 완전히 삭제하려면 다음 순서로 진행합니다.
 5. 로그에서 `DEBIAN_ROOTFS_REMOVE_SUCCEEDED`를 확인합니다.
 6. Android 설정에서 DawnShell 앱을 제거합니다.
 
-## 문제 해결
+## 문제가 생겼다면
 
-### 재부팅 후 BFU에서 시작하지 않습니다
-
-- 설정 변경 후 **BFU 설정 저장 및 런타임 배치**를 눌렀는지 확인합니다.
-- Magisk에서 DawnShell이 영구 허용인지 확인합니다.
-- 잠금 해제 후 Direct Boot 진단 로그의 `LOCKED_BOOT_COMPLETED`, root, CE 격리,
-  rootfs, chroot 결과를 순서대로 확인합니다.
-- 제조사 배터리와 자동 시작 제한에서 앱을 제외합니다.
-
-### root가 거부되거나 시간이 초과됩니다
-
-잠금 해제 상태에서 root 승인 버튼을 다시 누릅니다. Magisk에서 영구 허용으로
-바꿉니다. BFU에서는 승인 창을 표시할 수 없습니다.
-
-### Debian 설치가 실패합니다
-
-Debian 설치 로그의 마지막 `ERROR:`와 `DEBOOTSTRAP_LOG_TAIL`을 복사합니다.
-서명 또는 해시 검증 오류를 우회하지 마세요. 진단하기 전에 임시 폴더를 무작정
-지우지 않습니다.
-
-### systemd와 SSH 구성이 시작되지 않습니다
-
-Android 잠금이 해제되었는지, Direct Boot 설정을 저장했는지, Debian 설치가
-`SUCCEEDED`인지, root 권한이 유효한지 확인합니다. 시스템 구성 로그의 첫 실패
-단계를 확인합니다.
-
-### SSH 연결이 거부됩니다
-
-1. 앱의 **상태**와 서버 수명 주기 로그를 확인합니다.
-2. systemd와 SSH 구성이 성공했는지 확인합니다.
-3. Debian에서 `systemctl is-active ssh.service`와 `ss -ltn`을 확인합니다.
-4. 다른 프로세스가 TCP 22를 사용 중인지 확인합니다.
-5. 원격 접속이라면 Android가 BFU에서 실제 IP 주소를 받았는지 확인합니다.
-
-### `network is unreachable`가 표시됩니다
-
-같은 휴대폰의 `127.0.0.1` 접속은 되지만 외부 접속만 실패한다면 Android의
-인터페이스, 주소, 경로를 확인합니다. ROM이 BFU에서 Wi-Fi 인증 정보를 열지
-않으면 DawnShell이 대신 연결할 수 없습니다.
-
-### Docker 설정 뒤 네트워크가 끊겼습니다
-
-가능하면 로컬 화면이나 ADB 같은 별도 복구 경로로 앱을 열고 **안전한 호스트
-네트워크만 사용**을 선택해 다시 적용합니다. 호환성 로그도 함께 확인합니다.
+부팅, root, 설치, SSH, 네트워크, Docker, USB, 코덱 오류의 단계별 진단은 별도
+[문제 해결 가이드](troubleshooting.ko.md)에 있습니다. 앱의 관련 실시간 로그와
+Android 버전, CPU ABI, BFU/AFU 상태, 선택한 옵션을 함께 준비하면 좋습니다.
 
 ## 관련 문서
 
 - [설치 가이드](installation.ko.md)
+- [문서 홈](README.ko.md)
+- [문제 해결 가이드](troubleshooting.ko.md)
 - [쉬운 용어집](glossary.ko.md)
 - [보안 모델](security.ko.md)
 - [아키텍처](architecture.ko.md)

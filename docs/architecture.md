@@ -1,6 +1,6 @@
 # DawnShell architecture
 
-[한국어](architecture.ko.md) · [Glossary](glossary.md)
+[한국어](architecture.ko.md) · [Documentation](README.md) · [Glossary](glossary.md)
 
 DawnShell is a standalone Android app with its own UID. Android's isolation model
 is documented in the [AOSP app sandbox guide](https://source.android.com/docs/security/app-sandbox).
@@ -95,7 +95,7 @@ persistent Debian codec daemon. One command owns one worker; parent death
 terminates the child and releases its sessions. The private Debian mount
 namespace exposes only read-only `/system`, `/apex`, and optional
 `/linkerconfig` so the bionic worker can resolve Android runtime libraries.
-App-private and Termux CE storage are not exposed.
+App-private and normal app CE storage are not exposed.
 
 The APK ships static clients and dynamic NDK workers for armv7, arm64, and
 x86_64. The worker implements AVC/HEVC byte-buffer decode and encode plus

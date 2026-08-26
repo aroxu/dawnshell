@@ -2,7 +2,7 @@
 
 [English](ffmpeg-mediacodec-compatibility.md)
 
-[프로젝트 홈](../README.ko.md) · [FFmpeg 하드웨어 코덱](ffmpeg-hardware-codec.ko.md) ·
+[문서 홈](README.ko.md) · [FFmpeg 하드웨어 코덱](ffmpeg-hardware-codec.ko.md) ·
 [사용자 매뉴얼](user-guide.ko.md) · [테스트 안내](testing.ko.md)
 
 ## 이 문서가 답하는 질문

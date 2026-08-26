@@ -2,11 +2,30 @@
 
 [한국어](user-guide.ko.md)
 
-[Project home](../README.md) · [Installation guide](installation.md) ·
-[Glossary](glossary.md) · [Troubleshooting](#troubleshooting)
+[Documentation](README.md) · [Installation guide](installation.md) ·
+[Glossary](glossary.md) · [Troubleshooting](troubleshooting.md)
 
 This manual covers daily operation after installation. Follow the
 [installation guide](installation.md) first if Debian and SSH are not configured.
+
+The home screen is ordered for one top-to-bottom initial setup.
+
+| Screen order | Routine purpose |
+| ---: | --- |
+| 1 · Direct Boot | Approve root and save BFU startup policy |
+| 2 · Debian setup | Install the rootfs and configure systemd/SSH |
+| 3 · Server controls | Start, restart, inspect, or stop Debian |
+| 4 · SSH access | Export, import, connect with, or rotate the client key |
+| Accounts | Set local `debian` and `root` passwords |
+| USB sharing and passthrough | Share raw USBFS or detach selected interfaces |
+| Hardware video acceleration | Configure MediaCodec, tests, and FFmpeg tools |
+| Kernel & Docker compatibility | Select cgroup and Docker network/IPC policy |
+| Diagnostics and logs | Read BFU evidence and live operation output |
+| Danger zone | Permanently remove the verified Debian rootfs |
+
+Changing a switch is not always enough. Direct Boot and codec changes require
+**Save and provision BFU runtime**, USB requires **Apply USB sharing policy**,
+and Docker requires **Apply Docker network policy**.
 
 ## Core behavior
 
@@ -18,7 +37,7 @@ This manual covers daily operation after installation. Follow the
 See the [glossary](glossary.md) for DE, CE, PID, rootfs, and other terms, or read
 [Google's Direct Boot guide](https://developer.android.com/privacy-and-security/direct-boot).
 
-## Direct Boot controls
+## 1. Direct Boot controls
 
 **Enable Direct Boot Debian bootstrap** controls automatic startup on the next
 cold boot. After changing it, tap **Save and provision BFU runtime**.
@@ -32,7 +51,7 @@ not rerun the probe while Android is unlocked.
 Keep the BFU CE-readable override disabled on a normal FBE device. It accepts an
 already unsafe ROM condition; it does not repair encryption.
 
-## Debian setup and lifecycle
+## 2. Debian setup and lifecycle
 
 **Install Debian 13 Trixie rootfs** creates `/data/local/debian` without silently
 overwriting a valid installation. **Configure Debian 13 systemd + SSH** prepares
@@ -46,7 +65,7 @@ proof services. Both operations run only after Android is unlocked.
 
 Unlocking Android never stops the running server.
 
-## SSH access
+## 3. SSH access
 
 For another computer, export the SSH private-key file:
 
@@ -63,7 +82,7 @@ Generating a new random client key permanently replaces the old identity. Back
 up the old key, generate the replacement, rerun systemd + SSH configuration,
 export the new key, and verify it before deleting old copies.
 
-## Accounts and root
+## 4. Accounts and root
 
 The app can set local `debian` and `root` passwords. Passwords are passed directly
 to Debian and are not stored in app settings, DE storage, or logs. SSH password
@@ -94,44 +113,7 @@ kernels do not confine such a request to the container and restart the whole
 device instead. That is what can otherwise reboot the phone when a Docker
 container starts or is cleaned up.
 
-## Kernel and Docker
-
-Keep the recommended automatic cgroup v2-to-v1 fallback unless diagnosing a
-specific kernel. Docker defaults to safe host-network-only mode:
-
-```sh
-docker run --network host ...
-```
-
-DawnShell pins Docker to the `cgroupfs` cgroup driver inside its delegated,
-private cgroup hierarchy. This avoids asking Android's old-kernel systemd
-compatibility environment to create transient container scopes. Confirm it
-with `docker info --format '{{.CgroupDriver}}'`; the result must be `cgroupfs`.
-
-On some kernels a container that creates its own IPC namespace panics the
-kernel during mqueue setup and restarts Android. DawnShell blocks IPC
-namespace creation outright when Debian starts, so `docker compose` and API
-clients cannot take the device down either; the container fails with a
-permission error instead.
-
-**Use host IPC for containers** is enabled by default. The
-`/usr/local/bin/docker` wrapper adds `--ipc=host` to `run` and `create` so a
-container never attempts the blocked call in the first place.
-
-`docker compose` is handled automatically too. Because Compose reads the IPC
-setting from YAML, the wrapper generates a temporary override file that applies
-`ipc: host` to each service, so no compose file needs editing. A service that
-already declares `ipc:` keeps its own value.
-
-Host IPC lets containers share Android and Debian IPC objects, which reduces
-isolation. An explicit `--ipc=...` always takes priority. Apply the Docker
-network policy after changing it.
-
-Bridge networking can change Android-wide firewall, NAT, forwarding, and routes.
-It can disconnect Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, and SSH.
-Prepare a separate recovery path before enabling a forced bridge backend.
-
-### USB passthrough
+## 5. USB sharing and passthrough
 
 USB passthrough is disabled by default and takes effect on the next Debian start
 or when **Apply USB sharing policy** restarts a running Debian. A stopped Debian
@@ -174,7 +156,7 @@ controller, and never mount one USB storage filesystem from both systems. A
 Docker container must receive the node separately with `--device`; avoid
 `--privileged`.
 
-## Hardware video codec
+## 6. Hardware video acceleration
 
 For complete commands, automatic integration, audio remuxing, and fallback
 rules, see the [FFmpeg hardware codec guide](ffmpeg-hardware-codec.md).
@@ -192,10 +174,11 @@ and returns the result through inherited shared descriptors.
 
 ### Enabling it
 
-1. Turn on **Hardware video codec bridge** in the app.
-2. Press **Save and provision BFU runtime**.
+1. Turn on **Enable hardware codec bridge at Direct Boot**.
+2. Press **Save and probe hardware codecs**.
 3. Run **Configure Debian 13 systemd + SSH** again.
-4. Press **Run codec self-test** and confirm it passes.
+4. Press **Download and run file-based hardware AVC decode self-test**.
+5. Run `sudo dawnshell-codec health --format json` in Debian.
 
 Configuration installs these commands in Debian.
 
@@ -205,7 +188,9 @@ Configuration installs these commands in Debian.
 | `dawnshell-hwdecode` | H.264/HEVC decoding |
 | `dawnshell-hwencode` | Encodes raw I420 to H.264/HEVC |
 | `dawnshell-hwtranscode` | Re-encodes H.264/HEVC to H.264 |
+| `dawnshell-live-encode` | Live AVC encode from a USB webcam, HLS, RTSP, or file input |
 | `dawnshell-codec-self-test` | Verifies the bridge |
+| `gsmi` | Separates 3D GPU state from DawnShell codec activity |
 
 The app's **file-backed hardware AVC decode self-test** installs `wget` and
 `ca-certificates` with Debian `apt` when needed, then downloads the 1920x1080
@@ -231,15 +216,18 @@ dawnshell-ffmpeg -i input.mp4 -c:v libx264 -b:v 3M output.mp4
 dawnshell-ffmpeg -i input.mp4 output.yuv
 ```
 
-To let existing software use the hardware path without modification, make it
-resolve first as `ffmpeg`.
+Debian configuration enables the managed `/usr/local/bin/ffmpeg` integration by
+default. Inspect, disable, or enable it without editing the symlink manually:
 
 ```sh
-ln -s /usr/local/bin/dawnshell-ffmpeg /usr/local/bin/ffmpeg
+dawnshell-ffmpeg-integration status
+sudo dawnshell-ffmpeg-integration disable
+sudo dawnshell-ffmpeg-integration enable
+hash -r
 ```
 
-Because `/usr/local/bin` precedes `/usr/bin`, applications such as Jellyfin pick
-up the bridge automatically. Remove the symlink to revert.
+Because `/usr/local/bin` precedes `/usr/bin`, programs that call `ffmpeg` by name
+find the bridge. A program that executes `/usr/bin/ffmpeg` always bypasses it.
 
 Override the behaviour with an environment variable.
 
@@ -259,19 +247,33 @@ for a hardware result.
 ### What runs on hardware
 
 - A single H.264 or HEVC video input.
-- An output codec of `libx264`/`h264`, or a raw `.yuv`/`.i420` output.
+- A supported AVC/HEVC MediaCodec output spelling, a compatible AVC alias, or a
+  raw `.yuv`/`.i420` output.
 - Even dimensions between 16 and 4096.
 - `-b:v` within 1000..100000000.
 
 These fall back to software: filters such as `-vf`, x264-specific options such as
-`-crf` and `-preset`, multiple inputs, audio handling, `-c:v copy`, and codecs
-such as VP9 or AV1.
+`-crf` and `-preset`, multiple inputs, audio encoding/filtering, `-c:v copy`, and
+codecs such as VP9 or AV1. ByteBuffer hardware encode can preserve the first
+optional audio stream with `-c:a copy`.
+
+```sh
+sudo ffmpeg -y -i input.mp4 -c:a copy \
+  -c:v h264_mediacodec -b:v 4M output.mp4
+```
+
+See [live HLS and USB-webcam encoding](ffmpeg-hardware-codec.md#live-hls-and-usb-webcam-encoding)
+for streaming examples. Monitor an active job from another shell with:
+
+```sh
+gsmi --loop 1
+```
 
 ### Verification
 
 ```sh
-dawnshell-codec health --format json
-dawnshell-codec-self-test
+sudo dawnshell-codec health --format json
+sudo dawnshell-codec-self-test
 ```
 
 The reported backend names the codec that was actually selected. A software
@@ -281,14 +283,53 @@ codec failure never stops Debian or SSH.
 If codec sessions fail during BFU, Android media services may not be ready yet.
 Retry after unlocking to compare.
 
-## Logs
+## 7. Kernel and cgroups
+
+Keep the recommended **Automatic: cgroup v2 → v1 fallback** unless diagnosing a
+specific kernel. Automatic mode adopts v2 only after a private delegated subtree
+and device-BPF probe both succeed; it cleans the probe state before falling back
+to v1. Force-v2 can prevent Debian from starting, while force-v1 is a legacy
+diagnostic path. The selection applies on the next Debian start or restart.
+
+## 8. Docker
+
+The safe starting policy is **Safe host network only**:
+
+```sh
+docker info --format '{{.CgroupDriver}}'
+docker run --rm --network host hello-world
+```
+
+The cgroup driver should be `cgroupfs`. DawnShell keeps Docker inside its
+delegated hierarchy instead of asking Android-side systemd compatibility code to
+create transient container scopes.
+
+**Use host IPC for containers** is enabled by default. Some kernels panic during
+private IPC namespace or mqueue setup. DawnShell blocks that dangerous creation,
+and the managed wrapper:
+
+- adds `--ipc=host` to `docker run` and `docker create` when IPC was not given;
+- creates a temporary per-service `ipc: host` override for `docker compose`;
+- preserves every explicit `--ipc` or `ipc:` value.
+
+Host IPC weakens isolation by sharing IPC objects among Android, Debian, and the
+container. Do not use it for untrusted containers. Tap **Apply Docker network
+policy** after changing the option.
+
+Bridge modes can alter Android-global firewall, NAT, forwarding, and routes and
+disconnect Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, or SSH. Prepare an
+independent recovery path first. See [Docker troubleshooting](troubleshooting.md#docker-fails-or-disrupts-android-networking)
+for common kernel errors.
+
+## 9. Logs
 
 The Logs screen provides app operations, Debian installation, system
-configuration, compatibility, lifecycle, and Direct Boot diagnostics. Readers
+configuration, USB, hardware codecs, compatibility, lifecycle, and Direct Boot
+diagnostics. Readers
 refresh once per second and support scrolling, selection, and copying. Do not add
 private keys or passwords when sharing a log.
 
-## Networking
+## 10. Networking
 
 The SSH server listens on TCP 22 even before Android assigns an address. When
 Android later brings up Wi-Fi, mobile data, or USB Ethernet, no Debian restart is
@@ -301,7 +342,7 @@ ssh -i ./dawnshell-ed25519 -p 22 debian@PHONE_IP
 Treat `tailscaled.state` as a device credential available before PIN entry. Do
 not store reusable authentication keys in the BFU rootfs.
 
-## Backup and removal
+## 11. Backup and removal
 
 Back up the exported SSH client key, important Debian configuration and user
 data, package lists, and service configuration.
@@ -311,44 +352,18 @@ zone, choose permanent rootfs removal, complete both confirmations, type
 `DELETE`, and verify `DEBIAN_ROOTFS_REMOVE_SUCCEEDED`. Then uninstall DawnShell
 from Android settings if desired.
 
-## Troubleshooting
+## When something fails
 
-### No BFU startup
-
-Save and provision settings, verify permanent Magisk approval, inspect the latest
-`LOCKED_BOOT_COMPLETED` diagnostics after unlock, and exclude the app from vendor
-battery and automatic-start restrictions.
-
-### Root denied or timed out
-
-Request root while unlocked and select permanent approval in Magisk. BFU cannot
-display an interactive root prompt.
-
-### Debian installation failed
-
-Copy the final `ERROR:` and `DEBOOTSTRAP_LOG_TAIL` from the installation log. Do
-not bypass signature or checksum failures, and preserve staging data for diagnosis.
-
-### SSH connection refused
-
-Check app status and lifecycle logs, verify systemd + SSH configuration, run
-`systemctl is-active ssh.service` and `ss -ltn`, check for a TCP 22 conflict, and
-confirm that Android has a BFU network address.
-
-### Network unreachable
-
-If localhost SSH works but remote SSH does not, inspect Android interfaces,
-addresses, and routes. DawnShell cannot unlock Wi-Fi credentials that the ROM
-keeps unavailable during BFU.
-
-### Docker disconnected Android networking
-
-Use a local screen or ADB recovery path to reapply safe host-network-only mode,
-then collect the compatibility log.
+The separate [troubleshooting guide](troubleshooting.md) provides ordered checks
+for boot, root, installation, SSH, networking, Docker, USB, and codecs. Include
+the relevant complete live log, Android version, CPU ABI, BFU/AFU state, and
+selected options in a report.
 
 ## Related documents
 
 - [Installation guide](installation.md)
+- [Documentation home](README.md)
+- [Troubleshooting](troubleshooting.md)
 - [Glossary](glossary.md)
 - [Security model](security.md)
 - [Architecture](architecture.md)

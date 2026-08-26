@@ -154,7 +154,8 @@ jobs:
             scripts/test-host-reboot-isolation.sh \
             scripts/test-compatibility-policy.sh \
             scripts/test-rootfs-path-resolution.sh \
-            scripts/test-lifecycle-control-policy.sh ; do
+            scripts/test-lifecycle-control-policy.sh \
+            scripts/test-documentation.sh ; do
             echo "::group::$stage"
             stage_log="$RUNNER_TEMP/$(basename "$stage").log"
             if ! "./$stage" 2>&1 | tee "$stage_log"; then
