@@ -15,14 +15,17 @@ trap 'rm -rf -- "$work_dir"' EXIT
 make_variant() {
     local fixture="$1"
     local output="$2"
-    sed -e "s#/sys/#$fixture/sys/#g" "$source_script" > "$output"
+    sed -e "s#/sys/#$fixture/sys/#g" \
+        -e "s#/proc/#$fixture/proc/#g" "$source_script" > "$output"
     chmod 0755 "$output"
 }
 
 # Qualcomm Adreno style node.
 qualcomm="$work_dir/qualcomm"
 mkdir -p "$qualcomm/sys/class/kgsl/kgsl-3d0" \
-    "$qualcomm/sys/class/thermal/thermal_zone0"
+    "$qualcomm/sys/class/thermal/thermal_zone0" \
+    "$qualcomm/sys/class/devfreq/soc-qcom-venus" \
+    "$qualcomm/proc/1234"
 printf '%s\n' 'Adreno540' > "$qualcomm/sys/class/kgsl/kgsl-3d0/gpu_model"
 printf '%s\n' '37 %' > "$qualcomm/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage"
 printf '%s\n' '710000000' > "$qualcomm/sys/class/kgsl/kgsl-3d0/cur_freq"
@@ -31,6 +34,12 @@ printf '%s\n' 'msm-adreno-tz' > "$qualcomm/sys/class/kgsl/kgsl-3d0/governor"
 printf '%s\n' 'active' > "$qualcomm/sys/class/kgsl/kgsl-3d0/runtime_status"
 printf '%s\n' 'gpu-usr' > "$qualcomm/sys/class/thermal/thermal_zone0/type"
 printf '%s\n' '41200' > "$qualcomm/sys/class/thermal/thermal_zone0/temp"
+printf '%s\n' 'Qualcomm Venus' > "$qualcomm/sys/class/devfreq/soc-qcom-venus/name"
+printf '%s\n' '66' > "$qualcomm/sys/class/devfreq/soc-qcom-venus/load"
+printf '%s\n' '444000000' > "$qualcomm/sys/class/devfreq/soc-qcom-venus/cur_freq"
+printf '%s\n' '600000000' > "$qualcomm/sys/class/devfreq/soc-qcom-venus/max_freq"
+printf '%s\0' /usr/local/bin/dawnshell-codec pipe encode avc \
+    1920 1080 30 4000000 > "$qualcomm/proc/1234/cmdline"
 
 make_variant "$qualcomm" "$work_dir/gsmi-qualcomm"
 output="$("$work_dir/gsmi-qualcomm" --format json)"
@@ -39,15 +48,26 @@ grep -Fq '"utilization_percent":37' <<<"$output"
 grep -Fq '"clock_mhz":710' <<<"$output"
 grep -Fq '"governor":"msm-adreno-tz"' <<<"$output"
 grep -Fq '"temperature_c":41.2' <<<"$output"
+grep -Fq '"video_accelerator":"Qualcomm Venus"' <<<"$output"
+grep -Fq '"codec_activity":"active"' <<<"$output"
+grep -Fq '"codec_clients":1' <<<"$output"
+grep -Fq '"codec_encode_clients":1' <<<"$output"
+grep -Fq '"codec_utilization_percent":66' <<<"$output"
+grep -Fq '"codec_clock_mhz":444' <<<"$output"
 
 table="$("$work_dir/gsmi-qualcomm")"
-grep -Fq 'DawnShell GPU status (gsmi)' <<<"$table"
+grep -Fq 'DawnShell accelerator status (gsmi)' <<<"$table"
+grep -Fq '3D utilization' <<<"$table"
+grep -Fq 'Video accelerator' <<<"$table"
+grep -Fq 'Codec activity' <<<"$table"
+grep -Fq 'encode=1 decode=0 transcode=0' <<<"$table"
+grep -Fq 'MediaCodec uses a dedicated video engine, not the 3D GPU.' <<<"$table"
 grep -Fq '37%' <<<"$table"
 grep -Fq '710MHz' <<<"$table"
 
 csv="$("$work_dir/gsmi-qualcomm" --format csv)"
 grep -Fq 'timestamp,name,utilization_percent' <<<"$csv"
-grep -Fq ',Adreno540,37,710,710,msm-adreno-tz,active,41.2' <<<"$csv"
+grep -Fq ',Adreno540,37,710,710,msm-adreno-tz,active,41.2,active,1,1,0,0,66,444,600' <<<"$csv"
 
 # ARM Mali style devfreq node, which uses different attribute names.
 mali="$work_dir/mali"
@@ -96,7 +116,7 @@ grep -Fq '"power_state":"suspended"' <<<"$output"
 # must keep numeric fields numeric.
 grep -Fq '"clock_mhz":null' <<<"$output"
 table="$("$work_dir/gsmi-exynos")"
-grep -Fq '| Clock                  | idle' <<<"$table"
+grep -Fq '| 3D clock               | idle' <<<"$table"
 grep -Fq '546MHz' <<<"$table"
 if grep -Fq 'idleMHz' <<<"$table"; then
     echo 'FAIL: a state was formatted as a frequency' >&2
@@ -112,14 +132,14 @@ grep -Fq '"utilization_percent":null' <<<"$output"
 grep -Fq '"clock_mhz":400' <<<"$output"
 grep -Fq '"temperature_c":null' <<<"$output"
 
-# No GPU node at all must fail loudly with actionable guidance.
+# Codec activity remains useful even when a kernel exposes no 3D GPU node.
 empty="$work_dir/empty"
-mkdir -p "$empty/sys/class"
+mkdir -p "$empty/sys/class" "$empty/proc"
 make_variant "$empty" "$work_dir/gsmi-empty"
-if "$work_dir/gsmi-empty" >/dev/null 2>&1; then
-    echo 'FAIL: gsmi reported success without a GPU node' >&2
-    exit 1
-fi
+output="$("$work_dir/gsmi-empty" --format json)"
+grep -Fq '"name":"unavailable"' <<<"$output"
+grep -Fq '"codec_activity":"idle"' <<<"$output"
+grep -Fq '"codec_utilization_percent":null' <<<"$output"
 
 # Argument validation must reject values that would loop forever or misreport.
 for invalid in '--format xml' '--loop 0' '--loop abc' '--count 3'; do
@@ -149,6 +169,7 @@ for gpu_doc in "$repo_dir/docs/gpu-status-tool.md" \
     grep -Fq 'kgsl' "$gpu_doc"
     grep -Fq 'devfreq' "$gpu_doc"
     grep -Fq 'thermal_zone' "$gpu_doc"
+    grep -Fq 'MediaCodec' "$gpu_doc"
 done
 grep -Fq 'gpu-status-tool.md' "$repo_dir/README.md"
 grep -Fq 'gpu-status-tool.ko.md' "$repo_dir/README.ko.md"
@@ -157,4 +178,4 @@ grep -Fq 'dawnshell_gpu_status_body' \
     "$repo_dir/app/src/main/res/values-ko/strings.xml" \
     "$repo_dir/app/src/main/java/me/aroxu/dawnshell/BootActivity.java"
 
-echo 'PASS: gsmi reports Qualcomm, Mali, and sparse kernels without guessing'
+echo 'PASS: gsmi separates 3D GPU and MediaCodec video activity without guessing'

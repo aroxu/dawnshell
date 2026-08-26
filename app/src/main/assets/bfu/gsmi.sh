@@ -1,5 +1,5 @@
 #!/bin/sh
-# gsmi - DawnShell GPU status monitor, styled after nvidia-smi.
+# gsmi - DawnShell graphics and video-accelerator status monitor.
 #
 # Reads vendor-neutral kernel interfaces exposed under /sys. No GPU vendor
 # tooling exists for Android SoCs inside a Debian chroot, so this reports what
@@ -21,9 +21,9 @@ usage: gsmi [OPTIONS]
       --format FORMAT  table (default), csv, or json
   -h, --help           Show this help
 
-Reports GPU busy percentage, clock, governor, available frequencies, and
-thermal readings from kernel sysfs. Values the kernel does not publish are
-reported as unavailable instead of being guessed.
+Reports 3D GPU state separately from Android's dedicated MediaCodec video
+accelerator. Kernel counters are used when available; active DawnShell codec
+clients are detected from /proc without inventing a utilization percentage.
 EOF
 }
 
@@ -105,6 +105,30 @@ find_gpu_directory() {
 
 gpu_directory="$(find_gpu_directory || true)"
 
+# Video codecs on mobile SoCs normally run on a dedicated accelerator rather
+# than the Mali/Adreno 3D GPU. A few kernels expose that block through devfreq,
+# using vendor names such as MFC, Venus, VPU, VCodec, VENC, or VDEC.
+find_video_directory() {
+    for candidate in \
+        /sys/class/devfreq/*mfc* \
+        /sys/class/devfreq/*venus* \
+        /sys/class/devfreq/*vpu* \
+        /sys/class/devfreq/*vcodec* \
+        /sys/class/devfreq/*venc* \
+        /sys/class/devfreq/*vdec* \
+        /sys/devices/platform/*mfc*/devfreq/* \
+        /sys/devices/platform/*venus*/devfreq/* \
+        /sys/devices/platform/*vpu*/devfreq/* \
+        /sys/devices/platform/*vcodec*/devfreq/* ; do
+        [ -d "$candidate" ] || continue
+        printf '%s\n' "$candidate"
+        return 0
+    done
+    return 1
+}
+
+video_directory="$(find_video_directory || true)"
+
 # Busy percentage. Qualcomm publishes gpu_busy_percentage directly, and Mali
 # devfreq nodes publish utilisation, so a single read is enough for both.
 # Qualcomm formats the value as "37 %" while Mali reports a bare integer, so
@@ -141,6 +165,12 @@ read_devfreq_utilization() {
             parsed="$(parse_percentage "${value:-}")"
             [ -z "$parsed" ] || { printf '%s\n' "$parsed"; return 0; }
         fi
+        for attribute in busy_percentage busy_percent load; do
+            [ -r "$base/$attribute" ] || continue
+            value="$(read_first_line "$base/$attribute" || true)"
+            parsed="$(parse_percentage "${value:-}" || true)"
+            [ -z "$parsed" ] || { printf '%s\n' "$parsed"; return 0; }
+        done
     done
     return 1
 }
@@ -282,6 +312,60 @@ collect_sample() {
     return 0
 }
 
+collect_video_sample() {
+    video_name='Android MediaCodec video accelerator'
+    video_busy=unavailable
+    video_clock=unavailable
+    video_max_clock=unavailable
+    codec_activity=idle
+    codec_clients=0
+    codec_encode_clients=0
+    codec_decode_clients=0
+    codec_transcode_clients=0
+
+    if [ -n "$video_directory" ]; then
+        value="$(read_attribute "$video_directory" name model device_name || true)"
+        [ -z "$value" ] || video_name="$value"
+        value="$(read_devfreq_utilization "$video_directory" || true)"
+        [ -z "$value" ] || video_busy="$value"
+        value="$(read_attribute "$video_directory" cur_freq clock freq || true)"
+        if [ -n "$value" ]; then
+            converted="$(hertz_to_mhz "$value" || true)"
+            [ -z "$converted" ] || video_clock="$converted"
+        fi
+        value="$(read_attribute "$video_directory" max_freq max_clock || true)"
+        if [ -n "$value" ]; then
+            converted="$(hertz_to_mhz "$value" || true)"
+            [ -z "$converted" ] || video_max_clock="$converted"
+        fi
+    fi
+
+    # Each hardware operation owns a private static client and bionic worker.
+    # Count the client only; counting the worker too would double every job.
+    for process in /proc/[0-9]*; do
+        [ -r "$process/cmdline" ] || continue
+        command="$(tr '\000' ' ' < "$process/cmdline" 2>/dev/null || true)"
+        case "$command" in
+            *"dawnshell-codec pipe encode "*|*"dawnshell-codec encode-test "*)
+                codec_encode_clients=$((codec_encode_clients + 1))
+                ;;
+            *"dawnshell-codec pipe decode "*|*"dawnshell-codec decode-test "*)
+                codec_decode_clients=$((codec_decode_clients + 1))
+                ;;
+            *"dawnshell-codec transcode "*|*"dawnshell-codec transcode-test "*)
+                codec_transcode_clients=$((codec_transcode_clients + 1))
+                ;;
+        esac
+    done
+    codec_clients=$((codec_encode_clients + codec_decode_clients
+        + codec_transcode_clients))
+    if [ "$codec_clients" -gt 0 ]; then
+        codec_activity=active
+    elif [ "$video_busy" != unavailable ] && [ "$video_busy" -gt 0 ]; then
+        codec_activity=active
+    fi
+}
+
 print_table() {
     timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     busy_display="$gpu_busy"
@@ -300,29 +384,52 @@ print_table() {
     esac
     temperature_display="$gpu_temperature"
     [ "$temperature_display" = unavailable ] || temperature_display="${gpu_temperature}C"
+    video_busy_display="$video_busy"
+    [ "$video_busy_display" = unavailable ] || video_busy_display="$video_busy%"
+    video_clock_display="$video_clock"
+    [ "$video_clock_display" = unavailable ] || video_clock_display="${video_clock}MHz"
+    video_max_clock_display="$video_max_clock"
+    [ "$video_max_clock_display" = unavailable ] || \
+        video_max_clock_display="${video_max_clock}MHz"
+    codec_workloads="encode=$codec_encode_clients decode=$codec_decode_clients transcode=$codec_transcode_clients"
 
-    printf '%s\n' "$timestamp   DawnShell GPU status (gsmi)"
+    printf '%s\n' "$timestamp   DawnShell accelerator status (gsmi)"
     printf '%s\n' '+-----------------------------------------------------------------------+'
-    printf '| %-22s | %-44s |\n' 'GPU' "$gpu_name"
-    printf '| %-22s | %-44s |\n' 'Utilization' "$busy_display"
-    printf '| %-22s | %-44s |\n' 'Clock' "$clock_display"
-    printf '| %-22s | %-44s |\n' 'Max clock' "$max_clock_display"
-    printf '| %-22s | %-44s |\n' 'Governor' "$gpu_governor"
-    printf '| %-22s | %-44s |\n' 'Power state' "$gpu_power_state"
-    printf '| %-22s | %-44s |\n' 'Temperature' "$temperature_display"
+    printf '| %-22s | %-44s |\n' '3D GPU' "$gpu_name"
+    printf '| %-22s | %-44s |\n' '3D utilization' "$busy_display"
+    printf '| %-22s | %-44s |\n' '3D clock' "$clock_display"
+    printf '| %-22s | %-44s |\n' '3D max clock' "$max_clock_display"
+    printf '| %-22s | %-44s |\n' '3D governor' "$gpu_governor"
+    printf '| %-22s | %-44s |\n' '3D power state' "$gpu_power_state"
+    printf '| %-22s | %-44s |\n' '3D temperature' "$temperature_display"
     printf '%s\n' '+-----------------------------------------------------------------------+'
-    printf '%s\n' 'Source: kernel sysfs. Rendering stays on Android; this reports device state.'
+    printf '| %-22s | %-44s |\n' 'Video accelerator' "$video_name"
+    printf '| %-22s | %-44s |\n' 'Codec activity' "$codec_activity"
+    printf '| %-22s | %-44s |\n' 'Codec clients' "$codec_clients"
+    printf '| %-22s | %-44s |\n' 'Codec workloads' "$codec_workloads"
+    printf '| %-22s | %-44s |\n' 'Codec utilization' "$video_busy_display"
+    printf '| %-22s | %-44s |\n' 'Codec clock' "$video_clock_display"
+    printf '| %-22s | %-44s |\n' 'Codec max clock' "$video_max_clock_display"
+    printf '%s\n' '+-----------------------------------------------------------------------+'
+    printf '%s\n' 'Sources: kernel sysfs and DawnShell client processes in /proc.'
+    printf '%s\n' 'MediaCodec uses a dedicated video engine, not the 3D GPU.'
+    if [ "$video_busy" = unavailable ]; then
+        printf '%s\n' 'Codec utilization: unavailable because this kernel exports no VPU busy counter.'
+    fi
 }
 
 print_csv() {
     if [ "${csv_header_printed:-0}" = 0 ]; then
-        printf '%s\n' 'timestamp,name,utilization_percent,clock_mhz,max_clock_mhz,governor,power_state,temperature_c'
+        printf '%s\n' 'timestamp,name,utilization_percent,clock_mhz,max_clock_mhz,governor,power_state,temperature_c,codec_activity,codec_clients,codec_encode_clients,codec_decode_clients,codec_transcode_clients,codec_utilization_percent,codec_clock_mhz,codec_max_clock_mhz'
         csv_header_printed=1
     fi
-    printf '%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
         "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$gpu_name" "$gpu_busy" \
         "$gpu_clock" "$gpu_max_clock" "$gpu_governor" "$gpu_power_state" \
-        "$gpu_temperature"
+        "$gpu_temperature" "$codec_activity" "$codec_clients" \
+        "$codec_encode_clients" "$codec_decode_clients" \
+        "$codec_transcode_clients" "$video_busy" "$video_clock" \
+        "$video_max_clock"
 }
 
 json_value() {
@@ -343,6 +450,16 @@ print_json() {
     printf ',"power_state":'; json_value "$gpu_power_state"
     printf ',"temperature_c":'; json_value "$gpu_temperature"
     printf ',"sysfs_path":'; json_value "${gpu_directory:-unavailable}"
+    printf ',"video_accelerator":"%s"' "$video_name"
+    printf ',"codec_activity":"%s"' "$codec_activity"
+    printf ',"codec_clients":%s' "$codec_clients"
+    printf ',"codec_encode_clients":%s' "$codec_encode_clients"
+    printf ',"codec_decode_clients":%s' "$codec_decode_clients"
+    printf ',"codec_transcode_clients":%s' "$codec_transcode_clients"
+    printf ',"codec_utilization_percent":'; json_value "$video_busy"
+    printf ',"codec_clock_mhz":'; json_value "$video_clock"
+    printf ',"codec_max_clock_mhz":'; json_value "$video_max_clock"
+    printf ',"codec_sysfs_path":'; json_value "${video_directory:-unavailable}"
     printf '}\n'
 }
 
@@ -354,16 +471,10 @@ emit_sample() {
     esac
 }
 
-if [ -z "$gpu_directory" ]; then
-    echo 'gsmi: no GPU sysfs node was found' >&2
-    echo 'gsmi: /sys must be shared with Debian and the kernel must expose' >&2
-    echo 'gsmi: a kgsl, mali, or devfreq GPU node' >&2
-    exit 4
-fi
-
 samples=0
 while : ; do
     collect_sample || true
+    collect_video_sample
     emit_sample
     samples=$((samples + 1))
     [ -n "$interval" ] || break

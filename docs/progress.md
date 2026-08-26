@@ -104,6 +104,8 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [x] Shared host networking and Tailscale routes.
 - [x] AFU private NDK worker startup and 1080p HEVC hardware encode through
   the inherited `memfd`/`eventfd` transport.
+- [x] `gsmi` distinguished an active 1080p MediaCodec encode client from an
+  independently idle 3D GPU on an Android 16 ARM64 device.
 
 ## Remaining validation
 

@@ -123,6 +123,8 @@ ABI(Application Binary Interface)의 의미는
 - [x] 호스트 네트워크 공유와 Tailscale 경로를 확인했습니다.
 - [x] AFU에서 private NDK worker를 시작하고 inherited `memfd`/`eventfd` 전송으로
   1080p HEVC 하드웨어 인코딩을 완료했습니다.
+- [x] Android 16 ARM64 실기기에서 3D GPU가 별도로 유휴 상태인 동안 `gsmi`가
+  실행 중인 1080p MediaCodec encode client를 감지하는 것을 확인했습니다.
 
 ## 남은 검증
 
