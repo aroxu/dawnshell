@@ -12,12 +12,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  # Keep a generation suffix so a GitHub-hosted runner startup failure cannot
-  # leave future runs blocked behind a stale concurrency reservation.
-  group: dawnshell-v2-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   ANDROID_NDK_VERSION: 29.0.14206865
   DAWNSHELL_SOURCE_REVISION: ${{ github.sha }}
