@@ -93,7 +93,8 @@ boundary.
 
 ## Hardware video codecs
 
-Enable the option and tap **Save and probe hardware codecs**. The dedicated log
+Enable the option, tap the global **Apply** button, then tap **Check hardware
+codecs**. The dedicated log
 must show `classification=platform_api29` (or an explicit legacy `heuristic_*`),
 an AVC decoder or encoder `created(...)` result, and no `OMX.google.*`,
 `c2.android.*`, or `.secure` backend. Debian PID 1 and SSH must remain available

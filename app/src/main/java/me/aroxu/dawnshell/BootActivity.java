@@ -39,8 +39,10 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.AppCompatTextView;
+import androidx.core.widget.NestedScrollView;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputLayout;
@@ -56,6 +58,7 @@ public class BootActivity extends AppCompatActivity {
 
     private static final String TAG = "DawnShell";
     private static final int REQUEST_EXPORT_SSH_PRIVATE_KEY = 1001;
+    private static final String STATE_DASHBOARD_ITEM = "dashboard_item";
 
     private CompoundButton enableBfu;
     private CompoundButton allowCeReadableBfu;
@@ -68,7 +71,13 @@ public class BootActivity extends AppCompatActivity {
     private EditText usbExclusiveDeviceIds;
     private TextView generatedPublicKey;
     private TextView probeSummary;
-    private TextView settingsDirty;
+    private View settingsApplyBar;
+    private View dashboardPageHome;
+    private View dashboardPageAccess;
+    private View dashboardPageAdvanced;
+    private NestedScrollView dashboardScroll;
+    private SettingsSnapshot appliedSettings;
+    private int selectedDashboardItem = R.id.navigation_home;
     private TextView rootProbeStatus;
     private TextView ceIsolationProbeStatus;
     private TextView rootfsProbeStatus;
@@ -133,6 +142,10 @@ public class BootActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            selectedDashboardItem = savedInstanceState.getInt(
+                    STATE_DASHBOARD_ITEM, R.id.navigation_home);
+        }
         liveLogHandler = new Handler(Looper.getMainLooper());
         setContentView(R.layout.activity_boot);
         bindDashboardViews();
@@ -163,6 +176,33 @@ public class BootActivity extends AppCompatActivity {
         codecSelfTestExecutor.shutdownNow();
         codecControlExecutor.shutdownNow();
         super.onDestroy();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putInt(STATE_DASHBOARD_ITEM, selectedDashboardItem);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (selectedDashboardItem != R.id.navigation_home) {
+            BottomNavigationView navigation = findViewById(R.id.dashboard_navigation);
+            navigation.setSelectedItemId(R.id.navigation_home);
+            return;
+        }
+        if (settingsApplyBar != null
+                && settingsApplyBar.getVisibility() == View.VISIBLE) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.dawnshell_discard_changes_title)
+                    .setMessage(R.string.dawnshell_discard_changes_message)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.dawnshell_discard_changes,
+                            (dialog, which) -> BootActivity.super.onBackPressed())
+                    .show();
+            return;
+        }
+        super.onBackPressed();
     }
 
     @Override
@@ -223,7 +263,6 @@ public class BootActivity extends AppCompatActivity {
         usbExclusiveDeviceIds = findViewById(R.id.usb_exclusive_device_ids);
         generatedPublicKey = findViewById(R.id.generated_public_key);
         probeSummary = findViewById(R.id.probe_summary);
-        settingsDirty = findViewById(R.id.settings_dirty_text);
         rootAuthorizationButton = findViewById(R.id.root_authorization_button);
         rootAuthorizationStatus = findViewById(R.id.root_authorization_status);
         installStatus = findViewById(R.id.install_status);
@@ -247,22 +286,30 @@ public class BootActivity extends AppCompatActivity {
         debianPasswordConfirm = findViewById(R.id.debian_password_confirm);
         rootPasswordButton = findViewById(R.id.root_password_button);
         debianPasswordButton = findViewById(R.id.debian_password_button);
+        settingsApplyBar = findViewById(R.id.settings_apply_bar);
+        dashboardPageHome = findViewById(R.id.dashboard_page_home);
+        dashboardPageAccess = findViewById(R.id.dashboard_page_access);
+        dashboardPageAdvanced = findViewById(R.id.dashboard_page_advanced);
+        dashboardScroll = findViewById(R.id.dashboard_scroll);
+
+        BottomNavigationView navigation = findViewById(R.id.dashboard_navigation);
+        navigation.setOnItemSelectedListener(item -> {
+            showDashboardPage(item.getItemId());
+            return true;
+        });
+        navigation.setSelectedItemId(selectedDashboardItem);
 
         rootAuthorizationButton.setOnClickListener(view -> confirmRootAuthorization());
         findViewById(R.id.save_provision_button)
-                .setOnClickListener(view -> saveAndProvision());
+                .setOnClickListener(view -> confirmApplySettings());
         findViewById(R.id.refresh_probes_button)
                 .setOnClickListener(view -> refreshProbeStatus(true));
         findViewById(R.id.install_debian_button)
                 .setOnClickListener(view -> confirmDebianInstall());
         findViewById(R.id.configure_system_button)
                 .setOnClickListener(view -> confirmSystemConfiguration());
-        findViewById(R.id.apply_docker_policy_button)
-                .setOnClickListener(view -> confirmDockerNetworkPolicy());
-        findViewById(R.id.apply_host_usb_policy_button)
-                .setOnClickListener(view -> confirmHostUsbPolicy());
         findViewById(R.id.probe_hardware_codecs_button)
-                .setOnClickListener(view -> applyHardwareCodecSetting());
+                .setOnClickListener(view -> probeHardwareCodecs());
         hardwareCodecSelfTestButton.setOnClickListener(view ->
                 runHardwareCodecSelfTest());
         hardwareCodecPerformanceTestButton.setOnClickListener(view ->
@@ -319,17 +366,17 @@ public class BootActivity extends AppCompatActivity {
 
     private void watchSettingsChanges() {
         CompoundButton.OnCheckedChangeListener listener = (button, checked) ->
-                settingsDirty.setVisibility(View.VISIBLE);
+                refreshSettingsDirtyState();
         enableBfu.setOnCheckedChangeListener(listener);
         allowCeReadableBfu.setOnCheckedChangeListener(listener);
         RadioGroup.OnCheckedChangeListener radioListener = (group, checkedId) ->
-                settingsDirty.setVisibility(View.VISIBLE);
+                refreshSettingsDirtyState();
         cgroupPolicyGroup.setOnCheckedChangeListener(radioListener);
         dockerNetworkPolicyGroup.setOnCheckedChangeListener(radioListener);
         dockerHostIpcCompatibility.setOnCheckedChangeListener(listener);
         hardwareCodecBridge.setOnCheckedChangeListener(listener);
         usbPassthroughGroup.setOnCheckedChangeListener((group, checkedId) -> {
-            settingsDirty.setVisibility(View.VISIBLE);
+            refreshSettingsDirtyState();
             refreshUsbExclusiveEditorState();
         });
         usbExclusiveDeviceIds.addTextChangedListener(new TextWatcher() {
@@ -340,7 +387,7 @@ public class BootActivity extends AppCompatActivity {
             @Override
             public void onTextChanged(CharSequence text, int start, int before,
                                       int count) {
-                settingsDirty.setVisibility(View.VISIBLE);
+                refreshSettingsDirtyState();
                 usbExclusiveDeviceIdsLayout.setError(null);
             }
 
@@ -353,6 +400,18 @@ public class BootActivity extends AppCompatActivity {
         startActivity(new Intent(this, LogsActivity.class));
     }
 
+    private void showDashboardPage(int itemId) {
+        selectedDashboardItem = itemId;
+        dashboardPageHome.setVisibility(itemId == R.id.navigation_home
+                ? View.VISIBLE : View.GONE);
+        dashboardPageAccess.setVisibility(itemId == R.id.navigation_access
+                ? View.VISIBLE : View.GONE);
+        dashboardPageAdvanced.setVisibility(itemId == R.id.navigation_advanced
+                ? View.VISIBLE : View.GONE);
+        dashboardScroll.post(() -> dashboardScroll.scrollTo(0, 0));
+    }
+
+    @SuppressWarnings("unused")
     private ScrollView buildSettingsView() {
         int padding = dp(16);
         LinearLayout content = new LinearLayout(this);
@@ -390,7 +449,7 @@ public class BootActivity extends AppCompatActivity {
         addLogConsole(directBootCard, rootAuthorizationStatus, dp(8));
 
         Button save = createActionButton(R.string.bfu_save_and_provision);
-        save.setOnClickListener(view -> saveAndProvision());
+        save.setOnClickListener(view -> confirmApplySettings());
         directBootCard.addView(save, matchWrap());
 
         LinearLayout setupCard = createSectionCard(content,
@@ -837,7 +896,8 @@ public class BootActivity extends AppCompatActivity {
         refreshLifecycleStatus();
         refreshDockerPolicyStatus();
         refreshHardwareCodecStatus();
-        settingsDirty.setVisibility(View.GONE);
+        appliedSettings = SettingsSnapshot.fromPreferences(this);
+        refreshSettingsDirtyState();
     }
 
     private void refreshProbeStatus(boolean recordOperation) {
@@ -908,31 +968,88 @@ public class BootActivity extends AppCompatActivity {
         }
     }
 
-    private void saveAndProvision() {
-        recordOperation("PROVISION_STARTED enable_bfu=" + enableBfu.isChecked()
-                + " allow_ce_readable_bfu=" + allowCeReadableBfu.isChecked()
-                + " usb_passthrough_mode=" + selectedUsbPassthroughMode()
-                + " cgroup_policy=" + selectedCgroupPolicy()
-                + " docker_network_policy=" + selectedDockerNetworkPolicy()
-                + " docker_host_ipc_compatibility="
-                + dockerHostIpcCompatibility.isChecked()
-                + " hardware_codec_bridge=" + hardwareCodecBridge.isChecked());
+    private void refreshSettingsDirtyState() {
+        if (settingsApplyBar == null || appliedSettings == null) return;
+        SettingsSnapshot current = SettingsSnapshot.fromViews(this, false);
+        settingsApplyBar.setVisibility(appliedSettings.sameAs(current)
+                ? View.GONE : View.VISIBLE);
+    }
+
+    private void confirmApplySettings() {
+        SettingsSnapshot requested;
         try {
-            savePreferences();
+            requested = SettingsSnapshot.fromViews(this, true);
+        } catch (IllegalStateException e) {
+            DawnShellNotice.show(this, e.getMessage());
+            return;
+        }
+        SettingsSnapshot previous = SettingsSnapshot.fromPreferences(this);
+        if (previous.sameAs(requested)) {
+            appliedSettings = previous;
+            refreshSettingsDirtyState();
+            DawnShellNotice.show(this, R.string.dawnshell_apply_changes_none);
+            return;
+        }
+        if (requested.requiresRuntimeApply(previous) && !isUserUnlocked()) {
+            DawnShellNotice.show(this,
+                    R.string.dawnshell_apply_changes_requires_unlock);
+            return;
+        }
+        if (requested.requiresRuntimeApply(previous)
+                || (!previous.allowCeReadableBfu && requested.allowCeReadableBfu)) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.dawnshell_apply_changes_confirm_title)
+                    .setMessage(R.string.dawnshell_apply_changes_confirm_message)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.dawnshell_apply_changes,
+                            (dialog, which) -> applySettings(previous, requested))
+                    .show();
+            return;
+        }
+        applySettings(previous, requested);
+    }
+
+    private void applySettings(SettingsSnapshot previous,
+                               SettingsSnapshot requested) {
+        recordOperation("SETTINGS_APPLY_STARTED enable_bfu=" + requested.enabled
+                + " allow_ce_readable_bfu=" + requested.allowCeReadableBfu
+                + " usb_passthrough_mode=" + requested.usbMode
+                + " cgroup_policy=" + requested.cgroupPolicy
+                + " docker_network_policy=" + requested.dockerPolicy
+                + " docker_host_ipc_compatibility=" + requested.dockerHostIpc
+                + " hardware_codec_bridge=" + requested.hardwareCodec);
+        try {
+            savePreferences(requested);
             BfuCeIsolationProbe.provisionSentinel(this);
             BfuRuntime.Layout layout = BfuRuntime.provision(this);
             BfuSshClientKeyStore.Identity identity = BfuSshClientKeyStore.ensure(this);
             int keyCount = BfuAuthorizedKeys.validateAndSave(layout, identity.publicKey);
-            recordOperation("PROVISION_SUCCEEDED runtime=" + layout.root
+            recordOperation("SETTINGS_APPLY_SAVED runtime=" + layout.root
                     + " authorized_key_count=" + keyCount);
-            if (hardwareCodecBridge.isChecked()) {
+
+            if (requested.hardwareCodec) {
                 BfuBootService.requestHardwareCodecProbe(this);
             } else {
                 HardwareCodecService.stop(this);
             }
-            DawnShellNotice.show(this, getString(R.string.bfu_saved, layout.root));
+
+            boolean runtimeApply = requested.requiresRuntimeApply(previous);
+            boolean activateNow = runtimeApply && isUserUnlocked();
+            if (activateNow) {
+                BfuBootService.requestRuntimeSettingsApply(this,
+                        requested.usbChanged(previous),
+                        requested.dockerChanged(previous),
+                        requested.cgroupChanged(previous));
+            }
+            appliedSettings = requested;
+            refreshSettingsDirtyState();
+            DawnShellNotice.show(this, activateNow
+                    ? R.string.dawnshell_apply_changes_applied
+                    : (runtimeApply
+                    ? R.string.dawnshell_apply_changes_saved_for_next_start
+                    : R.string.dawnshell_apply_changes_applied));
         } catch (IOException | IllegalStateException e) {
-            recordOperation("PROVISION_FAILED " + BfuSu.sanitize(e.getMessage()));
+            recordOperation("SETTINGS_APPLY_FAILED " + BfuSu.sanitize(e.getMessage()));
             DawnShellNotice.show(this, getString(R.string.bfu_provision_failed, e.getMessage()));
         }
     }
@@ -1057,7 +1174,7 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void confirmDebianInstall() {
-        if (!enableBfu.isChecked()) {
+        if (!BfuPreferences.isEnabled(this)) {
             recordOperation("DEBIAN_INSTALL_REJECTED bfu_disabled=true");
             DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
             return;
@@ -1120,7 +1237,6 @@ public class BootActivity extends AppCompatActivity {
 
     private void startDebianInstall() {
         try {
-            savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
             BfuRuntime.Layout layout = BfuRuntime.provision(this);
             BfuBootService.requestDebianRootfsInstall(this);
@@ -1136,7 +1252,7 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void confirmSystemConfiguration() {
-        if (!enableBfu.isChecked()) {
+        if (!BfuPreferences.isEnabled(this)) {
             recordOperation("DEBIAN_CONFIG_REJECTED bfu_disabled=true");
             DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
             return;
@@ -1157,7 +1273,6 @@ public class BootActivity extends AppCompatActivity {
 
     private void startSystemConfiguration() {
         try {
-            savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
             BfuRuntime.Layout layout = BfuRuntime.provision(this);
             BfuSshClientKeyStore.Identity identity = BfuSshClientKeyStore.ensure(this);
@@ -1175,93 +1290,17 @@ public class BootActivity extends AppCompatActivity {
         }
     }
 
-    private void confirmDockerNetworkPolicy() {
-        if (!enableBfu.isChecked()) {
-            recordOperation("DOCKER_POLICY_REJECTED bfu_disabled=true");
-            DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
+    private void probeHardwareCodecs() {
+        if (!BfuPreferences.hardwareCodecBridge(this)) {
+            recordOperation("HARDWARE_CODEC_PROBE_REJECTED enabled=false");
+            DawnShellNotice.show(this, R.string.dawnshell_codec_apply_first);
             return;
         }
-        if (!isUserUnlocked()) {
-            recordOperation("DOCKER_POLICY_REJECTED user_locked=true");
-            DawnShellNotice.show(this, R.string.dawnshell_docker_policy_requires_unlock);
-            return;
-        }
-        String policy = selectedDockerNetworkPolicy();
-        int message = BfuPreferences.DOCKER_HOST_ONLY.equals(policy)
-                ? R.string.dawnshell_docker_policy_confirm_host
-                : R.string.dawnshell_docker_policy_confirm_bridge;
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dawnshell_docker_policy_confirm_title)
-                .setMessage(message)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.dawnshell_docker_policy_confirm_button,
-                        (dialog, which) -> startDockerNetworkPolicy())
-                .show();
-    }
-
-    private void confirmHostUsbPolicy() {
-        if (!enableBfu.isChecked()) {
-            recordOperation("HOST_USB_POLICY_REJECTED bfu_disabled=true");
-            DawnShellNotice.show(this, R.string.bfu_install_requires_enabled);
-            return;
-        }
-        if (!isUserUnlocked()) {
-            recordOperation("HOST_USB_POLICY_REJECTED user_locked=true");
-            DawnShellNotice.show(this, R.string.dawnshell_host_usb_requires_unlock);
-            return;
-        }
-        new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.dawnshell_host_usb_confirm_title)
-                .setMessage(R.string.dawnshell_host_usb_confirm_message)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.dawnshell_apply_host_usb_policy,
-                        (dialog, which) -> startHostUsbPolicy())
-                .show();
-    }
-
-    private void startHostUsbPolicy() {
-        try {
-            savePreferences();
-            BfuRuntime.provision(this);
-            BfuBootService.requestHostUsbPolicy(this);
-            recordOperation("HOST_USB_POLICY_REQUESTED mode="
-                    + selectedUsbPassthroughMode()
-                    + " device_ids="
-                    + BfuPreferences.usbExclusiveDeviceIds(this));
-            DawnShellNotice.show(this, R.string.dawnshell_host_usb_policy_requested);
-        } catch (IOException | IllegalStateException e) {
-            recordOperation("HOST_USB_POLICY_REQUEST_FAILED "
-                    + BfuSu.sanitize(e.getMessage()));
-            DawnShellNotice.show(this, getString(R.string.bfu_provision_failed,
-                    e.getMessage()));
-        }
-    }
-
-    private void applyHardwareCodecSetting() {
-        if (hardwareCodecBridge.isChecked() && !enableBfu.isChecked()) {
-            recordOperation("HARDWARE_CODEC_REJECTED bfu_disabled=true");
-            DawnShellNotice.show(this, R.string.dawnshell_codec_requires_bfu);
-            return;
-        }
-        try {
-            savePreferences();
-            if (hardwareCodecBridge.isChecked()) {
-                BfuBootService.requestHardwareCodecProbe(this);
-                recordOperation("HARDWARE_CODEC_PROBE_REQUESTED user_unlocked="
-                        + isUserUnlocked());
-                DawnShellNotice.show(this, R.string.dawnshell_codec_probe_requested);
-            } else {
-                HardwareCodecService.stop(this);
-                recordOperation("HARDWARE_CODEC_SERVICE_STOP_REQUESTED");
-                DawnShellNotice.show(this, R.string.dawnshell_codec_disabled);
-            }
-            refreshHardwareCodecStatus();
-        } catch (IllegalStateException e) {
-            recordOperation("HARDWARE_CODEC_REQUEST_FAILED "
-                    + BfuSu.sanitize(e.getMessage()));
-            DawnShellNotice.show(this, getString(R.string.bfu_provision_failed,
-                    e.getMessage()));
-        }
+        BfuBootService.requestHardwareCodecProbe(this);
+        recordOperation("HARDWARE_CODEC_PROBE_REQUESTED user_unlocked="
+                + isUserUnlocked());
+        DawnShellNotice.show(this, R.string.dawnshell_codec_probe_requested);
+        refreshHardwareCodecStatus();
     }
 
     private void runHardwareCodecSelfTest() {
@@ -1330,8 +1369,7 @@ public class BootActivity extends AppCompatActivity {
 
     private void runHardwareCodecFileSelfTest() {
         if (codecSelfTestInProgress) return;
-        if (!hardwareCodecBridge.isChecked()
-                || !BfuPreferences.hardwareCodecBridge(this)) {
+        if (!BfuPreferences.hardwareCodecBridge(this)) {
             DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_requires_setup);
             return;
         }
@@ -1418,8 +1456,7 @@ public class BootActivity extends AppCompatActivity {
     }
 
     private void confirmHardwareCodecLongRun() {
-        if (!hardwareCodecBridge.isChecked()
-                || !BfuPreferences.hardwareCodecBridge(this)) {
+        if (!BfuPreferences.hardwareCodecBridge(this)) {
             DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_requires_setup);
             return;
         }
@@ -1436,8 +1473,7 @@ public class BootActivity extends AppCompatActivity {
     private void runHardwareCodecLongRun(HardwareCodecLongRun.Operation operation) {
         if (codecControlInProgress) return;
         if (operation == HardwareCodecLongRun.Operation.START
-                && (!hardwareCodecBridge.isChecked()
-                || !BfuPreferences.hardwareCodecBridge(this))) {
+                && !BfuPreferences.hardwareCodecBridge(this)) {
             DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_requires_setup);
             return;
         }
@@ -1499,8 +1535,7 @@ public class BootActivity extends AppCompatActivity {
 
     private void runHardwareCodecTest(boolean performance) {
         if (codecSelfTestInProgress) return;
-        if (!hardwareCodecBridge.isChecked()
-                || !BfuPreferences.hardwareCodecBridge(this)) {
+        if (!BfuPreferences.hardwareCodecBridge(this)) {
             DawnShellNotice.show(this, R.string.dawnshell_codec_self_test_requires_setup);
             return;
         }
@@ -1600,30 +1635,10 @@ public class BootActivity extends AppCompatActivity {
         });
     }
 
-    private void startDockerNetworkPolicy() {
-        try {
-            savePreferences();
-            BfuRuntime.provision(this);
-            String policy = selectedDockerNetworkPolicy();
-            BfuBootService.requestDockerNetworkPolicy(this);
-            recordOperation("DOCKER_POLICY_REQUESTED policy=" + policy
-                    + " android_network_namespace=shared"
-                    + " host_ipc_compatibility="
-                    + dockerHostIpcCompatibility.isChecked());
-            DawnShellNotice.show(this, R.string.dawnshell_docker_policy_requested);
-            refreshDockerPolicyStatus();
-        } catch (IOException | IllegalStateException e) {
-            recordOperation("DOCKER_POLICY_REQUEST_FAILED "
-                    + BfuSu.sanitize(e.getMessage()));
-            DawnShellNotice.show(this, getString(R.string.bfu_provision_failed,
-                    e.getMessage()));
-        }
-    }
-
     private void requestLifecycle(DebianLauncher.Operation operation) {
         if ((operation == DebianLauncher.Operation.START
                 || operation == DebianLauncher.Operation.RESTART)
-                && !enableBfu.isChecked()) {
+                && !BfuPreferences.isEnabled(this)) {
             recordOperation("DEBIAN_LIFECYCLE_REJECTED operation="
                     + operation.name().toLowerCase(java.util.Locale.US)
                     + " bfu_disabled=true");
@@ -1631,7 +1646,6 @@ public class BootActivity extends AppCompatActivity {
             return;
         }
         try {
-            savePreferences();
             BfuCeIsolationProbe.provisionSentinel(this);
             BfuRuntime.provision(this);
             BfuBootService.requestDebianLifecycle(this, operation);
@@ -1648,32 +1662,15 @@ public class BootActivity extends AppCompatActivity {
         }
     }
 
-    private void savePreferences() {
-        String usbMode = selectedUsbPassthroughMode();
-        String usbDeviceIds;
-        try {
-            usbDeviceIds = BfuPreferences.normalizeUsbExclusiveDeviceIds(
-                    usbExclusiveDeviceIds.getText().toString());
-        } catch (IllegalArgumentException e) {
-            usbExclusiveDeviceIdsLayout.setError(
-                    getString(R.string.dawnshell_usb_exclusive_ids_invalid));
-            throw new IllegalStateException(
-                    getString(R.string.dawnshell_usb_exclusive_ids_invalid));
-        }
-        if (BfuPreferences.USB_PASSTHROUGH_EXCLUSIVE.equals(usbMode)
-                && usbDeviceIds.isEmpty()) {
-            usbExclusiveDeviceIdsLayout.setError(
-                    getString(R.string.dawnshell_usb_exclusive_ids_required));
-            throw new IllegalStateException(
-                    getString(R.string.dawnshell_usb_exclusive_ids_required));
-        }
-        BfuPreferences.save(this, enableBfu.isChecked(),
-                allowCeReadableBfu.isChecked(), selectedCgroupPolicy(),
-                 selectedDockerNetworkPolicy(),
-                 dockerHostIpcCompatibility.isChecked(), usbMode, usbDeviceIds,
-                 hardwareCodecBridge.isChecked());
+    private void savePreferences(SettingsSnapshot settings) {
+        BfuPreferences.save(this, settings.enabled,
+                settings.allowCeReadableBfu, settings.cgroupPolicy,
+                settings.dockerPolicy, settings.dockerHostIpc,
+                settings.usbMode, settings.usbDeviceIds,
+                settings.hardwareCodec);
+        usbExclusiveDeviceIds.setText(settings.usbDeviceIds);
+        usbExclusiveDeviceIds.setSelection(usbExclusiveDeviceIds.length());
         usbExclusiveDeviceIdsLayout.setError(null);
-        if (settingsDirty != null) settingsDirty.setVisibility(View.GONE);
     }
 
     private void selectUsbPassthroughMode(String mode) {
@@ -1743,6 +1740,105 @@ public class BootActivity extends AppCompatActivity {
         }
         if (id == R.id.docker_policy_legacy) return BfuPreferences.DOCKER_LEGACY_BRIDGE;
         return BfuPreferences.DOCKER_HOST_ONLY;
+    }
+
+    private static final class SettingsSnapshot {
+        final boolean enabled;
+        final boolean allowCeReadableBfu;
+        final String cgroupPolicy;
+        final String dockerPolicy;
+        final boolean dockerHostIpc;
+        final String usbMode;
+        final String usbDeviceIds;
+        final boolean hardwareCodec;
+
+        SettingsSnapshot(boolean enabled, boolean allowCeReadableBfu,
+                         String cgroupPolicy, String dockerPolicy,
+                         boolean dockerHostIpc, String usbMode,
+                         String usbDeviceIds, boolean hardwareCodec) {
+            this.enabled = enabled;
+            this.allowCeReadableBfu = allowCeReadableBfu;
+            this.cgroupPolicy = cgroupPolicy;
+            this.dockerPolicy = dockerPolicy;
+            this.dockerHostIpc = dockerHostIpc;
+            this.usbMode = usbMode;
+            this.usbDeviceIds = usbDeviceIds;
+            this.hardwareCodec = hardwareCodec;
+        }
+
+        static SettingsSnapshot fromPreferences(Context context) {
+            return new SettingsSnapshot(BfuPreferences.isEnabled(context),
+                    BfuPreferences.allowCeReadableBfu(context),
+                    BfuPreferences.cgroupPolicy(context),
+                    BfuPreferences.dockerNetworkPolicy(context),
+                    BfuPreferences.dockerHostIpcCompatibility(context),
+                    BfuPreferences.usbPassthroughMode(context),
+                    BfuPreferences.usbExclusiveDeviceIds(context),
+                    BfuPreferences.hardwareCodecBridge(context));
+        }
+
+        static SettingsSnapshot fromViews(BootActivity activity,
+                                          boolean validate) {
+            String mode = activity.selectedUsbPassthroughMode();
+            String rawIds = activity.usbExclusiveDeviceIds.getText().toString();
+            String normalizedIds;
+            try {
+                normalizedIds = BfuPreferences.normalizeUsbExclusiveDeviceIds(rawIds);
+            } catch (IllegalArgumentException e) {
+                if (!validate) {
+                    normalizedIds = "invalid:" + rawIds.trim();
+                } else {
+                    activity.usbExclusiveDeviceIdsLayout.setError(activity.getString(
+                            R.string.dawnshell_usb_exclusive_ids_invalid));
+                    throw new IllegalStateException(activity.getString(
+                            R.string.dawnshell_usb_exclusive_ids_invalid));
+                }
+            }
+            if (validate && BfuPreferences.USB_PASSTHROUGH_EXCLUSIVE.equals(mode)
+                    && normalizedIds.isEmpty()) {
+                activity.usbExclusiveDeviceIdsLayout.setError(activity.getString(
+                        R.string.dawnshell_usb_exclusive_ids_required));
+                throw new IllegalStateException(activity.getString(
+                        R.string.dawnshell_usb_exclusive_ids_required));
+            }
+            return new SettingsSnapshot(activity.enableBfu.isChecked(),
+                    activity.allowCeReadableBfu.isChecked(),
+                    activity.selectedCgroupPolicy(),
+                    activity.selectedDockerNetworkPolicy(),
+                    activity.dockerHostIpcCompatibility.isChecked(), mode,
+                    normalizedIds, activity.hardwareCodecBridge.isChecked());
+        }
+
+        boolean sameAs(SettingsSnapshot other) {
+            return other != null
+                    && enabled == other.enabled
+                    && allowCeReadableBfu == other.allowCeReadableBfu
+                    && cgroupPolicy.equals(other.cgroupPolicy)
+                    && dockerPolicy.equals(other.dockerPolicy)
+                    && dockerHostIpc == other.dockerHostIpc
+                    && usbMode.equals(other.usbMode)
+                    && usbDeviceIds.equals(other.usbDeviceIds)
+                    && hardwareCodec == other.hardwareCodec;
+        }
+
+        boolean usbChanged(SettingsSnapshot previous) {
+            return !usbMode.equals(previous.usbMode)
+                    || !usbDeviceIds.equals(previous.usbDeviceIds);
+        }
+
+        boolean dockerChanged(SettingsSnapshot previous) {
+            return !dockerPolicy.equals(previous.dockerPolicy)
+                    || dockerHostIpc != previous.dockerHostIpc;
+        }
+
+        boolean cgroupChanged(SettingsSnapshot previous) {
+            return !cgroupPolicy.equals(previous.cgroupPolicy);
+        }
+
+        boolean requiresRuntimeApply(SettingsSnapshot previous) {
+            return usbChanged(previous) || dockerChanged(previous)
+                    || cgroupChanged(previous);
+        }
     }
 
     private void updateDebianPassword(String account, EditText passwordEditor,

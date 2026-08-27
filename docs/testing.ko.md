@@ -193,7 +193,7 @@ Wi-Fi, 모바일 데이터, USB Ethernet, VPN, Tailscale과 SSH가 유지되는�
 
 ## 10. 하드웨어 영상 코덱
 
-옵션을 켜고 **저장하고 하드웨어 코덱 검사**를 누른 뒤 전용 로그에서 다음을
+옵션을 켜고 하단의 **적용**, **하드웨어 코덱 검사**를 차례로 누른 뒤 전용 로그에서 다음을
 확인합니다.
 
 - `classification=platform_api29` 또는 구형 Android의 명시적 `heuristic_*`

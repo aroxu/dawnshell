@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navigation_home"
+        android:icon="@drawable/ic_home_24"
+        android:title="@string/dawnshell_navigation_home" />
+    <item
+        android:id="@+id/navigation_access"
+        android:icon="@drawable/ic_key_24"
+        android:title="@string/dawnshell_navigation_access" />
+    <item
+        android:id="@+id/navigation_advanced"
+        android:icon="@drawable/ic_tune_24"
+        android:title="@string/dawnshell_navigation_advanced" />
+</menu>

@@ -8,24 +8,19 @@
 이 문서는 설치를 마친 뒤 DawnShell을 사용하는 방법을 설명합니다. Debian과
 SSH를 아직 구성하지 않았다면 먼저 [설치 가이드](installation.ko.md)를 따라 주세요.
 
-앱 화면은 처음 설정할 때 위에서 아래로 진행하도록 구성되어 있습니다.
+앱은 자주 하는 일을 세 화면으로 나눕니다.
 
-| 화면 순서 | 평소에 하는 일 |
-| ---: | --- |
-| 1 · 다이렉트 부트 | root 승인, BFU 자동 시작과 안전 정책 저장 |
-| 2 · Debian 설정 | rootfs 설치, systemd와 SSH 구성 |
-| 3 · 서버 제어 | 시작, 재시작, 상태 확인, 중지 |
-| 4 · SSH 접속 | 키 내보내기, 로컬 접속 명령 복사, 키 교체 |
-| 계정 | `debian`과 `root`의 로컬 암호 설정 |
-| USB 공유 및 패스스루 | raw USBFS 공유 또는 선택 장치 독점 연결 |
-| 하드웨어 영상 가속 | MediaCodec 설정, 검사, FFmpeg 사용법 |
-| 커널 & Docker 호환성 | cgroup과 Docker 네트워크·IPC 정책 |
-| 진단·로그 | 마지막 BFU 증거와 실시간 작업 로그 확인 |
-| 위험 구역 | 검증된 절차로 Debian rootfs 영구 삭제 |
+| 화면 | 포함된 기능 |
+| --- | --- |
+| **홈** | 처음 설치, 자동 시작, 서버 시작·중지·상태 확인 |
+| **접속** | SSH 키와 `debian`·`root` 로컬 암호 |
+| **고급** | USB, 하드웨어 코덱, cgroup, Docker, 진단, 삭제 |
 
-설정 스위치를 바꾸는 것만으로는 적용되지 않는 항목이 있습니다. Direct Boot와
-코덱 설정은 **BFU 설정 저장 및 런타임 배치**, USB는 **USB 공유 정책 적용**,
-Docker는 **Docker 네트워크 정책 적용**을 각각 눌러야 합니다.
+모든 스위치, 선택 항목, USB ID 입력은 같은 규칙을 사용합니다. 값을 바꾸면 하단
+탐색 메뉴 위에 **적용** 바가 나타납니다. 여러 설정을 바꿔도 한 번만 누르면 되며,
+런타임 정책 변경이 필요할 때 실행 중인 Debian을 최대 한 번만 재시작합니다.
+설치·시작·중지·검사·키 내보내기·암호 변경은 설정이 아니라 명령이므로 해당
+버튼을 누르면 즉시 실행됩니다.
 
 ## 먼저 알아둘 내용
 
@@ -43,8 +38,7 @@ Direct Boot 자체의 동작은 [Google 공식 문서](https://developer.android
 ## 1. Direct Boot
 
 **다이렉트 부트 Debian 부트스트랩 활성화**는 다음 재부팅부터 자동으로 Debian을
-시작할지 결정합니다. 스위치를 바꾼 뒤에는 반드시 **BFU 설정 저장 및 런타임
-배치**를 누릅니다.
+시작할지 결정합니다. 스위치를 바꾼 뒤에는 하단의 **적용**을 누릅니다.
 
 **Magisk 루트 권한 요청 / 확인**은 현재 앱이 root를 사용할 수 있는지 확인합니다.
 BFU에서는 Magisk 승인 창을 띄울 수 없으므로 미리 영구 허용해야 합니다.
@@ -153,9 +147,10 @@ Docker 컨테이너를 시작하거나 정리할 때 기기가 재부팅되는 �
 
 ## 6. USB 공유와 패스스루
 
-raw USB 공유는 기본적으로 꺼져 있습니다. **USB 공유 정책 적용**을 누르면 실행
-중인 Debian만 재시작하고, 중지 상태라면 임의로 시작하지 않고 다음 시작부터
-적용합니다. USB Ethernet은 Debian이 Android network namespace를 이미 공유하므로
+raw USB 공유는 기본적으로 꺼져 있습니다. 모드를 선택한 뒤 공통 **적용** 버튼을
+누릅니다. USB·cgroup·Docker 변경은 한 작업으로 합쳐지므로 실행 중인 Debian은
+최대 한 번만 재시작하고, 중지 상태라면 다음 시작부터 적용합니다. USB Ethernet은
+Debian이 Android network namespace를 이미 공유하므로
 이 설정이 필요하지 않습니다.
 
 구형 커널에서 Debian 13의 `lsusb -t`는 커널에 없는 최신 `rx_lanes`와
@@ -200,10 +195,11 @@ Debian에서 영상을 인코딩하거나 디코딩할 때 Android의 전용 영
 ### 켜는 방법
 
 1. 앱에서 **다이렉트 부트에서 하드웨어 코덱 브리지 활성화**를 켭니다.
-2. **저장하고 하드웨어 코덱 검사**를 누릅니다.
-3. **Debian 13 systemd + SSH 구성**을 다시 실행합니다.
-4. **파일 기반 하드웨어 AVC 디코드 자체 검사 다운로드 및 실행**을 누릅니다.
-5. Debian에서 `sudo dawnshell-codec health --format json`을 실행합니다.
+2. 하단의 **적용**을 누릅니다.
+3. **하드웨어 코덱 검사**를 누릅니다.
+4. **Debian 13 systemd + SSH 구성**을 다시 실행합니다.
+5. **파일 기반 하드웨어 AVC 디코드 자체 검사 다운로드 및 실행**을 누릅니다.
+6. Debian에서 `sudo dawnshell-codec health --format json`을 실행합니다.
 
 구성이 끝나면 Debian에 다음 명령이 설치됩니다.
 
@@ -358,8 +354,8 @@ DawnShell은 위험한 생성 호출을 차단하고 관리형 wrapper가 다음
 - 사용자가 직접 지정한 `--ipc` 또는 `ipc:`는 그대로 우선
 
 host IPC는 Android, Debian, container가 IPC 객체를 공유하므로 격리가 약해집니다.
-신뢰하지 않는 container에는 적합하지 않습니다. 설정을 바꾼 뒤에는 반드시
-**Docker 네트워크 정책 적용**을 누릅니다.
+신뢰하지 않는 container에는 적합하지 않습니다. 설정을 바꾼 뒤에는 하단의 공통
+**적용** 버튼을 누릅니다.
 
 bridge 모드는 Android 전체의 방화벽, NAT(Network Address Translation), route와
 forwarding을 변경할 수 있습니다. Wi-Fi, 모바일 데이터, USB Ethernet, VPN,

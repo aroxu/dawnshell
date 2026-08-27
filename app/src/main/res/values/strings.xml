@@ -1,19 +1,21 @@
 <resources>
     <string name="app_name" translatable="false">DawnShell</string>
-    <string name="dawnshell_home_title">Debian, available from boot.</string>
-    <string name="bfu_settings_explanation">Set up and control a Debian 13 server that starts before Android’s first unlock and stays running afterward. Complete the sections from top to bottom once; routine controls and SSH access remain easy to reach.</string>
-    <string name="dawnshell_section_direct_boot">1 · Direct Boot</string>
-    <string name="dawnshell_section_direct_boot_description">Grant permanent Magisk access, enable automatic startup, then save the BFU runtime.</string>
-    <string name="dawnshell_section_debian_setup">2 · Debian setup</string>
+    <string name="dawnshell_home_title">Your Debian server</string>
+    <string name="bfu_settings_explanation">Install once, then manage startup and SSH from this screen. Settings are staged until you tap Apply changes.</string>
+    <string name="dawnshell_section_direct_boot">Automatic startup</string>
+    <string name="dawnshell_section_direct_boot_description">Grant permanent Magisk access and choose whether Debian starts before the first Android unlock.</string>
+    <string name="dawnshell_section_debian_setup">Initial setup</string>
     <string name="dawnshell_section_debian_setup_description">Install Debian 13 and configure systemd, OpenSSH, and the generated access key.</string>
-    <string name="dawnshell_section_runtime">3 · Server controls</string>
+    <string name="dawnshell_section_runtime">Server controls</string>
     <string name="dawnshell_section_runtime_description">Check the current state or explicitly start, restart, and stop the Debian environment.</string>
-    <string name="dawnshell_section_access">4 · SSH access</string>
+    <string name="dawnshell_section_access">SSH access</string>
     <string name="dawnshell_section_access_description">Export the generated key or copy ready-to-run commands for a local SSH client.</string>
     <string name="dawnshell_section_accounts">Accounts</string>
     <string name="dawnshell_section_accounts_description">Optionally set local Debian passwords. SSH continues to accept public keys only.</string>
     <string name="dawnshell_section_advanced">Diagnostics</string>
     <string name="dawnshell_section_advanced_description">BFU probes, operation history, and the unsafe CE override are hidden during normal use.</string>
+    <string name="dawnshell_section_diagnostics">Direct Boot diagnostics</string>
+    <string name="dawnshell_section_diagnostics_description">Review evidence from the last locked boot. The CE override below is an unsafe compatibility escape hatch and should remain off on normal FBE devices.</string>
     <string name="dawnshell_show_advanced">Show diagnostics</string>
     <string name="dawnshell_hide_advanced">Hide diagnostics</string>
     <string name="dawnshell_show_details">Show details</string>
@@ -53,7 +55,7 @@
     <string name="bfu_root_probe_none">No root probe has been recorded yet.</string>
     <string name="bfu_root_probe_read_failed">Failed to read BFU root result: %1$s</string>
     <string name="bfu_ce_isolation_probe_status">Last DawnShell CE isolation probe:\n%1$s</string>
-    <string name="bfu_ce_isolation_probe_none">No CE isolation probe has been recorded yet. Save and provision while unlocked to create the non-secret CE sentinel; BFU launch fails closed if its contents can be read.</string>
+    <string name="bfu_ce_isolation_probe_none">No CE isolation probe has been recorded yet. Tap Apply while unlocked to create the non-secret CE sentinel; BFU launch fails closed if its contents can be read.</string>
     <string name="bfu_ce_isolation_probe_read_failed">Failed to read BFU CE isolation result: %1$s</string>
     <string name="bfu_rootfs_probe_status">Last BFU Debian rootfs probe:\n%1$s</string>
     <string name="bfu_rootfs_probe_none">No rootfs probe has been recorded yet.</string>
@@ -61,8 +63,7 @@
     <string name="bfu_debian_runtime_probe_status">Last BFU Debian namespace/chroot probe:\n%1$s</string>
     <string name="bfu_debian_runtime_probe_none">No namespace/chroot probe has been recorded yet. It runs automatically during the next locked boot after the rootfs gate passes.</string>
     <string name="bfu_debian_runtime_probe_read_failed">Failed to read BFU namespace/chroot result: %1$s</string>
-    <string name="bfu_save_and_provision">Save and provision BFU runtime</string>
-    <string name="bfu_saved">BFU settings saved. Runtime: %1$s</string>
+    <string name="bfu_save_and_provision">Apply changes</string>
     <string name="bfu_provision_failed">BFU provisioning failed: %1$s</string>
     <string name="bfu_operation_log_title">BFU button and operation log (live, newest 48 KiB):</string>
     <string name="bfu_operation_log_none">No button operation has been recorded yet.</string>
@@ -160,7 +161,21 @@
     <string name="dawnshell_open_live_logs">Open live logs</string>
     <string name="dawnshell_view_setup_logs">View setup logs</string>
     <string name="dawnshell_view_runtime_log">View runtime log</string>
-    <string name="dawnshell_unsaved_settings">Settings changed — apply them before rebooting.</string>
+    <string name="dawnshell_unsaved_settings">You have unapplied changes</string>
+    <string name="dawnshell_apply_changes">Apply</string>
+    <string name="dawnshell_apply_changes_confirm_title">Apply these settings?</string>
+    <string name="dawnshell_apply_changes_confirm_message">USB, cgroup, or Docker changes may briefly restart a running Debian server and disconnect SSH. DawnShell combines all pending changes so the server restarts at most once.</string>
+    <string name="dawnshell_apply_changes_applied">Settings applied. Runtime changes are being activated in the background.</string>
+    <string name="dawnshell_apply_changes_saved_for_next_start">Settings saved. Runtime changes will take effect the next time Debian starts.</string>
+    <string name="dawnshell_apply_changes_none">There are no pending settings to apply.</string>
+    <string name="dawnshell_apply_changes_requires_unlock">Unlock Android before applying USB, cgroup, or Docker settings.</string>
+    <string name="dawnshell_navigation_home">Home</string>
+    <string name="dawnshell_navigation_access">Access</string>
+    <string name="dawnshell_navigation_advanced">Advanced</string>
+    <string name="dawnshell_discard_changes_title">Discard unapplied changes?</string>
+    <string name="dawnshell_discard_changes_message">Your edits have not been applied and will be lost when this screen closes.</string>
+    <string name="dawnshell_discard_changes">Discard</string>
+    <string name="dawnshell_codec_apply_first">Enable hardware video codecs and apply the pending change before running a codec check.</string>
     <string name="dawnshell_probe_summary">Latest BFU check: %1$s</string>
     <string name="dawnshell_logs_explanation">Choose a stream to open it full-screen. Every view refreshes live, supports scrolling and text selection, and can copy the complete visible log.</string>
     <string name="dawnshell_log_operations_title">App operations</string>
@@ -209,13 +224,8 @@
     <string name="dawnshell_usb_exclusive_ids_helper">Comma or space separated, for example 0403:6001, 10c4:ea60. At least one entry is required for exclusive mode.</string>
     <string name="dawnshell_usb_exclusive_ids_required">Enter at least one USB VID:PID before enabling exclusive passthrough.</string>
     <string name="dawnshell_usb_exclusive_ids_invalid">Use four hexadecimal vendor digits, a colon, and four product digits for every USB ID.</string>
-    <string name="dawnshell_host_usb_warning">DANGER: Use Apply USB sharing policy after changing this setting. A running Debian restarts; a stopped Debian uses it on the next start. The policy also applies to devices attached later. Sharing mode gives Debian raw /dev/bus/usb access while retaining Android drivers. Exclusive passthrough additionally disconnects matching interfaces from Android and tries to restore them when Debian stops; Android input, storage, networking, ADB, or recovery access can disappear, and a crash may require unplugging the device or rebooting. Never select the phone’s internal USB/gadget controller. Never mount one USB storage filesystem from both systems. Docker still requires --device. Kernel drivers and SELinux can deny access.</string>
+    <string name="dawnshell_host_usb_warning">DANGER: Tap the global Apply button after changing this setting. A running Debian system may restart once. Sharing mode keeps Android drivers attached; exclusive passthrough detaches matching interfaces and can interrupt Android input, storage, networking, ADB, or recovery access. Never select the phone’s internal USB/gadget controller. Never mount one USB storage filesystem from both systems. Docker still requires --device, and the kernel or SELinux can deny access.</string>
     <string name="dawnshell_view_host_usb_log">View USB passthrough runtime log</string>
-    <string name="dawnshell_apply_host_usb_policy">Apply USB sharing policy</string>
-    <string name="dawnshell_host_usb_requires_unlock">Unlock Android before applying USB sharing.</string>
-    <string name="dawnshell_host_usb_confirm_title">Apply USB sharing policy?</string>
-    <string name="dawnshell_host_usb_confirm_message">DawnShell will save this USB policy. If Debian is running, it will restart so the private mount and device cgroup policy change together. Active SSH sessions will disconnect. A stopped Debian remains stopped and uses the policy on its next start.</string>
-    <string name="dawnshell_host_usb_policy_requested">USB sharing policy is being applied. Running Debian will restart.</string>
     <string name="dawnshell_docker_policy_title">Docker networking</string>
     <string name="dawnshell_docker_policy_host">Safe host network only (recommended)</string>
     <string name="dawnshell_docker_policy_auto">Automatic: native nftables → iptables-nft → legacy → safe host</string>
@@ -223,16 +233,9 @@
     <string name="dawnshell_docker_policy_iptables_nft">Force iptables-nft bridge</string>
     <string name="dawnshell_docker_policy_legacy">Force legacy iptables bridge (older kernels)</string>
     <string name="dawnshell_docker_host_ipc_compatibility">Use host IPC for containers (recommended)</string>
-    <string name="dawnshell_docker_host_ipc_warning">On some kernels a container that creates its own IPC namespace panics Android and reboots the device, so DawnShell blocks that call for Debian entirely. This wrapper adds --ipc=host to docker run and create, and generates a temporary override so docker compose applies it per service without editing any compose file. Host IPC lets containers share Android and Debian IPC objects, which reduces isolation. Apply the Docker policy after changing it. An explicit --ipc value still wins.</string>
+    <string name="dawnshell_docker_host_ipc_warning">On some kernels a container that creates its own IPC namespace panics Android and reboots the device, so DawnShell blocks that call for Debian. The wrapper adds --ipc=host to docker run/create and generates a temporary docker compose override. Host IPC reduces isolation because containers share Android and Debian IPC objects. Use the global Apply button after changing it. An explicit --ipc value still wins.</string>
     <string name="dawnshell_docker_policy_warning">DANGER: DawnShell deliberately shares Android’s network namespace for native NIC speed. Every bridge option lets Docker modify Android-global firewall, NAT, forwarding, and routes. It can break Wi-Fi, mobile data, USB Ethernet, VPN/Tailscale, or remote access. Host-only mode disables Docker bridge/firewall management and requires Docker host networking. All managed modes use Docker’s cgroupfs driver inside DawnShell’s private delegated hierarchy; the systemd driver is incompatible with some Android kernels.</string>
-    <string name="dawnshell_apply_docker_policy">Apply Docker network policy</string>
     <string name="dawnshell_view_compatibility_log">View compatibility log</string>
-    <string name="dawnshell_docker_policy_requires_unlock">Unlock Android before changing Docker networking.</string>
-    <string name="dawnshell_docker_policy_confirm_title">Apply Docker network policy?</string>
-    <string name="dawnshell_docker_policy_confirm_host">DawnShell will stop Debian if it is running, disable Docker bridge, NAT, forwarding, and firewall management, then restore the previous Debian running state. Containers must use Docker host networking.</string>
-    <string name="dawnshell_docker_policy_confirm_bridge">This mode can modify Android-global firewall, NAT, forwarding, and routes because Debian shares Android’s network namespace. DawnShell will stop Debian, probe the selected backend, apply the managed Docker configuration, and restore the previous running state.</string>
-    <string name="dawnshell_docker_policy_confirm_button">Apply policy</string>
-    <string name="dawnshell_docker_policy_requested">Docker network policy queued. Follow the compatibility log.</string>
     <string name="dawnshell_docker_policy_status">Docker policy status:\n%1$s</string>
     <string name="dawnshell_docker_policy_status_none">No Docker network policy has been applied yet.</string>
     <string name="dawnshell_docker_policy_status_failed">Failed to read Docker policy status: %1$s</string>
@@ -242,7 +245,7 @@
     <string name="dawnshell_codec_section_description">Android MediaCodec bridge for hardware H.264/AVC and HEVC processing. The codec process is isolated from Debian and SSH and remains active after the first unlock.</string>
     <string name="dawnshell_codec_enable">Enable hardware codec bridge at Direct Boot</string>
     <string name="dawnshell_codec_scope">This is video codec acceleration, not OpenGL/Vulkan or general GPU passthrough. Each Debian command launches its own bionic NDK worker and exchanges bounded media records through one inherited memfd plus two eventfds. There is no listening socket, descriptor transfer, or persistent Debian broker. Compatible codec pairs can transcode through an Android Surface without copying full YUV frames into Debian. It never silently selects a software codec. Hardware selection supports conservative Exynos and Qualcomm component names, with newer platform codec metadata when available. Run the file-backed self-test after configuring Debian. If media services are unavailable during BFU, only this feature fails.</string>
-    <string name="dawnshell_codec_apply_probe">Save and probe hardware codecs</string>
+    <string name="dawnshell_codec_apply_probe">Check hardware codecs</string>
     <string name="dawnshell_codec_view_log">View hardware codec report</string>
     <string name="dawnshell_codec_run_self_test">Download and run file-based hardware AVC decode self-test</string>
     <string name="dawnshell_codec_run_performance_test">Run container, performance, error, and concurrency regression</string>
@@ -280,9 +283,7 @@
     <string name="dawnshell_codec_long_run_status">Latest long-run request:\n%1$s</string>
     <string name="dawnshell_codec_long_run_status_none">No long-run codec test request has been recorded yet.</string>
     <string name="dawnshell_codec_long_run_status_failed">Could not read the long-run codec status: %1$s</string>
-    <string name="dawnshell_codec_requires_bfu">Enable Direct Boot before enabling the hardware codec bridge.</string>
     <string name="dawnshell_codec_probe_requested">The isolated codec process is probing hardware codecs. This can take several seconds.</string>
-    <string name="dawnshell_codec_disabled">Hardware codec bridge disabled.</string>
     <string name="dawnshell_codec_status">Latest codec probe:\n%1$s</string>
     <string name="dawnshell_codec_status_none">No hardware codec probe has been recorded yet.</string>
     <string name="dawnshell_codec_status_failed">Could not read codec status: %1$s</string>

@@ -9,6 +9,8 @@ policy_script="$repo_dir/app/src/main/assets/bfu/configure-docker-network.sh"
 usb_policy_script="$repo_dir/app/src/main/assets/bfu/configure-host-usb.sh"
 layout="$repo_dir/app/src/main/res/layout/activity_boot.xml"
 strings="$repo_dir/app/src/main/res/values/strings.xml"
+boot_activity="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BootActivity.java"
+boot_service="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuBootService.java"
 
 bash -n "$policy_script"
 bash -n "$usb_policy_script"
@@ -91,7 +93,17 @@ grep -Fq 'android:id="@+id/usb_passthrough_group"' "$layout"
 grep -Fq 'android:id="@+id/usb_passthrough_direct"' "$layout"
 grep -Fq 'android:id="@+id/usb_passthrough_exclusive"' "$layout"
 grep -Fq 'android:id="@+id/usb_exclusive_device_ids"' "$layout"
-grep -Fq 'android:id="@+id/apply_host_usb_policy_button"' "$layout"
+grep -Fq 'android:id="@+id/settings_apply_bar"' "$layout"
+grep -Fq 'android:id="@+id/save_provision_button"' "$layout"
+grep -Fq 'android:id="@+id/dashboard_navigation"' "$layout"
+grep -Fq 'requestRuntimeSettingsApply(this' "$boot_activity"
+grep -Fq 'ACTION_APPLY_RUNTIME_SETTINGS' "$boot_service"
+grep -Fq 'RUNTIME_SETTINGS_APPLIED' "$boot_service"
+if grep -Fq 'android:id="@+id/apply_host_usb_policy_button"' "$layout" \
+        || grep -Fq 'android:id="@+id/apply_docker_policy_button"' "$layout"; then
+    echo "USB and Docker must use the single global settings apply action" >&2
+    exit 1
+fi
 [[ "$(grep -Fc 'android:text="@string/dawnshell_host_usb_title"' "$layout")" -eq 1 ]]
 grep -Fq 'lsusb_legacy_sysfs_filter=enabled' "$usb_policy_script"
 grep -Fq '/rx_lanes:\ No\ such\ file\ or\ directory' "$usb_policy_script"

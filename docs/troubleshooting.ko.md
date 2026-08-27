@@ -231,7 +231,7 @@ boot ID 확인 결과를 함께 수집하세요. 직접 광범위한 `killall`�
 - Docker 네트워크: **안전한 호스트 네트워크만 사용**
 - 컨테이너 호스트 IPC: **켬**
 
-그다음 **Docker 네트워크 정책 적용**을 누릅니다. Debian에서 확인합니다.
+그다음 하단의 공통 **적용** 버튼을 누릅니다. Debian에서 확인합니다.
 
 ```sh
 docker info --format 'cgroup={{.CgroupDriver}} driver={{.Driver}}'

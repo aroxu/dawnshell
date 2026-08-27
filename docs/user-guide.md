@@ -8,24 +8,20 @@
 This manual covers daily operation after installation. Follow the
 [installation guide](installation.md) first if Debian and SSH are not configured.
 
-The home screen is ordered for one top-to-bottom initial setup.
+The app separates routine work into three destinations.
 
-| Screen order | Routine purpose |
-| ---: | --- |
-| 1 · Direct Boot | Approve root and save BFU startup policy |
-| 2 · Debian setup | Install the rootfs and configure systemd/SSH |
-| 3 · Server controls | Start, restart, inspect, or stop Debian |
-| 4 · SSH access | Export, import, connect with, or rotate the client key |
-| Accounts | Set local `debian` and `root` passwords |
-| USB sharing and passthrough | Share raw USBFS or detach selected interfaces |
-| Hardware video acceleration | Configure MediaCodec, tests, and FFmpeg tools |
-| Kernel & Docker compatibility | Select cgroup and Docker network/IPC policy |
-| Diagnostics and logs | Read BFU evidence and live operation output |
-| Danger zone | Permanently remove the verified Debian rootfs |
+| Destination | What belongs there |
+| --- | --- |
+| **Home** | Initial installation, automatic startup, and server controls |
+| **Access** | SSH keys and local `debian`/`root` passwords |
+| **Advanced** | USB, hardware codecs, cgroups, Docker, diagnostics, and removal |
 
-Changing a switch is not always enough. Direct Boot and codec changes require
-**Save and provision BFU runtime**, USB requires **Apply USB sharing policy**,
-and Docker requires **Apply Docker network policy**.
+Every switch, radio choice, and USB ID field follows one rule: edit it, then tap
+the global **Apply** bar above the navigation. The bar appears only when the
+screen differs from the active configuration. DawnShell saves all pending
+choices together and, when runtime policy must change, stops and starts a
+running Debian server at most once. Install, start, stop, tests, key export, and
+password changes are commands, so their own buttons still act immediately.
 
 ## Core behavior
 
@@ -40,7 +36,7 @@ See the [glossary](glossary.md) for DE, CE, PID, rootfs, and other terms, or rea
 ## 1. Direct Boot controls
 
 **Enable Direct Boot Debian bootstrap** controls automatic startup on the next
-cold boot. After changing it, tap **Save and provision BFU runtime**.
+cold boot. After changing it, tap the global **Apply** button.
 
 **Request / verify Magisk root permission** checks current root access. Magisk
 must grant permanent approval because BFU cannot display a prompt.
@@ -115,9 +111,10 @@ container starts or is cleaned up.
 
 ## 5. USB sharing and passthrough
 
-USB passthrough is disabled by default and takes effect on the next Debian start
-or when **Apply USB sharing policy** restarts a running Debian. A stopped Debian
-is not started by the apply action. USB Ethernet does not require this setting
+USB passthrough is disabled by default. Choose a mode and tap the global
+**Apply** button. DawnShell combines this with pending cgroup and Docker changes;
+a running Debian is restarted at most once, while a stopped Debian uses the
+policy on its next start. USB Ethernet does not require this setting
 because Debian already shares Android's network namespace.
 
 On old kernels, Debian 13 `lsusb -t` may query newer `rx_lanes` and `tx_lanes`
@@ -175,10 +172,11 @@ and returns the result through inherited shared descriptors.
 ### Enabling it
 
 1. Turn on **Enable hardware codec bridge at Direct Boot**.
-2. Press **Save and probe hardware codecs**.
-3. Run **Configure Debian 13 systemd + SSH** again.
-4. Press **Download and run file-based hardware AVC decode self-test**.
-5. Run `sudo dawnshell-codec health --format json` in Debian.
+2. Press the global **Apply** button.
+3. Press **Check hardware codecs**.
+4. Run **Configure Debian 13 systemd + SSH** again.
+5. Press **Download and run file-based hardware AVC decode self-test**.
+6. Run `sudo dawnshell-codec health --format json` in Debian.
 
 Configuration installs these commands in Debian.
 
@@ -313,8 +311,8 @@ and the managed wrapper:
 - preserves every explicit `--ipc` or `ipc:` value.
 
 Host IPC weakens isolation by sharing IPC objects among Android, Debian, and the
-container. Do not use it for untrusted containers. Tap **Apply Docker network
-policy** after changing the option.
+container. Do not use it for untrusted containers. Tap the global **Apply**
+button after changing the option.
 
 Bridge modes can alter Android-global firewall, NAT, forwarding, and routes and
 disconnect Wi-Fi, mobile data, USB Ethernet, VPNs, Tailscale, or SSH. Prepare an

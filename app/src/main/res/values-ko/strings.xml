@@ -1,19 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="dawnshell_home_title">부팅 직후부터 사용할 수 있는 Debian.</string>
-    <string name="bfu_settings_explanation">Android를 처음 잠금 해제하기 전부터 시작되어 잠금 해제 후에도 계속 실행되는 Debian 13 서버를 설정하고 제어합니다. 처음 한 번은 위에서 아래 순서로 설정하세요. 이후에는 자주 쓰는 제어 기능과 SSH 접속 기능을 쉽게 사용할 수 있습니다.</string>
-    <string name="dawnshell_section_direct_boot">1 · 다이렉트 부트</string>
-    <string name="dawnshell_section_direct_boot_description">Magisk 영구 권한을 부여하고 자동 시작을 활성화한 다음 BFU 런타임을 저장합니다.</string>
-    <string name="dawnshell_section_debian_setup">2 · Debian 설정</string>
+    <string name="dawnshell_home_title">내 Debian 서버</string>
+    <string name="bfu_settings_explanation">처음 한 번 설치한 뒤 이 화면에서 자동 시작과 SSH를 관리합니다. 설정은 ‘적용’을 누르기 전까지 실제 동작에 반영되지 않습니다.</string>
+    <string name="dawnshell_section_direct_boot">자동 시작</string>
+    <string name="dawnshell_section_direct_boot_description">Magisk 영구 권한을 부여하고 Android 최초 잠금 해제 전부터 Debian을 시작할지 선택합니다.</string>
+    <string name="dawnshell_section_debian_setup">처음 설치</string>
     <string name="dawnshell_section_debian_setup_description">Debian 13을 설치하고 systemd, OpenSSH 및 자동 생성된 접속 키를 구성합니다.</string>
-    <string name="dawnshell_section_runtime">3 · 서버 제어</string>
+    <string name="dawnshell_section_runtime">서버 제어</string>
     <string name="dawnshell_section_runtime_description">현재 상태를 확인하거나 Debian 환경을 직접 시작, 재시작 및 중지합니다.</string>
-    <string name="dawnshell_section_access">4 · SSH 접속</string>
+    <string name="dawnshell_section_access">SSH 접속</string>
     <string name="dawnshell_section_access_description">자동 생성된 키를 내보내거나 로컬 SSH 클라이언트에서 바로 실행할 명령을 복사합니다.</string>
     <string name="dawnshell_section_accounts">계정</string>
     <string name="dawnshell_section_accounts_description">필요한 경우 Debian 로컬 암호를 설정합니다. SSH는 계속 공개 키 인증만 허용합니다.</string>
     <string name="dawnshell_section_advanced">진단</string>
     <string name="dawnshell_section_advanced_description">BFU 검사, 작업 기록 및 안전하지 않은 CE 예외 설정은 일반 사용 중에 숨겨집니다.</string>
+    <string name="dawnshell_section_diagnostics">다이렉트 부트 진단</string>
+    <string name="dawnshell_section_diagnostics_description">마지막 잠금 부팅에서 기록한 증거를 확인합니다. 아래 CE 예외는 안전하지 않은 호환성 우회 옵션이므로 정상적인 FBE 기기에서는 꺼 두세요.</string>
     <string name="dawnshell_show_advanced">진단 표시</string>
     <string name="dawnshell_hide_advanced">진단 숨기기</string>
     <string name="dawnshell_show_details">세부 정보 표시</string>
@@ -53,7 +55,7 @@
     <string name="bfu_root_probe_none">기록된 루트 검사가 없습니다.</string>
     <string name="bfu_root_probe_read_failed">BFU 루트 결과를 읽지 못했습니다: %1$s</string>
     <string name="bfu_ce_isolation_probe_status">최근 DawnShell CE 격리 검사:\n%1$s</string>
-    <string name="bfu_ce_isolation_probe_none">기록된 CE 격리 검사가 없습니다. 잠금 해제 상태에서 저장 및 배치를 실행하여 비밀 정보가 아닌 CE 센티널을 만드세요. BFU에서 그 내용을 읽을 수 있으면 실행을 차단합니다.</string>
+    <string name="bfu_ce_isolation_probe_none">기록된 CE 격리 검사가 없습니다. 잠금 해제 상태에서 적용을 눌러 비밀 정보가 아닌 CE 센티널을 만드세요. BFU에서 그 내용을 읽을 수 있으면 실행을 차단합니다.</string>
     <string name="bfu_ce_isolation_probe_read_failed">BFU CE 격리 결과를 읽지 못했습니다: %1$s</string>
     <string name="bfu_rootfs_probe_status">최근 BFU Debian rootfs 검사:\n%1$s</string>
     <string name="bfu_rootfs_probe_none">기록된 rootfs 검사가 없습니다.</string>
@@ -61,8 +63,7 @@
     <string name="bfu_debian_runtime_probe_status">최근 BFU Debian 네임스페이스/chroot 검사:\n%1$s</string>
     <string name="bfu_debian_runtime_probe_none">기록된 네임스페이스/chroot 검사가 없습니다. 다음 잠금 부팅에서 rootfs 검사를 통과하면 자동으로 실행됩니다.</string>
     <string name="bfu_debian_runtime_probe_read_failed">BFU 네임스페이스/chroot 결과를 읽지 못했습니다: %1$s</string>
-    <string name="bfu_save_and_provision">BFU 설정 저장 및 런타임 배치</string>
-    <string name="bfu_saved">BFU 설정을 저장했습니다. 런타임: %1$s</string>
+    <string name="bfu_save_and_provision">변경사항 적용</string>
     <string name="bfu_provision_failed">BFU 배치 실패: %1$s</string>
     <string name="bfu_operation_log_title">BFU 버튼 및 작업 로그(실시간, 최신 48 KiB):</string>
     <string name="bfu_operation_log_none">기록된 버튼 작업이 없습니다.</string>
@@ -160,7 +161,21 @@
     <string name="dawnshell_open_live_logs">실시간 로그 열기</string>
     <string name="dawnshell_view_setup_logs">설정 로그 보기</string>
     <string name="dawnshell_view_runtime_log">런타임 로그 보기</string>
-    <string name="dawnshell_unsaved_settings">설정이 변경되었습니다. 재부팅하기 전에 적용하세요.</string>
+    <string name="dawnshell_unsaved_settings">아직 적용하지 않은 변경사항이 있습니다</string>
+    <string name="dawnshell_apply_changes">적용</string>
+    <string name="dawnshell_apply_changes_confirm_title">설정을 적용할까요?</string>
+    <string name="dawnshell_apply_changes_confirm_message">USB, cgroup 또는 Docker 설정을 바꾸면 실행 중인 Debian 서버가 잠시 재시작되고 SSH 연결이 끊길 수 있습니다. DawnShell은 모든 변경사항을 합쳐 서버를 최대 한 번만 재시작합니다.</string>
+    <string name="dawnshell_apply_changes_applied">설정을 적용했습니다. 필요한 런타임 변경을 백그라운드에서 처리하고 있습니다.</string>
+    <string name="dawnshell_apply_changes_saved_for_next_start">설정을 저장했습니다. 런타임 변경은 다음 Debian 시작 때 적용됩니다.</string>
+    <string name="dawnshell_apply_changes_none">적용할 설정 변경사항이 없습니다.</string>
+    <string name="dawnshell_apply_changes_requires_unlock">USB, cgroup 또는 Docker 설정을 적용하려면 Android 잠금을 먼저 해제하세요.</string>
+    <string name="dawnshell_navigation_home">홈</string>
+    <string name="dawnshell_navigation_access">접속</string>
+    <string name="dawnshell_navigation_advanced">고급</string>
+    <string name="dawnshell_discard_changes_title">적용하지 않은 변경사항을 버릴까요?</string>
+    <string name="dawnshell_discard_changes_message">이 화면을 닫으면 아직 적용하지 않은 설정 변경사항이 사라집니다.</string>
+    <string name="dawnshell_discard_changes">버리기</string>
+    <string name="dawnshell_codec_apply_first">하드웨어 영상 코덱을 켠 뒤 변경사항을 적용해야 코덱 검사를 실행할 수 있습니다.</string>
     <string name="dawnshell_probe_summary">최근 BFU 검사: %1$s</string>
     <string name="dawnshell_logs_explanation">전체 화면으로 열 로그를 선택하세요. 모든 화면은 실시간으로 갱신되며 스크롤과 텍스트 선택을 지원하고 현재 표시된 전체 로그를 복사할 수 있습니다.</string>
     <string name="dawnshell_log_operations_title">앱 작업</string>
@@ -209,13 +224,8 @@
     <string name="dawnshell_usb_exclusive_ids_helper">쉼표나 공백으로 구분합니다. 예: 0403:6001, 10c4:ea60. 독점 모드에는 하나 이상 필요합니다.</string>
     <string name="dawnshell_usb_exclusive_ids_required">독점 패스스루를 켜기 전에 USB VID:PID를 하나 이상 입력하세요.</string>
     <string name="dawnshell_usb_exclusive_ids_invalid">각 USB ID를 16진수 vendor 네 자리, 콜론, product 네 자리 형식으로 입력하세요.</string>
-    <string name="dawnshell_host_usb_warning">위험: 설정을 바꾼 뒤 USB 공유 정책 적용을 누르세요. 실행 중인 Debian은 재시작하고, 중지 상태라면 다음 시작부터 사용합니다. 나중에 연결한 장치에도 정책이 적용됩니다. 공유 모드는 Android 드라이버를 유지하면서 Debian에 raw /dev/bus/usb 접근을 허용합니다. 독점 패스스루는 일치하는 interface를 Android에서 추가로 분리하고 Debian 종료 때 복구를 시도합니다. Android 입력, 저장장치, 네트워크, ADB 또는 복구 연결이 사라질 수 있고 비정상 종료 시 장치를 뽑거나 재부팅해야 할 수 있습니다. 휴대전화 내부 USB/gadget controller는 선택하지 마세요. 같은 USB 저장장치를 양쪽에서 마운트하지 마세요. Docker에는 별도 --device가 필요하며 커널이나 SELinux가 접근을 거부할 수 있습니다.</string>
+    <string name="dawnshell_host_usb_warning">위험: 이 설정을 바꾼 뒤 공통 ‘적용’ 버튼을 누르세요. 실행 중인 Debian은 최대 한 번 재시작될 수 있습니다. 공유 모드는 Android 드라이버를 유지하지만, 독점 패스스루는 일치하는 인터페이스를 분리하므로 Android 입력, 저장장치, 네트워크, ADB 또는 복구 연결이 끊길 수 있습니다. 휴대전화 내부 USB/gadget 컨트롤러를 선택하거나 같은 USB 저장장치를 양쪽에서 동시에 마운트하지 마세요. Docker에는 별도 --device가 필요하며 커널이나 SELinux가 접근을 거부할 수 있습니다.</string>
     <string name="dawnshell_view_host_usb_log">USB 패스스루 실행 로그 보기</string>
-    <string name="dawnshell_apply_host_usb_policy">USB 공유 정책 적용</string>
-    <string name="dawnshell_host_usb_requires_unlock">USB 공유 정책을 적용하려면 Android 잠금을 해제하세요.</string>
-    <string name="dawnshell_host_usb_confirm_title">USB 공유 정책을 적용할까요?</string>
-    <string name="dawnshell_host_usb_confirm_message">USB 정책을 저장합니다. Debian이 실행 중이면 비공개 마운트와 장치 cgroup 정책을 함께 바꾸기 위해 재시작하며, 현재 SSH 연결은 끊깁니다. Debian이 중지 상태라면 시작하지 않고 다음 시작부터 적용합니다.</string>
-    <string name="dawnshell_host_usb_policy_requested">USB 공유 정책을 적용하고 있습니다. 실행 중인 Debian은 재시작됩니다.</string>
     <string name="dawnshell_docker_policy_title">Docker 네트워크</string>
     <string name="dawnshell_docker_policy_host">안전한 호스트 네트워크만 사용(권장)</string>
     <string name="dawnshell_docker_policy_auto">자동: native nftables → iptables-nft → legacy → 안전한 호스트</string>
@@ -223,16 +233,9 @@
     <string name="dawnshell_docker_policy_iptables_nft">iptables-nft 브리지 강제 사용</string>
     <string name="dawnshell_docker_policy_legacy">레거시 iptables 브리지 강제 사용(구형 커널)</string>
     <string name="dawnshell_docker_host_ipc_compatibility">컨테이너에 호스트 IPC 사용(권장)</string>
-    <string name="dawnshell_docker_host_ipc_warning">일부 커널에서는 컨테이너가 자체 IPC 네임스페이스를 만들면 Android가 커널 패닉으로 재시작되므로, DawnShell은 Debian에서 해당 호출을 아예 차단합니다. 이 래퍼는 docker run/create에 --ipc=host를 추가하고, docker compose에는 임시 override를 만들어 서비스마다 적용하므로 compose 파일을 수정할 필요가 없습니다. 호스트 IPC는 컨테이너가 Android 및 Debian의 IPC 객체를 공유하므로 격리가 약해집니다. 변경 후 Docker 네트워크 정책을 적용하세요. 명시한 --ipc 값이 우선합니다.</string>
+    <string name="dawnshell_docker_host_ipc_warning">일부 커널에서는 컨테이너가 자체 IPC 네임스페이스를 만들면 Android가 커널 패닉으로 재시작되므로, DawnShell은 Debian에서 해당 호출을 차단합니다. 래퍼는 docker run/create에 --ipc=host를 추가하고 docker compose에는 임시 override를 만듭니다. 호스트 IPC는 Android와 Debian의 IPC 객체를 공유해 격리가 약해집니다. 변경 후 공통 ‘적용’ 버튼을 누르세요. 명시한 --ipc 값이 우선합니다.</string>
     <string name="dawnshell_docker_policy_warning">위험: DawnShell은 네이티브 NIC 성능을 위해 Android의 네트워크 네임스페이스를 의도적으로 공유합니다. 모든 브리지 옵션은 Docker가 Android 전역 방화벽, NAT, 포워딩 및 라우트를 변경하도록 허용합니다. Wi-Fi, 모바일 데이터, USB 이더넷, VPN/Tailscale 또는 원격 접속이 끊길 수 있습니다. 호스트 전용 모드는 Docker 브리지/방화벽 관리를 비활성화하며 Docker 호스트 네트워크를 사용해야 합니다. 모든 관리형 모드는 DawnShell의 비공개 위임 계층에서 Docker cgroupfs driver를 사용합니다. systemd driver는 일부 Android 커널과 호환되지 않습니다.</string>
-    <string name="dawnshell_apply_docker_policy">Docker 네트워크 정책 적용</string>
     <string name="dawnshell_view_compatibility_log">호환성 로그 보기</string>
-    <string name="dawnshell_docker_policy_requires_unlock">Docker 네트워크를 변경하려면 Android 잠금을 해제하세요.</string>
-    <string name="dawnshell_docker_policy_confirm_title">Docker 네트워크 정책을 적용할까요?</string>
-    <string name="dawnshell_docker_policy_confirm_host">DawnShell은 실행 중인 Debian을 중지하고 Docker 브리지, NAT, 포워딩 및 방화벽 관리를 비활성화한 다음 이전 Debian 실행 상태를 복원합니다. 컨테이너는 Docker 호스트 네트워크를 사용해야 합니다.</string>
-    <string name="dawnshell_docker_policy_confirm_bridge">Debian이 Android 네트워크 네임스페이스를 공유하므로 이 모드는 Android 전역 방화벽, NAT, 포워딩 및 라우트를 변경할 수 있습니다. DawnShell은 Debian을 중지하고 선택한 백엔드를 검사한 다음 관리형 Docker 설정을 적용하고 이전 실행 상태를 복원합니다.</string>
-    <string name="dawnshell_docker_policy_confirm_button">정책 적용</string>
-    <string name="dawnshell_docker_policy_requested">Docker 네트워크 정책을 대기열에 추가했습니다. 호환성 로그를 확인하세요.</string>
     <string name="dawnshell_docker_policy_status">Docker 정책 상태:\n%1$s</string>
     <string name="dawnshell_docker_policy_status_none">적용된 Docker 네트워크 정책이 없습니다.</string>
     <string name="dawnshell_docker_policy_status_failed">Docker 정책 상태를 읽지 못했습니다: %1$s</string>
@@ -242,7 +245,7 @@
     <string name="dawnshell_codec_section_description">하드웨어 H.264/AVC 및 HEVC 처리를 위한 Android MediaCodec 브리지입니다. 코덱 프로세스는 Debian 및 SSH와 격리되며 최초 잠금 해제 후에도 유지됩니다.</string>
     <string name="dawnshell_codec_enable">다이렉트 부트에서 하드웨어 코덱 브리지 활성화</string>
     <string name="dawnshell_codec_scope">OpenGL/Vulkan이나 범용 GPU 패스스루가 아니라 영상 코덱 가속 기능입니다. Debian 명령마다 독립 bionic NDK worker를 실행하고, 상속된 memfd 하나와 eventfd 두 개로 제한된 미디어 record를 교환합니다. listening socket, descriptor 전달, 상주 Debian 브로커는 없습니다. 호환 코덱 조합은 전체 YUV 프레임을 Debian으로 복사하지 않고 Android Surface로 트랜스코딩할 수 있습니다. 소프트웨어 코덱을 조용히 선택하지 않습니다. 신형 플랫폼 코덱 metadata와 보수적인 Exynos/Qualcomm component 이름을 사용합니다. Debian 구성 후 파일 기반 자체 검사를 실행하세요. BFU에서 미디어 서비스가 준비되지 않으면 이 기능만 실패합니다.</string>
-    <string name="dawnshell_codec_apply_probe">저장하고 하드웨어 코덱 검사</string>
+    <string name="dawnshell_codec_apply_probe">하드웨어 코덱 검사</string>
     <string name="dawnshell_codec_view_log">하드웨어 코덱 보고서 보기</string>
     <string name="dawnshell_codec_run_self_test">파일 기반 하드웨어 AVC 디코드 자체 검사 다운로드 및 실행</string>
     <string name="dawnshell_codec_run_performance_test">컨테이너·성능·오류·동시 세션 회귀 검사</string>
@@ -280,9 +283,7 @@
     <string name="dawnshell_codec_long_run_status">최근 장시간 검사 요청:\n%1$s</string>
     <string name="dawnshell_codec_long_run_status_none">기록된 장시간 코덱 검사 요청이 없습니다.</string>
     <string name="dawnshell_codec_long_run_status_failed">장시간 코덱 검사 상태를 읽지 못했습니다: %1$s</string>
-    <string name="dawnshell_codec_requires_bfu">하드웨어 코덱 브리지를 켜기 전에 다이렉트 부트를 활성화하세요.</string>
     <string name="dawnshell_codec_probe_requested">격리된 코덱 프로세스에서 하드웨어 코덱을 검사하고 있습니다. 몇 초 걸릴 수 있습니다.</string>
-    <string name="dawnshell_codec_disabled">하드웨어 코덱 브리지를 비활성화했습니다.</string>
     <string name="dawnshell_codec_status">최근 코덱 검사:\n%1$s</string>
     <string name="dawnshell_codec_status_none">기록된 하드웨어 코덱 검사가 없습니다.</string>
     <string name="dawnshell_codec_status_failed">코덱 상태를 읽지 못했습니다: %1$s</string>

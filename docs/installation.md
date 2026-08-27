@@ -110,7 +110,7 @@ Recommended initial values:
 - Keep raw USB sharing off.
 - Keep experimental hardware video acceleration off initially.
 
-Tap **Save and provision BFU runtime**. This stores non-secret settings and the
+Tap the global **Apply** button. This stores non-secret settings and the
 ABI-specific runtime in Device Encrypted storage. Google explains why DE is
 available before unlock and CE is not in its
 [Direct Boot storage guide](https://developer.android.com/privacy-and-security/direct-boot#access_device_encrypted).
@@ -173,7 +173,7 @@ and confirm that the existing session and Debian PID 1 remain unchanged.
 ## 10. Update
 
 Verify the new Release, install an APK signed by the same key, open DawnShell
-after unlock, and tap **Save and provision BFU runtime** again. Back up the
+after unlock, change any setting and use **Apply** if the bar appears. Back up the
 exported SSH private key before updates.
 
 ## Next documents

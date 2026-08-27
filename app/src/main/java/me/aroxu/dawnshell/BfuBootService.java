@@ -40,10 +40,11 @@ public class BfuBootService extends Service {
             "me.aroxu.dawnshell.action.STOP_DEBIAN_SYSTEMD";
     static final String ACTION_REMOVE_DEBIAN_ROOTFS =
             "me.aroxu.dawnshell.action.REMOVE_DEBIAN_ROOTFS";
-    static final String ACTION_APPLY_DOCKER_NETWORK_POLICY =
-            "me.aroxu.dawnshell.action.APPLY_DOCKER_NETWORK_POLICY";
-    static final String ACTION_APPLY_HOST_USB_POLICY =
-            "me.aroxu.dawnshell.action.APPLY_HOST_USB_POLICY";
+    static final String ACTION_APPLY_RUNTIME_SETTINGS =
+            "me.aroxu.dawnshell.action.APPLY_RUNTIME_SETTINGS";
+    private static final String EXTRA_APPLY_USB = "apply_usb";
+    private static final String EXTRA_APPLY_DOCKER = "apply_docker";
+    private static final String EXTRA_APPLY_CGROUP = "apply_cgroup";
 
     private static final String TAG = "DawnShell";
     private static final String NOTIFICATION_CHANNEL_ID = "dawnshell";
@@ -97,6 +98,7 @@ public class BfuBootService extends Service {
         boolean disabledControlAllowed = ACTION_DEBIAN_STATUS.equals(action)
                 || ACTION_DEBIAN_STOP.equals(action)
                 || ACTION_REMOVE_DEBIAN_ROOTFS.equals(action)
+                || ACTION_APPLY_RUNTIME_SETTINGS.equals(action)
                 // The codec bridge is independent of BFU Debian, so it must
                 // still start when BFU mode itself is switched off.
                 || ACTION_START_CODEC_BRIDGE.equals(action);
@@ -134,27 +136,14 @@ public class BfuBootService extends Service {
             Log.i(TAG, "BFU startup checks skipped because Android is already unlocked");
         }
 
-        if (ACTION_APPLY_HOST_USB_POLICY.equals(action)) {
+        if (ACTION_APPLY_RUNTIME_SETTINGS.equals(action)) {
             if (!userUnlocked) {
-                recordOperation("HOST_USB_POLICY_REJECTED user_locked=true");
+                recordOperation("RUNTIME_SETTINGS_APPLY_DEFERRED user_locked=true");
             } else {
-                requestHostUsbPolicyApplication();
-            }
-        } else if (ACTION_APPLY_DOCKER_NETWORK_POLICY.equals(action)) {
-            String policy = BfuPreferences.dockerNetworkPolicy(this);
-            boolean hostIpcCompatibility =
-                    BfuPreferences.dockerHostIpcCompatibility(this);
-            if (!userUnlocked) {
-                DockerNetworkProvisioner.recordRejected(this,
-                        "unlock Android before applying Docker network policy");
-            } else if (dockerPolicyStarted.compareAndSet(false, true)) {
-                DockerNetworkProvisioner.recordQueued(this, policy,
-                        hostIpcCompatibility);
-                executor.execute(() -> runDockerNetworkPolicy(policy,
-                        hostIpcCompatibility));
-            } else {
-                DockerNetworkProvisioner.recordRejected(this,
-                        "another Docker policy operation is already running");
+                requestRuntimeSettingsApplication(
+                        intent != null && intent.getBooleanExtra(EXTRA_APPLY_USB, false),
+                        intent != null && intent.getBooleanExtra(EXTRA_APPLY_DOCKER, false),
+                        intent != null && intent.getBooleanExtra(EXTRA_APPLY_CGROUP, false));
             }
         } else if (ACTION_REMOVE_DEBIAN_ROOTFS.equals(action)) {
             if (!userUnlocked) {
@@ -227,12 +216,20 @@ public class BfuBootService extends Service {
         startServiceAction(context, ACTION_REMOVE_DEBIAN_ROOTFS);
     }
 
-    static void requestDockerNetworkPolicy(Context context) {
-        startServiceAction(context, ACTION_APPLY_DOCKER_NETWORK_POLICY);
-    }
-
-    static void requestHostUsbPolicy(Context context) {
-        startServiceAction(context, ACTION_APPLY_HOST_USB_POLICY);
+    static void requestRuntimeSettingsApply(Context context, boolean applyUsb,
+                                            boolean applyDocker,
+                                            boolean applyCgroup) {
+        if (!applyUsb && !applyDocker && !applyCgroup) return;
+        Intent intent = new Intent(context, BfuBootService.class)
+                .setAction(ACTION_APPLY_RUNTIME_SETTINGS)
+                .putExtra(EXTRA_APPLY_USB, applyUsb)
+                .putExtra(EXTRA_APPLY_DOCKER, applyDocker)
+                .putExtra(EXTRA_APPLY_CGROUP, applyCgroup);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
     }
 
     static void requestHardwareCodecProbe(Context context) {
@@ -423,44 +420,6 @@ public class BfuBootService extends Service {
         }
     }
 
-    private void runDockerNetworkPolicy(String policy,
-                                        boolean hostIpcCompatibility) {
-        long controlGeneration = urgentControlGeneration.get();
-        BfuRuntime.Layout layout = null;
-        boolean wasRunning = false;
-        try {
-            layout = BfuRuntime.provision(this);
-            wasRunning = DebianLauncher.isRunning(layout);
-            if (wasRunning && !runDebianLifecycleNow(layout,
-                    DebianLauncher.Operation.STOP, "AFU_Docker_policy")) {
-                DockerNetworkProvisioner.recordRejected(this,
-                        "could not prove that Debian PID 1 stopped");
-                return;
-            }
-            DockerNetworkProvisioner.apply(this, layout, policy,
-                    hostIpcCompatibility);
-        } catch (IOException | IllegalStateException e) {
-            DockerNetworkProvisioner.recordRejected(this,
-                    "Docker policy provisioning failed: "
-                            + BfuSu.sanitize(e.getMessage()));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            DockerNetworkProvisioner.recordRejected(this,
-                    "Docker policy operation interrupted");
-        } finally {
-            if (wasRunning && layout != null && !Thread.currentThread().isInterrupted()
-                    && urgentControlGeneration.get() == controlGeneration) {
-                runDebianLifecycleNow(layout, DebianLauncher.Operation.START,
-                        "AFU_Docker_policy_completed");
-            } else if (wasRunning
-                    && urgentControlGeneration.get() != controlGeneration) {
-                recordOperation("DEBIAN_AUTOSTART_SUPPRESSED "
-                        + "reason=urgent_control_requested_during_Docker_policy");
-            }
-            dockerPolicyStarted.set(false);
-        }
-    }
-
     private void recordOperation(String message) {
         try {
             BfuOperationLog.append(this, message);
@@ -531,44 +490,74 @@ public class BfuBootService extends Service {
         }
     }
 
-    private void requestHostUsbPolicyApplication() {
+    private void requestRuntimeSettingsApplication(boolean applyUsb,
+                                                   boolean applyDocker,
+                                                   boolean applyCgroup) {
+        if (!applyUsb && !applyDocker && !applyCgroup) return;
         synchronized (lifecycleLock) {
             if (managementOperationRunning()
                     || (lifecycleFuture != null && !lifecycleFuture.isDone())) {
-                recordOperation("HOST_USB_POLICY_REJECTED "
+                recordOperation("RUNTIME_SETTINGS_APPLY_REJECTED "
                         + "reason=another_operation_running");
                 return;
             }
             urgentControlGeneration.incrementAndGet();
             final long requestId = ++lifecycleRequestId;
             lifecycleOperationStarted.set(true);
+            if (applyDocker) dockerPolicyStarted.set(true);
             activeLifecycleOperation = null;
             lifecycleFuture = lifecycleExecutor.submit(() -> {
+                BfuRuntime.Layout layout = null;
+                boolean wasRunning = false;
+                boolean usbSucceeded = !applyUsb;
+                boolean dockerSucceeded = !applyDocker;
                 try {
-                    BfuRuntime.Layout layout = BfuRuntime.provision(this);
-                    if (!HostUsbProvisioner.apply(this, layout)) return;
-                    boolean wasRunning = DebianLauncher.isRunning(layout);
-                    recordOperation("HOST_USB_POLICY_APPLIED mode="
-                            + BfuPreferences.usbPassthroughMode(this)
-                            + " debian_was_running=" + wasRunning);
-                    if (wasRunning) {
-                        runDebianLifecycleNow(layout,
-                                DebianLauncher.Operation.RESTART,
-                                "AFU_host_USB_policy_applied");
+                    layout = BfuRuntime.provision(this);
+                    wasRunning = DebianLauncher.isRunning(layout);
+                    if (wasRunning && !runDebianLifecycleNow(layout,
+                            DebianLauncher.Operation.STOP,
+                            "AFU_settings_apply")) {
+                        recordOperation("RUNTIME_SETTINGS_APPLY_FAILED "
+                                + "reason=could_not_stop_Debian");
+                        return;
                     }
+                    if (applyUsb) {
+                        usbSucceeded = HostUsbProvisioner.apply(this, layout);
+                    }
+                    if (applyDocker) {
+                        String policy = BfuPreferences.dockerNetworkPolicy(this);
+                        boolean hostIpc =
+                                BfuPreferences.dockerHostIpcCompatibility(this);
+                        DockerNetworkProvisioner.recordQueued(this, policy, hostIpc);
+                        dockerSucceeded = DockerNetworkProvisioner.apply(
+                                this, layout, policy, hostIpc);
+                    }
+                    recordOperation("RUNTIME_SETTINGS_APPLIED usb_requested="
+                            + applyUsb + " usb_succeeded=" + usbSucceeded
+                            + " docker_requested=" + applyDocker
+                            + " docker_succeeded=" + dockerSucceeded
+                            + " cgroup_requested=" + applyCgroup
+                            + " debian_was_running=" + wasRunning);
                 } catch (IOException | IllegalStateException e) {
-                    recordOperation("HOST_USB_POLICY_FAILED "
+                    recordOperation("RUNTIME_SETTINGS_APPLY_FAILED "
                             + BfuSu.sanitize(e.getMessage()));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    recordOperation("HOST_USB_POLICY_FAILED interrupted=true");
+                    recordOperation("RUNTIME_SETTINGS_APPLY_FAILED interrupted=true");
                 } finally {
+                    if (wasRunning && layout != null
+                            && !Thread.currentThread().isInterrupted()) {
+                        runDebianLifecycleNow(layout, DebianLauncher.Operation.START,
+                                "AFU_settings_applied");
+                    }
+                    if (applyDocker) dockerPolicyStarted.set(false);
                     synchronized (lifecycleLock) {
                         if (lifecycleRequestId == requestId) {
                             lifecycleOperationStarted.set(false);
                             activeLifecycleOperation = null;
                         }
                     }
+                    if (!BfuPreferences.isEnabled(this)) stopSelf();
                 }
             });
         }

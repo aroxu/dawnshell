@@ -189,8 +189,8 @@ and boot-ID evidence; do not use broad `killall` or delete `/data` manually.
 ## Docker fails or disrupts Android networking
 
 Return to automatic cgroup v2-to-v1 fallback, safe host-network-only mode, and
-the enabled host-IPC compatibility wrapper, then tap **Apply Docker network
-policy**.
+the enabled host-IPC compatibility wrapper, then tap the global **Apply**
+button.
 
 ```sh
 docker info --format 'cgroup={{.CgroupDriver}} driver={{.Driver}}'
