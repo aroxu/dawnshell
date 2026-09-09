@@ -63,7 +63,7 @@ sha256sum -c SHA256SUMS
 APK와 checksum 파일만 받았다면 APK 항목 하나만 검사합니다.
 
 ```sh
-apk='dawnshell-0.3.0.apk'
+apk='dawnshell-0.3.1.apk'
 grep "  $apk\$" SHA256SUMS | sha256sum -c -
 ```
 
@@ -76,7 +76,7 @@ shasum -a 256 -c SHA256SUMS
 Windows PowerShell에서는 APK의 실제 hash와 `SHA256SUMS`의 해당 줄을 비교합니다.
 
 ```powershell
-$apk = 'dawnshell-0.3.0.apk'
+$apk = 'dawnshell-0.3.1.apk'
 $actual = (Get-FileHash ".\$apk" -Algorithm SHA256).Hash.ToLowerInvariant()
 $expected = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($apk))$" }) -split '\s+')[0]
 $actual -eq $expected

@@ -50,7 +50,7 @@ sha256sum -c SHA256SUMS
 With only the APK and checksum file:
 
 ```sh
-apk='dawnshell-0.3.0.apk'
+apk='dawnshell-0.3.1.apk'
 grep "  $apk\$" SHA256SUMS | sha256sum -c -
 ```
 
@@ -63,7 +63,7 @@ shasum -a 256 -c SHA256SUMS
 On Windows PowerShell, compare the APK with its matching entry:
 
 ```powershell
-$apk = 'dawnshell-0.3.0.apk'
+$apk = 'dawnshell-0.3.1.apk'
 $actual = (Get-FileHash ".\$apk" -Algorithm SHA256).Hash.ToLowerInvariant()
 $expected = ((Get-Content .\SHA256SUMS | Where-Object { $_ -match "  $([regex]::Escape($apk))$" }) -split '\s+')[0]
 $actual -eq $expected

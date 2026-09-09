@@ -97,7 +97,7 @@ DE/CE data and its private SSH key, but does not remove `/data/local/debian`.
 Use a clean worktree and a prepared signed APK:
 
 ```sh
-DAWNSHELL_RELEASE_VERSION=0.3.0 \
+DAWNSHELL_RELEASE_VERSION=0.3.1 \
   ./scripts/package-release.sh path/to/signed.apk dist/release
 ```
 
@@ -116,8 +116,8 @@ The public debug key is for development only. Tagged production builds require:
 - `DAWNSHELL_RELEASE_KEY_PASSWORD`
 
 ```sh
-git tag -s v0.3.0 -m "DawnShell 0.3.0"
-git push origin v0.3.0
+git tag -s v0.3.1 -m "DawnShell 0.3.1"
+git push origin v0.3.1
 ```
 
 `.github/workflows/build.yml` runs on pull requests, `main`, manual dispatch,

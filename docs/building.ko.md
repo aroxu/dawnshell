@@ -116,7 +116,7 @@ DE/CE와 SSH 개인 키를 삭제하지만 `/data/local/debian`은 자동으로 
 작업 트리가 깨끗하고 APK가 준비된 상태에서 실행합니다.
 
 ```sh
-DAWNSHELL_RELEASE_VERSION=0.3.0 \
+DAWNSHELL_RELEASE_VERSION=0.3.1 \
   ./scripts/package-release.sh path/to/signed.apk dist/release
 ```
 
@@ -145,8 +145,8 @@ GitHub tag Release는 다음 secret을 요구합니다.
 - `DAWNSHELL_RELEASE_KEY_PASSWORD`
 
 ```sh
-git tag -s v0.3.0 -m "DawnShell 0.3.0"
-git push origin v0.3.0
+git tag -s v0.3.1 -m "DawnShell 0.3.1"
+git push origin v0.3.1
 ```
 
 ## GitHub Actions
