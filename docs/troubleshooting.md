@@ -126,6 +126,7 @@ adb shell
 su
 /data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/busybox \
   chroot /data/local/debian /bin/bash
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ```
 
 Approve Magisk on the phone if prompted. `0` is Android's primary-user number;
@@ -138,19 +139,19 @@ Android shell. It creates `aid_inet` only when GID 3003 is unused and otherwise
 reuses the existing group name.
 
 ```sh
-if ! getent group 3003 >/dev/null; then
-    groupadd --gid 3003 aid_inet
+if ! /usr/bin/getent group 3003 >/dev/null; then
+    /usr/sbin/groupadd --gid 3003 aid_inet
 fi
 
-INET_GROUP="$(getent group 3003 | cut -d: -f1)"
+INET_GROUP="$(/usr/bin/getent group 3003 | /usr/bin/cut -d: -f1)"
 test -n "$INET_GROUP" || {
     echo "ERROR: GID 3003 group was not found."
     exit 1
 }
 
-usermod --append --groups "$INET_GROUP" _apt
-usermod --gid "$INET_GROUP" _apt
-id _apt
+/usr/sbin/usermod --append --groups "$INET_GROUP" _apt
+/usr/sbin/usermod --gid "$INET_GROUP" _apt
+/usr/bin/id _apt
 apt-get update
 ```
 

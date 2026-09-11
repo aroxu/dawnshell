@@ -157,6 +157,7 @@ adb shell
 su
 /data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/busybox \
   chroot /data/local/debian /bin/bash
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ```
 
 Magisk 요청이 휴대전화에 표시되면 허용합니다. 마지막 명령 뒤 프롬프트가 Debian
@@ -182,19 +183,19 @@ getent group 3003 || true
 이미 있으면 기존 그룹 이름을 자동으로 사용합니다.
 
 ```sh
-if ! getent group 3003 >/dev/null; then
-    groupadd --gid 3003 aid_inet
+if ! /usr/bin/getent group 3003 >/dev/null; then
+    /usr/sbin/groupadd --gid 3003 aid_inet
 fi
 
-INET_GROUP="$(getent group 3003 | cut -d: -f1)"
+INET_GROUP="$(/usr/bin/getent group 3003 | /usr/bin/cut -d: -f1)"
 test -n "$INET_GROUP" || {
     echo "오류: GID 3003 그룹을 찾지 못했습니다."
     exit 1
 }
 
-usermod --append --groups "$INET_GROUP" _apt
-usermod --gid "$INET_GROUP" _apt
-id _apt
+/usr/sbin/usermod --append --groups "$INET_GROUP" _apt
+/usr/sbin/usermod --gid "$INET_GROUP" _apt
+/usr/bin/id _apt
 ```
 
 성공하면 마지막 출력에 `3003(aid_inet)` 또는 같은 GID를 사용하는 기존 그룹이
