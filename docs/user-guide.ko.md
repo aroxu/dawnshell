@@ -67,6 +67,10 @@ FBE(File-Based Encryption) 기기에서는 꺼 둡니다. 이 옵션은 암호�
 두 작업은 Android 잠금을 해제한 상태에서만 시작할 수 있습니다. 진행 상황은
 각각 **Debian 설치**와 **시스템 구성** 로그에서 확인합니다.
 
+구성 작업은 일부 Android 커널에 필요한 `_apt` 인터넷 GID 3003을 자동으로
+설정하고, 이전 실패로 중단된 `dpkg` 작업을 올바른 private mount 환경에서 먼저
+복구합니다.
+
 일부 LineageOS 기기에서 `_apt`만 네트워크 권한 오류를 내면
 [LineageOS apt 네트워크 권한 해결 가이드](troubleshooting.ko.md#lineageos에서-apt-네트워크-권한-오류가-발생합니다)를
 따르세요. 인터넷 연결이나 DNS가 없는 경우와는 원인이 다릅니다.

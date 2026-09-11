@@ -54,6 +54,10 @@ overwriting a valid installation. **Configure Debian 13 systemd + SSH** prepares
 systemd, D-Bus, OpenSSH, the `debian` account, the current public key, and boot
 proof services. Both operations run only after Android is unlocked.
 
+Configuration automatically assigns Android Internet GID 3003 to `_apt` when
+needed and repairs interrupted `dpkg` work inside the correctly mounted private
+configuration namespace before downloading packages.
+
 If only `_apt` encounters a network permission error on a LineageOS device,
 follow the [LineageOS apt network-permission guide](troubleshooting.md#apt-network-permission-errors-on-lineageos).
 This is distinct from a missing route or broken DNS.

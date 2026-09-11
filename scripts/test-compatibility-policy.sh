@@ -12,9 +12,11 @@ strings="$repo_dir/app/src/main/res/values/strings.xml"
 boot_activity="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BootActivity.java"
 boot_service="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuBootService.java"
 runtime_probe="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuDebianRuntimeProbe.java"
+system_configurator="$repo_dir/app/src/main/assets/bfu/configure-debian-systemd.sh"
 
 bash -n "$policy_script"
 bash -n "$usb_policy_script"
+bash -n "$system_configurator"
 
 grep -Fq 'CGROUP_AUTO = "auto"' "$preferences"
 grep -Fq 'DOCKER_HOST_ONLY = "host"' "$preferences"
@@ -146,5 +148,26 @@ grep -Fq 'state->init_ipc_ns_ino == 0' "$native_launcher"
 grep -Fq 'state->init_net_ns_ino == 0' "$native_launcher"
 grep -Fq 'stage=%s child_exit=%d' "$native_launcher"
 grep -Fq 'stage=%s child_signal=%d' "$native_launcher"
+
+# Package recovery must run inside the configurator's private mounted chroot.
+# Assign Android's Internet GID before either dpkg maintainer scripts or apt
+# drop privileges to _apt, then repair interrupted packages before downloads.
+grep -Fq 'STAGE: Preparing Android AID_INET access for Debian package downloads' \
+    "$system_configurator"
+# shellcheck disable=SC2016 # Assert literal configurator source.
+grep -Fq 'usermod --append --groups "$inet_group_name" _apt' \
+    "$system_configurator"
+# shellcheck disable=SC2016 # Assert literal configurator source.
+grep -Fq 'usermod --gid "$inet_group_name" _apt' "$system_configurator"
+grep -Fq 'STAGE: Repairing interrupted Debian package configuration' \
+    "$system_configurator"
+grep -Fq 'dpkg --configure -a' "$system_configurator"
+inet_line="$(grep -nF 'STAGE: Preparing Android AID_INET access' \
+    "$system_configurator" | cut -d: -f1)"
+dpkg_line="$(grep -nF 'dpkg --configure -a' "$system_configurator" \
+    | cut -d: -f1)"
+apt_line="$(grep -nF 'apt-get -o Acquire::Retries=3 update' \
+    "$system_configurator" | head -n 1 | cut -d: -f1)"
+(( inet_line < dpkg_line && dpkg_line < apt_line ))
 
 echo "PASS: capability negotiation, opt-in host-PID fallback, Docker IPC wrapper, USB policies, safe defaults, fallback order, and warnings are pinned."

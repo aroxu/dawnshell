@@ -105,6 +105,12 @@ network sockets. Debian's unprivileged package downloader, `_apt`, may not have
 that group. The phone can therefore be online while `apt` fails during
 **Configure Debian 13 systemd + SSH**.
 
+Current DawnShell first bind-mounts `/dev` in its private configuration mount
+namespace, assigns GID 3003 to `_apt`, runs `dpkg --configure -a`, and only then
+starts `apt`. Update the app and retry **Configure Debian 13 systemd + SSH**
+first. The manual steps below are for repairing a rootfs left incomplete by an
+older build.
+
 Use this workaround only when root commands inside Debian have network access
 but `_apt` reports `Permission denied`, `Operation not permitted`, or a socket
 permission error. A missing default route or broken DNS needs a different fix.
@@ -152,12 +158,16 @@ test -n "$INET_GROUP" || {
 /usr/sbin/usermod --append --groups "$INET_GROUP" _apt
 /usr/sbin/usermod --gid "$INET_GROUP" _apt
 /usr/bin/id _apt
-apt-get update
 ```
 
-The final `id` output should contain GID 3003. When `apt-get update` succeeds,
-return to the app and run **Configure Debian 13 systemd + SSH** again. The
-change is stored in the Debian rootfs and survives reboot.
+The final `id` output should contain GID 3003. Do not run `apt` or `dpkg` from
+this raw ADB chroot: Android `/dev` has not been bind-mounted, so package
+scripts will fail with `/dev/null: Permission denied`. Run `exit` twice, return
+to the app, and run **Configure Debian 13 systemd + SSH** again. The app repairs
+interrupted package configuration with the required private mounts. The group
+change is stored in the Debian rootfs and survives reboot. `apt-get update` is
+safe as a separate check only from a normally running DawnShell Debian reached
+through SSH.
 
 If `_apt` does not exist, diagnose the incomplete rootfs instead of creating
 the account manually. If `groupadd` says GID 3003 already exists, reuse the
@@ -166,8 +176,8 @@ unreachable`, collect `ip -brief address`, `ip route`, `/etc/resolv.conf`, and
 the first failure in the app's **System configuration** log.
 
 This grants network access to `_apt`; it does not enable SSH passwords or grant
-root privileges. Do not apply it on a standard kernel where `apt-get update`
-already works.
+root privileges. Current DawnShell reuses any existing GID 3003 group instead
+of creating a duplicate.
 
 ## SSH is refused or rejects the key
 

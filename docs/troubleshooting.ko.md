@@ -128,6 +128,12 @@ SSH 키를 새로 생성했다면 **Debian 13 systemd + SSH 구성**을 다시 �
 정상인데도 **Debian 13 systemd + SSH 구성** 중 `apt` 다운로드가 네트워크 권한
 오류로 실패할 수 있습니다.
 
+최신 DawnShell은 구성용 private mount namespace에서 `/dev`를 먼저 연결하고,
+`_apt`에 GID 3003을 적용한 뒤 `dpkg --configure -a`와 `apt`를 순서대로 실행합니다.
+따라서 먼저 앱을 업데이트하고 **Debian 13 systemd + SSH 구성**을 다시 실행하는
+방법을 권장합니다. 아래 수동 절차는 이전 버전에서 중단된 rootfs를 복구할 때만
+사용하세요.
+
 이 조치는 다음 조건에 맞을 때만 사용하세요.
 
 - LineageOS 또는 유사한 Android 커널을 사용합니다.
@@ -204,15 +210,27 @@ test -n "$INET_GROUP" || {
 
 ### 4. 다운로드와 앱 구성 다시 시도하기
 
-먼저 Debian에서 확인합니다.
+ADB의 단순 `chroot`로 들어왔다면 그 환경에서 `apt` 또는 `dpkg`를 실행하지
+마세요. Android `/dev`가 연결되지 않아 `/dev/null: Permission denied`가 발생하고
+패키지 상태가 더 꼬일 수 있습니다. 그룹 변경을 저장한 뒤 먼저 빠져나옵니다.
+
+```sh
+exit
+exit
+```
+
+앱으로 돌아가 **Debian 13 systemd + SSH 구성**을 다시 실행합니다. 앱이 `/dev`,
+`/proc`, `/sys`, `/run`을 private mount namespace 안에 준비하고, 중단된 `dpkg`를
+복구한 다음 패키지 다운로드를 재시도합니다. 그룹 변경 내용은
+`/data/local/debian/etc/passwd`와 `/data/local/debian/etc/group`에 저장되므로
+재부팅 뒤에도 유지됩니다.
+
+이미 정상적으로 시작된 DawnShell Debian에 SSH로 접속한 경우에만 다음 명령으로
+별도 확인할 수 있습니다.
 
 ```sh
 apt-get update
 ```
-
-정상적으로 패키지 목록을 내려받으면 앱으로 돌아가 **Debian 13 systemd + SSH
-구성**을 다시 실행합니다. 변경 내용은 `/data/local/debian/etc/passwd`와
-`/data/local/debian/etc/group`에 저장되므로 재부팅 뒤에도 유지됩니다.
 
 ### 여전히 실패할 때
 
@@ -235,8 +253,8 @@ apt-get update
   가능성이 큽니다. 아래 네트워크 문제 해결 절을 확인하세요.
 
 이 설정은 `_apt`에 네트워크 접근 권한만 추가합니다. SSH 암호 인증을 켜거나 root
-권한을 부여하지는 않습니다. 표준 커널에서 `apt-get update`가 이미 정상이라면
-적용할 필요가 없습니다.
+권한을 부여하지는 않습니다. 최신 DawnShell의 자동 적용은 이미 올바른 GID 3003
+그룹이 있으면 그 이름을 재사용하므로 중복 그룹을 만들지 않습니다.
 
 ## SSH 연결이 거부됩니다
 

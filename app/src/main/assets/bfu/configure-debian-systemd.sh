@@ -438,6 +438,42 @@ exit 101
 EOF_POLICY
 chmod 0755 "$POLICY"
 
+echo "STAGE: Preparing Android AID_INET access for Debian package downloads"
+if ! getent passwd _apt >/dev/null; then
+    echo "ERROR: Debian package downloader account _apt is missing"
+    exit 34
+fi
+
+inet_group_line="$(getent group 3003 || true)"
+if [ -z "$inet_group_line" ]; then
+    groupadd --gid 3003 aid_inet
+    inet_group_name=aid_inet
+else
+    inet_group_name="${inet_group_line%%:*}"
+fi
+[ -n "$inet_group_name" ] || {
+    echo "ERROR: Android AID_INET group name for GID 3003 is empty"
+    exit 34
+}
+
+# Android kernels with CONFIG_ANDROID_PARANOID_NETWORK require processes to
+# carry AID_INET (GID 3003) before they can create Internet sockets. Keep both
+# primary and supplementary membership because vendor kernels differ in which
+# credential field they inspect after apt drops privileges to _apt.
+usermod --append --groups "$inet_group_name" _apt
+usermod --gid "$inet_group_name" _apt
+[ "$(id -g _apt)" = 3003 ] || {
+    echo "ERROR: could not assign Android AID_INET GID 3003 to _apt"
+    exit 34
+}
+echo "Android AID_INET ready: group=$inet_group_name gid=3003 user=_apt"
+
+# An earlier network failure may leave packages unpacked but unconfigured.
+# Run recovery only after /dev, /proc, /sys, and /run have been mounted in the
+# private AFU namespace; maintainer scripts commonly redirect to /dev/null.
+echo "STAGE: Repairing interrupted Debian package configuration"
+dpkg --configure -a
+
 cat > /etc/apt/sources.list <<'EOF_APT_HTTP'
 deb http://deb.debian.org/debian trixie main
 deb http://deb.debian.org/debian trixie-updates main
