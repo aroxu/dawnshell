@@ -137,6 +137,8 @@ final class DebianLauncher {
             command += " " + BfuSu.shellQuote(layout.lifecycleLog.getAbsolutePath());
             command += " " + BfuSu.shellQuote(BfuPreferences.cgroupPolicy(context));
             command += " " + BfuSu.shellQuote(
+                    BfuPreferences.pidNamespaceFallback(context) ? "fallback" : "strict");
+            command += " " + BfuSu.shellQuote(
                     BfuPreferences.usbPassthroughMode(context));
             String exclusiveIds = BfuPreferences.usbExclusiveDeviceIds(context);
             command += " " + BfuSu.shellQuote(
@@ -158,17 +160,20 @@ final class DebianLauncher {
         do {
             attempts++;
             result = BfuSu.run(command, HEALTH_COMMAND_TIMEOUT_MS);
+            boolean compatibility = result.output.contains("mode=compat");
             boolean successful = result.exitedSuccessfully()
                     && result.output.contains("BFU_DEBIAN_HEALTH")
-                    && result.output.contains("system_state=running")
+                    && result.output.contains("listen_22=true")
+                    && (compatibility
+                    ? result.output.contains("compat_ready=true")
+                    : result.output.contains("system_state=running")
                     && result.output.contains("dbus_service=active")
                     && result.output.contains("dbus_bus=ok")
                     && result.output.contains("ssh_service=active")
                     && result.output.contains("boot_proof_service=active")
                     && result.output.contains("boot_proof_marker=present")
                     && result.output.contains("target_state=active")
-                    && result.output.contains("listen_22=true")
-                    && result.output.contains("cgroup_delegation=delegated");
+                    && result.output.contains("cgroup_delegation=delegated"));
             appendLog(layout.lifecycleLog,
                     "ANDROID_HEALTH attempt=" + attempts
                             + " exit=" + result.exitCode

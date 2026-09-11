@@ -20,6 +20,11 @@ First unlock
   → keep the existing Debian and SSH instance running
 ```
 
+That flow is the default full mode. An explicit, default-off compatibility
+fallback can keep a basic Debian SSH shell available on kernels that cannot
+create PID or cgroup namespaces. It starts OpenSSH directly and does **not**
+provide systemd, D-Bus, cgroup isolation, Docker, or systemctl-managed services.
+
 Package: `me.aroxu.dawnshell`
 
 > DawnShell requires permanent root permission. Debian shares Android's kernel
@@ -53,6 +58,8 @@ user, operations, and developer guide. Abbreviations are expanded in the
   Ethernet
 - Optional raw USB sharing and VID:PID-scoped exclusive interface passthrough
 - Runtime cgroup v2 probing with a validated cgroup v1 fallback
+- Optional SSH-only host-PID fallback for kernels without the namespaces
+  required by systemd
 - Managed Docker host-network and host-IPC compatibility policies
 - Experimental AVC/HEVC hardware decode, encode, Surface transcode, live HLS,
   and USB-webcam encoding through Android MediaCodec
@@ -81,6 +88,7 @@ but it cannot unlock network credentials that Android withholds.
 | Direct Boot Debian bootstrap | Off until enabled | No automatic BFU server before explicit setup |
 | BFU CE-readable override | Off | Startup fails closed if app CE is readable before unlock |
 | cgroup policy | Automatic v2 → v1 | Uses v2 only after capability probes succeed |
+| Host-PID compatibility fallback | Off | On unsupported kernels only, starts OpenSSH directly without systemd, cgroup isolation, or Docker |
 | Docker networking | Host network only | Avoids Docker changes to Android-global firewall and routes |
 | Docker host IPC compatibility | On | Avoids private IPC/mqueue failures on affected kernels; reduces container isolation |
 | Raw USB access | Off | Blocks `/dev/bus/usb` and USB character major 189 only |

@@ -14,8 +14,8 @@ LOCKED_BOOT_COMPLETED
   -> verify DE storage and pre-authorized root
   -> validate Debian rootfs
   -> prepare namespaces and cgroups
-  -> start systemd as Debian PID 1
-  -> start OpenSSH
+  -> full mode: start systemd as Debian PID 1 -> ssh.service
+  -> optional unsupported-kernel fallback: direct sshd, no systemd
 
 USER_UNLOCKED
   -> record the event
@@ -60,6 +60,15 @@ Private mount, PID, UTS, and cgroup namespaces isolate Debian's filesystem,
 process IDs, hostname, and delegated resource view. The network namespace remains
 shared with Android so existing Wi-Fi, mobile, VPN, and USB Ethernet interfaces
 are available without emulation.
+
+Full mode is the default and fails closed when its required PID/cgroup
+namespaces cannot be created. The separate host-PID compatibility option permits
+a narrower fallback: mount and UTS remain private, while PID, IPC, cgroup, and
+network views are shared and the supervisor starts OpenSSH directly. State files
+record `launch_mode=compat`; status and health validate the tracked `sshd`
+executable, process start time, private mount/UTS identities, and TCP 22. No
+systemd, D-Bus, delegated cgroups, Docker, or enabled systemd units run in this
+mode.
 
 The cgroup policy probes a delegated v2 subtree and device BPF first. If load or
 attach fails, it cleans every probe resource and falls back to isolated cgroup v1

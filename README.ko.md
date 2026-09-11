@@ -20,6 +20,11 @@ Android 부팅
   → 기존 Debian과 SSH를 중지하지 않고 그대로 유지
 ```
 
+위 흐름은 기본 전체 기능 모드입니다. PID 또는 cgroup namespace를 만들 수 없는
+커널에서는 기본적으로 꺼진 호스트 PID 호환 대체 모드를 사용자가 직접 켤 수
+있습니다. 이 모드는 OpenSSH만 직접 시작하며 systemd, D-Bus, cgroup 격리, Docker,
+`systemctl`로 관리하는 서비스는 제공하지 않습니다.
+
 패키지 이름: `me.aroxu.dawnshell`
 
 > DawnShell은 영구 root 권한이 필수입니다. Debian은 Android 커널과 네트워크를
@@ -50,6 +55,7 @@ Android 부팅
 - Wi-Fi, 모바일 데이터, VPN, USB Ethernet을 포함한 Android 네트워크 직접 공유
 - 선택적인 raw USB 공유와 VID:PID 제한 독점 interface 패스스루
 - cgroup v2 기능 검사와 검증된 cgroup v1 fallback
+- systemd 필수 namespace가 없는 커널을 위한 선택형 SSH 전용 호스트 PID 대체 모드
 - Docker host network와 host IPC 호환성 정책
 - Android MediaCodec을 이용한 실험적 AVC/HEVC decode·encode, Surface transcode,
   실시간 HLS와 USB 웹캠 인코딩
@@ -78,6 +84,7 @@ Android 부팅
 | Direct Boot Debian 부트스트랩 | 사용자가 켜기 전까지 끔 | 명시적인 설정 전에는 BFU 서버를 자동 시작하지 않음 |
 | BFU CE 읽기 예외 | 끔 | 첫 잠금 해제 전 앱 CE가 읽히면 안전하게 시작 차단 |
 | cgroup 정책 | 자동 v2 → v1 | 기능 검사가 모두 성공할 때만 v2 사용 |
+| 호스트 PID 호환 대체 모드 | 끔 | 미지원 커널에서만 systemd·cgroup 격리·Docker 없이 OpenSSH 직접 시작 |
 | Docker 네트워크 | host network 전용 | Android 전역 방화벽과 route 변경 방지 |
 | Docker host IPC 호환성 | 켬 | 일부 커널의 private IPC/mqueue 오류 회피, 대신 container 격리 감소 |
 | raw USB 접근 | 끔 | `/dev/bus/usb`와 USB 문자 장치 major 189만 차단 |

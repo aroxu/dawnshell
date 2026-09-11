@@ -104,7 +104,7 @@
     <string name="bfu_system_config_status_none">No Debian system configuration has been requested yet.</string>
     <string name="bfu_system_config_status_failed">Failed to read system configuration status: %1$s</string>
     <string name="bfu_system_config_log_title">Debian system configuration log (live, newest 48 KiB):</string>
-    <string name="bfu_lifecycle_explanation">Debian starts automatically during LOCKED_BOOT_COMPLETED after all BFU gates pass. USER_UNLOCKED never stops or restarts it. Start, restart, and status also verify systemd PID 1, D-Bus, ssh.service, and TCP 22; results are persisted in the DE log.</string>
+    <string name="bfu_lifecycle_explanation">Debian starts automatically during LOCKED_BOOT_COMPLETED after all BFU gates pass. USER_UNLOCKED never stops or restarts it. Full mode verifies systemd PID 1, D-Bus, ssh.service, and TCP 22. The optional compatibility fallback verifies its directly managed OpenSSH process and TCP 22 instead. Results are persisted in the DE log.</string>
     <string name="bfu_start_debian_short">Start</string>
     <string name="bfu_restart_debian_short">Restart</string>
     <string name="bfu_status_debian_short">Status</string>
@@ -164,11 +164,11 @@
     <string name="dawnshell_unsaved_settings">You have unapplied changes</string>
     <string name="dawnshell_apply_changes">Apply</string>
     <string name="dawnshell_apply_changes_confirm_title">Apply these settings?</string>
-    <string name="dawnshell_apply_changes_confirm_message">USB, cgroup, or Docker changes may briefly restart a running Debian server and disconnect SSH. DawnShell combines all pending changes so the server restarts at most once.</string>
+    <string name="dawnshell_apply_changes_confirm_message">Namespace compatibility, USB, cgroup, or Docker changes may briefly restart a running Debian server and disconnect SSH. DawnShell combines all pending changes so the server restarts at most once.</string>
     <string name="dawnshell_apply_changes_applied">Settings applied. Runtime changes are being activated in the background.</string>
     <string name="dawnshell_apply_changes_saved_for_next_start">Settings saved. Runtime changes will take effect the next time Debian starts.</string>
     <string name="dawnshell_apply_changes_none">There are no pending settings to apply.</string>
-    <string name="dawnshell_apply_changes_requires_unlock">Unlock Android before applying USB, cgroup, or Docker settings.</string>
+    <string name="dawnshell_apply_changes_requires_unlock">Unlock Android before applying namespace compatibility, USB, cgroup, or Docker settings.</string>
     <string name="dawnshell_navigation_home">Home</string>
     <string name="dawnshell_navigation_access">Access</string>
     <string name="dawnshell_navigation_advanced">Advanced</string>
@@ -197,7 +197,7 @@
     <string name="dawnshell_log_copied">Log copied to the clipboard.</string>
     <string name="dawnshell_log_copy_empty">There is no log text to copy.</string>
     <string name="dawnshell_log_summary_none">No status yet</string>
-    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nDocker network policy: %4$s\nDocker host IPC compatibility: %5$s\nUSB passthrough mode: %6$s\nExclusive USB VID:PID filters: %7$s\nHardware codec bridge: %8$s</string>
+    <string name="dawnshell_diagnostics_settings">Direct Boot enabled: %1$s\nAllow BFU when CE is readable: %2$s\nCgroup policy: %3$s\nPID namespace fallback: %4$s\nDocker network policy: %5$s\nDocker host IPC compatibility: %6$s\nUSB passthrough mode: %7$s\nExclusive USB VID:PID filters: %8$s\nHardware codec bridge: %9$s</string>
     <string name="dawnshell_log_section_format">===== %1$s =====\n%2$s</string>
     <string name="dawnshell_log_section_status">Status</string>
     <string name="dawnshell_log_section_output">Output</string>
@@ -214,6 +214,8 @@
     <string name="dawnshell_cgroup_policy_v2">Force cgroup v2 only (experimental)</string>
     <string name="dawnshell_cgroup_policy_v1">Force cgroup v1 legacy mode</string>
     <string name="dawnshell_cgroup_policy_warning">This selection takes effect on the next Debian start or restart. Automatic mode adopts v2 only after a dedicated cgroup2 subtree in a private mount view and cgroup-device BPF attach both succeed. Force v2 disables the known-good v1 fallback and can prevent Debian from booting. Force v1 skips modern isolation and attaches the legacy devices controller to a hierarchy; Android tasks remain outside DawnShell’s delegated child, but this is still a kernel-global controller attachment.</string>
+    <string name="dawnshell_pid_namespace_fallback">Allow host-PID compatibility fallback (opt-in)</string>
+    <string name="dawnshell_pid_namespace_fallback_warning">High risk / reduced capability: if the PID or cgroup namespace setup required by full mode is unavailable, DawnShell keeps only private mount and UTS namespaces and starts OpenSSH directly. Debian will not have systemd as PID 1, D-Bus, private process visibility, cgroup isolation, Docker/container support, or systemctl-managed services. The Debian processes share Android’s host PID table and must be trusted. Disabled by default; use only when the kernel cannot be rebuilt.</string>
     <string name="dawnshell_host_usb_title">USB sharing and passthrough</string>
     <string name="dawnshell_host_usb_description">Controls raw USBFS access and optional driver unbinding. This is not complete USB-device isolation because Debian and Android share the same kernel, sysfs, and network namespace.</string>
     <string name="dawnshell_host_usb_scope_explanation">Policy scope\n\n• Off blocks /dev/bus/usb and USB character major 189, preventing ordinary libusb/raw USBFS access.\n• Off does not stop Android from detecting USB hardware. USB topology can remain visible through shared /sys.\n• Devices already claimed by Android kernel drivers can expose derived resources to Debian, including /dev/block/sd* storage, USB Ethernet interfaces, ttyUSB/ttyACM serial ports, input, video, or audio nodes. These are not blocked by the raw USBFS policy.\n• Sharing exposes raw USBFS while retaining Android drivers. Exclusive passthrough additionally unbinds only interfaces matching the VID:PID list; it is not USB virtualization.</string>

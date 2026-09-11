@@ -56,7 +56,6 @@
 #ifndef CLONE_NEWCGROUP
 #define CLONE_NEWCGROUP 0x02000000
 #endif
-
 static const char *const kAllowedRoot = "/data/local/debian";
 static const char *const kArchitectureMarker =
         "architecture=" DAWNSHELL_DEBIAN_ARCH;
@@ -99,6 +98,11 @@ typedef enum CgroupPolicy {
     CGROUP_POLICY_FORCE_V1,
 } CgroupPolicy;
 
+typedef enum LaunchMode {
+    LAUNCH_MODE_SYSTEMD = 0,
+    LAUNCH_MODE_COMPAT,
+} LaunchMode;
+
 typedef enum HostUsbPolicy {
     HOST_USB_OFF = 0,
     HOST_USB_DIRECT,
@@ -133,6 +137,7 @@ typedef struct LauncherState {
     char state[24];
     char cgroup_mode[8];
     char host_usb_mode[16];
+    char launch_mode[16];
     pid_t supervisor_pid;
     uint64_t supervisor_start_ticks;
     uint64_t supervisor_exe_dev;
@@ -234,6 +239,31 @@ static const char *cgroup_mode_name(CgroupMode mode) {
     if (mode == CGROUP_MODE_V2) return "v2";
     if (mode == CGROUP_MODE_V1) return "v1";
     return "unknown";
+}
+
+static const char *launch_mode_name(LaunchMode mode) {
+    return mode == LAUNCH_MODE_COMPAT ? "compat" : "systemd";
+}
+
+static int parse_launch_policy(const char *value, bool *allow_fallback) {
+    if (value == NULL || strcmp(value, "strict") == 0
+            || strcmp(value, "off") == 0) {
+        *allow_fallback = false;
+        return 0;
+    }
+    if (strcmp(value, "fallback") == 0 || strcmp(value, "compat") == 0
+            || strcmp(value, "allow") == 0) {
+        *allow_fallback = true;
+        return 0;
+    }
+    return -1;
+}
+
+static bool is_explicit_launch_policy(const char *value) {
+    return value != NULL && (strcmp(value, "strict") == 0
+            || strcmp(value, "fallback") == 0
+            || strcmp(value, "compat") == 0
+            || strcmp(value, "allow") == 0);
 }
 
 static CgroupMode parse_cgroup_mode(const char *value) {
@@ -661,15 +691,54 @@ static int read_proc_namespace_inode(pid_t pid, const char *name, uint64_t *inod
     return 0;
 }
 
+/* Some vendor kernels expose only the namespace types enabled in their
+   configuration. Treat a missing proc namespace entry as an unsupported
+   optional feature, while preserving all other stat failures. */
+static int read_optional_proc_namespace_inode(pid_t pid, const char *name,
+                                              uint64_t *inode) {
+    *inode = 0;
+    if (read_proc_namespace_inode(pid, name, inode) == 0) return 0;
+    if (errno == ENOENT) return 0;
+    return -1;
+}
+
 static int capture_init_namespace_identity(pid_t pid, LauncherState *state) {
+    state->init_ipc_ns_ino = 0;
+    state->init_net_ns_ino = 0;
     return read_proc_namespace_inode(pid, "pid", &state->init_pid_ns_ino) == 0
             && read_proc_namespace_inode(pid, "mnt", &state->init_mnt_ns_ino) == 0
             && read_proc_namespace_inode(pid, "uts", &state->init_uts_ns_ino) == 0
-            && read_proc_namespace_inode(pid, "ipc", &state->init_ipc_ns_ino) == 0
+            && read_optional_proc_namespace_inode(pid, "ipc",
+                                                   &state->init_ipc_ns_ino) == 0
             && read_proc_namespace_inode(pid, "cgroup",
                                          &state->init_cgroup_ns_ino) == 0
-            && read_proc_namespace_inode(pid, "net", &state->init_net_ns_ino) == 0
+            && read_optional_proc_namespace_inode(pid, "net",
+                                                   &state->init_net_ns_ino) == 0
             ? 0 : -1;
+}
+
+/* Compatibility mode is specifically for kernels that can create private
+   mount and UTS namespaces but cannot create a PID and/or cgroup namespace.
+   Preserve every namespace identity exposed by the kernel, while requiring
+   only the two boundaries that compatibility mode promises. */
+static int capture_compat_namespace_identity(pid_t pid, LauncherState *state) {
+    state->init_pid_ns_ino = 0;
+    state->init_mnt_ns_ino = 0;
+    state->init_uts_ns_ino = 0;
+    state->init_ipc_ns_ino = 0;
+    state->init_cgroup_ns_ino = 0;
+    state->init_net_ns_ino = 0;
+    if (read_proc_namespace_inode(pid, "mnt", &state->init_mnt_ns_ino) != 0
+            || read_proc_namespace_inode(pid, "uts",
+                                         &state->init_uts_ns_ino) != 0) {
+        return -1;
+    }
+    (void) read_proc_namespace_inode(pid, "pid", &state->init_pid_ns_ino);
+    (void) read_proc_namespace_inode(pid, "ipc", &state->init_ipc_ns_ino);
+    (void) read_proc_namespace_inode(pid, "cgroup",
+                                     &state->init_cgroup_ns_ino);
+    (void) read_proc_namespace_inode(pid, "net", &state->init_net_ns_ino);
+    return 0;
 }
 
 static int validate_init_namespace_topology(const LauncherState *state) {
@@ -682,19 +751,67 @@ static int validate_init_namespace_topology(const LauncherState *state) {
     if (read_proc_namespace_inode(1, "pid", &host_pid) != 0
             || read_proc_namespace_inode(1, "mnt", &host_mnt) != 0
             || read_proc_namespace_inode(1, "uts", &host_uts) != 0
-            || read_proc_namespace_inode(1, "ipc", &host_ipc) != 0
+            || read_optional_proc_namespace_inode(1, "ipc", &host_ipc) != 0
             || read_proc_namespace_inode(1, "cgroup", &host_cgroup) != 0
-            || read_proc_namespace_inode(1, "net", &host_net) != 0) {
+            || read_optional_proc_namespace_inode(1, "net", &host_net) != 0) {
         return -1;
     }
     if (state->init_pid_ns_ino == host_pid
             || state->init_mnt_ns_ino == host_mnt
             || state->init_uts_ns_ino == host_uts
-            || state->init_ipc_ns_ino != host_ipc
             || state->init_cgroup_ns_ino == host_cgroup
-            || state->init_net_ns_ino != host_net) {
+            || (host_ipc != 0 && state->init_ipc_ns_ino != host_ipc)
+            || (host_net != 0 && state->init_net_ns_ino != host_net)) {
         errno = EXDEV;
         return -1;
+    }
+    return 0;
+}
+
+static int validate_compat_namespace_topology(const LauncherState *state) {
+    uint64_t service_mnt = 0;
+    uint64_t service_uts = 0;
+    uint64_t host_mnt = 0;
+    uint64_t host_uts = 0;
+    if (state->init_mnt_ns_ino == 0 || state->init_uts_ns_ino == 0
+            || read_proc_namespace_inode(state->init_host_pid, "mnt",
+                                         &service_mnt) != 0
+            || read_proc_namespace_inode(state->init_host_pid, "uts",
+                                         &service_uts) != 0
+            || read_proc_namespace_inode(1, "mnt", &host_mnt) != 0
+            || read_proc_namespace_inode(1, "uts", &host_uts) != 0
+            || service_mnt != state->init_mnt_ns_ino
+            || service_uts != state->init_uts_ns_ino
+            || service_mnt == host_mnt || service_uts == host_uts) {
+        errno = EXDEV;
+        return -1;
+    }
+
+    /* These namespace files are absent on some supported kernels. When the
+       kernel exposes one, compatibility mode must still share it with the
+       Android host rather than accidentally claiming a private boundary. */
+    const char *const shared_names[] = {"pid", "ipc", "cgroup", "net"};
+    const uint64_t recorded[] = {
+            state->init_pid_ns_ino,
+            state->init_ipc_ns_ino,
+            state->init_cgroup_ns_ino,
+            state->init_net_ns_ino,
+    };
+    for (size_t index = 0;
+         index < sizeof(shared_names) / sizeof(shared_names[0]); index++) {
+        if (recorded[index] == 0) continue;
+        uint64_t service_namespace = 0;
+        uint64_t host_namespace = 0;
+        if (read_proc_namespace_inode(state->init_host_pid,
+                                      shared_names[index],
+                                      &service_namespace) != 0
+                || read_proc_namespace_inode(1, shared_names[index],
+                                             &host_namespace) != 0
+                || service_namespace != recorded[index]
+                || service_namespace != host_namespace) {
+            errno = EXDEV;
+            return -1;
+        }
     }
     return 0;
 }
@@ -704,6 +821,7 @@ static void initialize_state(LauncherState *state, const char *name) {
     snprintf(state->state, sizeof(state->state), "%s", name);
     snprintf(state->cgroup_mode, sizeof(state->cgroup_mode), "unknown");
     snprintf(state->host_usb_mode, sizeof(state->host_usb_mode), "unknown");
+    snprintf(state->launch_mode, sizeof(state->launch_mode), "systemd");
     state->wait_status = -1;
     state->updated_epoch = realtime_seconds();
 }
@@ -739,7 +857,8 @@ static int write_state(const char *control_dir, LauncherState *state) {
 
     state->updated_epoch = realtime_seconds();
     count = snprintf(contents, sizeof(contents),
-                     "format=6\nstate=%s\ncgroup_mode=%s\nhost_usb_mode=%s\n"
+                     "format=7\nstate=%s\ncgroup_mode=%s\nhost_usb_mode=%s\n"
+                     "launch_mode=%s\n"
                      "supervisor_pid=%d\n"
                      "supervisor_start_ticks=%llu\nsupervisor_exe_dev=%llu\n"
                      "supervisor_exe_ino=%llu\ninit_host_pid=%d\n"
@@ -749,7 +868,8 @@ static int write_state(const char *control_dir, LauncherState *state) {
                      "init_ipc_ns_ino=%llu\ninit_cgroup_ns_ino=%llu\n"
                      "init_net_ns_ino=%llu\n"
                      "wait_status=%d\nupdated_epoch=%lld\n",
-                     state->state, state->cgroup_mode, state->host_usb_mode,
+                      state->state, state->cgroup_mode, state->host_usb_mode,
+                      state->launch_mode,
                      state->supervisor_pid,
                      (unsigned long long) state->supervisor_start_ticks,
                      (unsigned long long) state->supervisor_exe_dev,
@@ -832,6 +952,8 @@ static int read_state(const char *control_dir, LauncherState *state) {
             snprintf(state->cgroup_mode, sizeof(state->cgroup_mode), "%s", value);
         } else if (strcmp(line, "host_usb_mode") == 0) {
             snprintf(state->host_usb_mode, sizeof(state->host_usb_mode), "%s", value);
+        } else if (strcmp(line, "launch_mode") == 0) {
+            snprintf(state->launch_mode, sizeof(state->launch_mode), "%s", value);
         } else if (strcmp(line, "supervisor_pid") == 0) {
             (void) parse_pid_value(value, &state->supervisor_pid);
         } else if (strcmp(line, "supervisor_start_ticks") == 0) {
@@ -887,8 +1009,7 @@ static bool validate_init_identity(const LauncherState *state) {
     if (state->init_host_pid <= 1 || state->init_start_ticks == 0
             || state->init_exe_ino == 0 || state->init_pid_ns_ino == 0
             || state->init_mnt_ns_ino == 0 || state->init_uts_ns_ino == 0
-            || state->init_ipc_ns_ino == 0 || state->init_cgroup_ns_ino == 0
-            || state->init_net_ns_ino == 0) return false;
+            || state->init_cgroup_ns_ino == 0) return false;
     uint64_t ticks = 0;
     uint64_t device = 0;
     uint64_t inode = 0;
@@ -912,15 +1033,34 @@ static bool validate_init_identity(const LauncherState *state) {
             && read_proc_namespace_inode(state->init_host_pid, "uts",
                                          &uts_ns_inode) == 0
             && uts_ns_inode == state->init_uts_ns_ino
-            && read_proc_namespace_inode(state->init_host_pid, "ipc",
-                                         &ipc_ns_inode) == 0
-            && ipc_ns_inode == state->init_ipc_ns_ino
+            && (state->init_ipc_ns_ino == 0
+                || (read_proc_namespace_inode(state->init_host_pid, "ipc",
+                                              &ipc_ns_inode) == 0
+                    && ipc_ns_inode == state->init_ipc_ns_ino))
             && read_proc_namespace_inode(state->init_host_pid, "cgroup",
                                          &cgroup_ns_inode) == 0
             && cgroup_ns_inode == state->init_cgroup_ns_ino
-            && read_proc_namespace_inode(state->init_host_pid, "net",
-                                         &net_ns_inode) == 0
-            && net_ns_inode == state->init_net_ns_ino
+            && (state->init_net_ns_ino == 0
+                || (read_proc_namespace_inode(state->init_host_pid, "net",
+                                              &net_ns_inode) == 0
+                    && net_ns_inode == state->init_net_ns_ino))
+            && kill(state->init_host_pid, 0) == 0;
+}
+
+/* The compatibility launcher deliberately shares the host PID namespace. It
+   therefore validates only the tracked service PID, start time, executable,
+   and liveness; it must never pretend that a namespace boundary exists. */
+static bool validate_compat_service_identity(const LauncherState *state) {
+    if (state->init_host_pid <= 1 || state->init_start_ticks == 0
+            || state->init_exe_ino == 0) return false;
+    uint64_t ticks = 0;
+    uint64_t device = 0;
+    uint64_t inode = 0;
+    return read_proc_start_ticks(state->init_host_pid, &ticks) == 0
+            && ticks == state->init_start_ticks
+            && read_proc_exe_identity(state->init_host_pid, &device, &inode) == 0
+            && device == state->init_exe_dev
+            && inode == state->init_exe_ino
             && kill(state->init_host_pid, 0) == 0;
 }
 
@@ -2505,8 +2645,9 @@ static int set_base_private_namespaces(void) {
        copy_ipcs()->mq_init_ns()->mqueue_mount() when CLONE_NEWIPC is requested.
        The fault panics Android before userspace can handle an errno. IPC is
        therefore deliberately shared. Networking is also shared intentionally
-       for native-NIC performance; mount/PID/UTS/cgroup isolation remains
-       mandatory. */
+       for native-NIC performance. Strict mode still requires private
+       mount/PID/UTS/cgroup namespaces; the explicit compatibility fallback
+       keeps only the private mount and UTS boundaries. */
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_STAGE ipc_namespace_android_shared "
             "legacy_kernel_compat=true\n",
@@ -2577,20 +2718,80 @@ static int negotiate_cgroup_mode(const char *control_dir,
     return 0;
 }
 
+static bool pid_namespace_creation_is_unsupported(int error_number) {
+    return error_number == EINVAL || error_number == ENOSYS
+            || error_number == EPERM || error_number == EOPNOTSUPP;
+}
+
+static bool pid_namespace_entry_is_available(void) {
+    struct stat value;
+    return stat("/proc/self/ns/pid", &value) == 0;
+}
+
 static int set_systemd_parent_namespaces(const char *control_dir,
                                          int network_ready_fd,
                                          CgroupPolicy policy,
                                          HostUsbPolicy host_usb_policy,
+                                         bool allow_fallback,
+                                         LaunchMode *launch_mode,
                                          CgroupMode *resolved_mode) {
+    *launch_mode = LAUNCH_MODE_SYSTEMD;
+    *resolved_mode = CGROUP_MODE_UNKNOWN;
     int result = set_base_private_namespaces();
     if (result != 0) return result;
     if (wait_for_network_manager(network_ready_fd) != 0) {
         return fail_errno("wait_network_manager", 56);
     }
+    if (allow_fallback && !pid_namespace_entry_is_available()) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_COMPAT pid_namespace_unavailable "
+                "proc_entry_missing=true fallback=direct_sshd "
+                "systemd_pid1=false cgroup_isolation=false\n",
+                (long long) realtime_seconds());
+        *launch_mode = LAUNCH_MODE_COMPAT;
+        return 0;
+    }
     result = negotiate_cgroup_mode(control_dir, policy, host_usb_policy,
                                    resolved_mode);
-    if (result != 0) return result;
-    if (unshare(CLONE_NEWPID) != 0) return fail_errno("unshare_pid", 58);
+    if (result != 0) {
+        if (!allow_fallback) return result;
+        int saved_errno = errno;
+        cleanup_cgroup_hierarchy(control_dir, kUnifiedCgroupMountName,
+                                 "unified_fallback");
+        cleanup_cgroup_hierarchy(control_dir, kDevicesCgroupMountName,
+                                 "devices_fallback");
+        cleanup_cgroup_hierarchy(control_dir, kSystemdCgroupMountName,
+                                 "systemd_fallback");
+        errno = saved_errno;
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_COMPAT cgroup_setup_unavailable "
+                "errno=%d fallback=direct_sshd cgroup_isolation=false\n",
+                (long long) realtime_seconds(), saved_errno);
+        *launch_mode = LAUNCH_MODE_COMPAT;
+        *resolved_mode = CGROUP_MODE_UNKNOWN;
+        return 0;
+    }
+    if (unshare(CLONE_NEWPID) != 0) {
+        int saved_errno = errno;
+        if (!allow_fallback || !pid_namespace_creation_is_unsupported(saved_errno)) {
+            errno = saved_errno;
+            return fail_errno("unshare_pid", 58);
+        }
+        cleanup_cgroup_hierarchy(control_dir, kUnifiedCgroupMountName,
+                                 "unified_fallback");
+        cleanup_cgroup_hierarchy(control_dir, kDevicesCgroupMountName,
+                                 "devices_fallback");
+        cleanup_cgroup_hierarchy(control_dir, kSystemdCgroupMountName,
+                                 "systemd_fallback");
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_COMPAT pid_namespace_unavailable "
+                "errno=%d fallback=direct_sshd systemd_pid1=false "
+                "cgroup_isolation=false\n",
+                (long long) realtime_seconds(), saved_errno);
+        *launch_mode = LAUNCH_MODE_COMPAT;
+        *resolved_mode = CGROUP_MODE_UNKNOWN;
+        return 0;
+    }
     dprintf(STDERR_FILENO, "[%lld] BFU_DEBIAN_STAGE pid_namespace_private\n",
             (long long) realtime_seconds());
     return 0;
@@ -2634,6 +2835,74 @@ static int enter_debian_probe(const char *root) {
     char *const arguments[] = {"sh", "-c", (char *) probe_command, NULL};
     execv("/bin/sh", arguments);
     return fail_errno("exec_debian_shell", 63);
+}
+
+static int enter_debian_compat_probe(const char *root) {
+    static const char probe_command[] =
+            "set -u; "
+            "fail() { printf 'BFU_DEBIAN_COMPATIBILITY_FAILED stage=%s\\n' \"$1\"; exit 60; }; "
+            "arch=$(/usr/bin/dpkg --print-architecture) || fail dpkg_arch; "
+            "[ -r /etc/debian_version ] || fail debian_version_read; "
+            "version=$(/usr/bin/cut -d. -f1 /etc/debian_version) || fail debian_version_read; "
+            "[ \"$version\" = 13 ] || fail debian_version_not_13; "
+            "printf 'BFU_DEBIAN_COMPATIBILITY_OK mode=compat arch=%s debian=%s ' "
+            "\"$arch\" \"$version\"; "
+            "printf 'pid_namespace=shared mount_namespace=private uts_namespace=private\\n'";
+
+    int result = prepare_child_mounts(root, NULL, false, CGROUP_MODE_UNKNOWN,
+                                      HOST_USB_OFF);
+    if (result != 0) return result;
+    if (syscall(__NR_sethostname, "dawnshell-compat",
+                strlen("dawnshell-compat")) != 0) {
+        return fail_errno("compat_sethostname", 59);
+    }
+    if (chdir(root) != 0) return fail_errno("compat_chdir_rootfs", 60);
+    if (chroot(".") != 0) return fail_errno("compat_chroot", 61);
+    if (chdir("/") != 0) return fail_errno("compat_chdir_chroot", 62);
+    clearenv();
+    setenv("HOME", "/root", 1);
+    setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
+    setenv("LANG", "C.UTF-8", 1);
+    setenv("container", "dawnshell-compat", 1);
+    char *const arguments[] = {"sh", "-c", (char *) probe_command, NULL};
+    execv("/bin/sh", arguments);
+    return fail_errno("compat_exec_debian_shell", 63);
+}
+
+static int run_compat_probe(const char *root) {
+    int result = validate_rootfs(root, false);
+    if (result != 0) return result;
+    if (geteuid() != 0) {
+        return fail_message("not_root", "launcher_requires_euid_0", 64);
+    }
+    signal(SIGALRM, alarm_handler);
+    alarm(25);
+    result = set_base_private_namespaces();
+    if (result != 0) return result;
+    const pid_t pid = fork();
+    if (pid < 0) return fail_errno("compat_probe_fork", 65);
+    if (pid == 0) {
+        alarm_child_pid = -1;
+        signal(SIGALRM, alarm_handler);
+        alarm(20);
+        _exit(enter_debian_compat_probe(root));
+    }
+    alarm_child_pid = pid;
+    int status;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return fail_errno("compat_probe_wait", 66);
+    }
+    alarm_child_pid = -1;
+    alarm(0);
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) {
+        char message[64];
+        snprintf(message, sizeof(message), "compat_probe_killed_by_signal_%d",
+                 WTERMSIG(status));
+        return fail_message("compat_probe_signal", message, 67);
+    }
+    return fail_message("compat_probe_wait_status", "unexpected_wait_status", 67);
 }
 
 static int run_probe(const char *root) {
@@ -2759,6 +3028,45 @@ static int enter_debian_systemd(const char *root, const char *control_dir,
     return fail_errno("exec_systemd", 72);
 }
 
+static int enter_debian_compat(const char *root, HostUsbPolicy host_usb_policy) {
+    int result = prepare_child_mounts(root, NULL, false, CGROUP_MODE_UNKNOWN,
+                                      host_usb_policy);
+    if (result != 0) return result;
+    if (syscall(__NR_sethostname, "dawnshell-compat",
+                strlen("dawnshell-compat")) != 0) {
+        return fail_errno("compat_sethostname", 68);
+    }
+    if (chdir(root) != 0) return fail_errno("compat_chdir_rootfs", 69);
+    if (chroot(".") != 0) return fail_errno("compat_chroot", 70);
+    if (chdir("/") != 0) return fail_errno("compat_chdir_chroot", 71);
+
+    /* /run is a fresh tmpfs in the private mount namespace, so recreate the
+       OpenSSH privilege-separation directory that systemd/tmpfiles would
+       normally create. */
+    if (mkdir("/run/sshd", 0755) != 0 && errno != EEXIST) {
+        return fail_errno("compat_run_sshd_mkdir", 71);
+    }
+    struct stat run_sshd;
+    if (stat("/run/sshd", &run_sshd) != 0 || !S_ISDIR(run_sshd.st_mode)) {
+        return fail_message("compat_run_sshd", "missing_/run/sshd", 71);
+    }
+    if (access("/usr/sbin/sshd", X_OK) != 0) {
+        return fail_errno("compat_sshd_missing", 72);
+    }
+
+    clearenv();
+    setenv("HOME", "/root", 1);
+    setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
+    setenv("LANG", "C.UTF-8", 1);
+    setenv("container", "dawnshell-compat", 1);
+    setenv("DAWNSHELL_COMPAT_MODE", "1", 1);
+    char *const arguments[] = {
+            "sshd", "-D", "-e", "-f", "/etc/ssh/sshd_config", NULL
+    };
+    execv("/usr/sbin/sshd", arguments);
+    return fail_errno("exec_compat_sshd", 72);
+}
+
 static int wait_for_exec_result(int fd, char *failure, size_t failure_size) {
     struct pollfd descriptor = {.fd = fd, .events = POLLIN | POLLHUP};
     int result;
@@ -2775,19 +3083,52 @@ static int wait_for_exec_result(int fd, char *failure, size_t failure_size) {
     return count == 0 ? 0 : 1;
 }
 
-static int wait_for_start_grace(pid_t init_pid) {
+/* Returns 0 when the child survives the grace period, 1 when it was reaped
+   during the grace period, and -1 when liveness could not be checked. */
+static int wait_for_start_grace(pid_t init_pid, int *early_wait_status) {
+    *early_wait_status = -1;
     const int64_t deadline = monotonic_millis() + kStartGraceMs;
     while (monotonic_millis() < deadline) {
         int status;
         pid_t result = waitpid(init_pid, &status, WNOHANG);
         if (result == init_pid) {
-            errno = ECHILD;
-            return -1;
+            *early_wait_status = status;
+            return 1;
         }
         if (result < 0 && errno != EINTR) return -1;
         usleep(100000);
     }
-    return kill(init_pid, 0);
+    return kill(init_pid, 0) == 0 ? 0 : -1;
+}
+
+static void report_start_grace_failure(int ready_fd, const char *stage,
+                                       int wait_status, int probe_errno) {
+    if (wait_status >= 0 && WIFEXITED(wait_status)) {
+        int child_exit = WEXITSTATUS(wait_status);
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_START_FAILED stage=%s child_exit=%d\n",
+                (long long) realtime_seconds(), stage, child_exit);
+        dprintf(ready_fd,
+                "BFU_DEBIAN_START_FAILED stage=%s child_exit=%d\n",
+                stage, child_exit);
+        return;
+    }
+    if (wait_status >= 0 && WIFSIGNALED(wait_status)) {
+        int child_signal = WTERMSIG(wait_status);
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_START_FAILED stage=%s child_signal=%d\n",
+                (long long) realtime_seconds(), stage, child_signal);
+        dprintf(ready_fd,
+                "BFU_DEBIAN_START_FAILED stage=%s child_signal=%d\n",
+                stage, child_signal);
+        return;
+    }
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_START_FAILED stage=%s child_status=unknown errno=%d\n",
+            (long long) realtime_seconds(), stage, probe_errno);
+    dprintf(ready_fd,
+            "BFU_DEBIAN_START_FAILED stage=%s child_status=unknown errno=%d\n",
+            stage, probe_errno);
 }
 
 /* systemd's halt signal eventually reaches the kernel reboot path. On some
@@ -2833,9 +3174,212 @@ static int request_systemd_manager_exit(const char *root, int lock_fd) {
     return -1;
 }
 
+static void signal_compat_service(pid_t service_pid, int signal_number) {
+    if (service_pid <= 1) return;
+    (void) kill(service_pid, signal_number);
+    /* sshd normally keeps its session children in the master's process group.
+       The direct PID signal above remains the authoritative action; this group
+       signal is only a best-effort cleanup and never targets the supervisor's
+       own process group. */
+    if (getpgid(service_pid) == service_pid) {
+        (void) kill(-service_pid, signal_number);
+    }
+}
+
+static int supervisor_compat_loop(const char *root, const char *control_dir,
+                                  int lock_fd, int ready_fd,
+                                  pid_t network_manager_pid,
+                                  HostUsbPolicy host_usb_policy,
+                                  const UsbDeviceFilter *usb_device_filter,
+                                  ExclusiveUsbState *exclusive_usb_state,
+                                  LauncherState *state) {
+    int exec_pipe[2];
+    if (pipe(exec_pipe) != 0) {
+        int saved_errno = errno;
+        if (network_manager_pid > 0) (void) kill(network_manager_pid, SIGTERM);
+        errno = saved_errno;
+        dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=compat_exec_pipe errno=%d\n",
+                errno);
+        return 78;
+    }
+    (void) fcntl(exec_pipe[0], F_SETFD, FD_CLOEXEC);
+    (void) fcntl(exec_pipe[1], F_SETFD, FD_CLOEXEC);
+
+    pid_t service_pid = fork();
+    if (service_pid < 0) {
+        int saved_errno = errno;
+        close(exec_pipe[0]);
+        close(exec_pipe[1]);
+        errno = saved_errno;
+        dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=compat_fork_sshd errno=%d\n",
+                errno);
+        return 79;
+    }
+    if (service_pid == 0) {
+        close(exec_pipe[0]);
+        close(lock_fd);
+        close(ready_fd);
+        (void) setpgid(0, 0);
+        failure_report_fd = exec_pipe[1];
+        _exit(enter_debian_compat(root, host_usb_policy));
+    }
+    (void) setpgid(service_pid, service_pid);
+    close(exec_pipe[1]);
+    state->init_host_pid = service_pid;
+    for (int attempt = 0; attempt < 20; attempt++) {
+        if (read_proc_start_ticks(service_pid, &state->init_start_ticks) == 0) break;
+        usleep(50000);
+    }
+    if (write_state(control_dir, state) != 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_WARNING compat_state_write_failed errno=%d\n",
+                (long long) realtime_seconds(), errno);
+    }
+
+    char failure[1024];
+    int result = wait_for_exec_result(exec_pipe[0], failure, sizeof(failure));
+    close(exec_pipe[0]);
+    if (result != 0) {
+        if (result > 0) dprintf(STDERR_FILENO, "%s", failure);
+        else dprintf(STDERR_FILENO,
+                     "[%lld] BFU_DEBIAN_START_FAILED stage=compat_wait_exec errno=%d\n",
+                     (long long) realtime_seconds(), errno);
+        signal_compat_service(service_pid, SIGKILL);
+        (void) waitpid(service_pid, NULL, 0);
+        snprintf(state->state, sizeof(state->state), "failed");
+        state->wait_status = 80;
+        (void) write_state(control_dir, state);
+        if (network_manager_pid > 0) {
+            (void) kill(network_manager_pid, SIGTERM);
+            while (waitpid(network_manager_pid, NULL, 0) < 0 && errno == EINTR) {}
+        }
+        dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=compat_exec_sshd\n");
+        return 80;
+    }
+    int early_wait_status = -1;
+    int grace_result = wait_for_start_grace(service_pid, &early_wait_status);
+    if (grace_result != 0) {
+        int probe_errno = errno;
+        if (grace_result < 0) {
+            signal_compat_service(service_pid, SIGKILL);
+            while (waitpid(service_pid, &early_wait_status, 0) < 0) {
+                if (errno == EINTR) continue;
+                early_wait_status = -1;
+                break;
+            }
+        }
+        snprintf(state->state, sizeof(state->state), "failed");
+        state->wait_status = 81;
+        (void) write_state(control_dir, state);
+        if (network_manager_pid > 0) {
+            (void) kill(network_manager_pid, SIGTERM);
+            while (waitpid(network_manager_pid, NULL, 0) < 0 && errno == EINTR) {}
+        }
+        report_start_grace_failure(ready_fd, "compat_sshd_early_exit",
+                                   early_wait_status, probe_errno);
+        return 81;
+    }
+    if (read_proc_exe_identity(service_pid, &state->init_exe_dev,
+                               &state->init_exe_ino) != 0
+            || capture_compat_namespace_identity(service_pid, state) != 0
+            || validate_compat_namespace_topology(state) != 0) {
+        int saved_errno = errno;
+        signal_compat_service(service_pid, SIGKILL);
+        while (waitpid(service_pid, NULL, 0) < 0 && errno == EINTR) {}
+        errno = saved_errno;
+        snprintf(state->state, sizeof(state->state), "failed");
+        state->wait_status = 82;
+        (void) write_state(control_dir, state);
+        if (network_manager_pid > 0) {
+            (void) kill(network_manager_pid, SIGTERM);
+            while (waitpid(network_manager_pid, NULL, 0) < 0 && errno == EINTR) {}
+        }
+        dprintf(ready_fd,
+                "BFU_DEBIAN_START_FAILED "
+                "stage=compat_sshd_identity_or_namespace errno=%d\n",
+                saved_errno);
+        return 82;
+    }
+
+    if (host_usb_policy == HOST_USB_EXCLUSIVE) {
+        reconcile_exclusive_usb(usb_device_filter, exclusive_usb_state);
+    }
+    snprintf(state->state, sizeof(state->state), "running");
+    if (write_state(control_dir, state) != 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_WARNING compat_running_state_write_failed errno=%d\n",
+                (long long) realtime_seconds(), errno);
+    }
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_COMPAT_STARTED supervisor_pid=%d sshd_pid=%d "
+            "namespaces=pid:shared,mnt:private,uts:private,ipc:android-shared,"
+            "net:android-shared cgroup_mode=none host_usb_mode=%s\n",
+            (long long) realtime_seconds(), getpid(), service_pid,
+            host_usb_policy_name(host_usb_policy));
+    dprintf(ready_fd,
+            "BFU_DEBIAN_FALLBACK_STARTED supervisor_pid=%d sshd_pid=%d "
+            "mode=compat systemd_pid1=false cgroup_mode=none host_usb_mode=%s\n",
+            getpid(), service_pid, host_usb_policy_name(host_usb_policy));
+    close(ready_fd);
+
+    bool shutdown_sent = false;
+    int64_t shutdown_deadline = 0;
+    int64_t next_usb_scan = monotonic_millis() + kExclusiveUsbScanIntervalMs;
+    int wait_status = 0;
+    while (true) {
+        pid_t waited = waitpid(service_pid, &wait_status, WNOHANG);
+        if (waited == service_pid) break;
+        if (waited < 0 && errno != EINTR) {
+            wait_status = 255;
+            break;
+        }
+        if (host_usb_policy == HOST_USB_EXCLUSIVE && !stop_requested
+                && monotonic_millis() >= next_usb_scan) {
+            reconcile_exclusive_usb(usb_device_filter, exclusive_usb_state);
+            next_usb_scan = monotonic_millis() + kExclusiveUsbScanIntervalMs;
+        }
+        if (stop_requested && !shutdown_sent) {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_COMPAT direct_sshd_stop_requested\n",
+                    (long long) realtime_seconds());
+            signal_compat_service(service_pid, SIGTERM);
+            shutdown_sent = true;
+            shutdown_deadline = monotonic_millis() + 10000;
+            snprintf(state->state, sizeof(state->state), "stopping");
+            (void) write_state(control_dir, state);
+        }
+        if (shutdown_sent && monotonic_millis() >= shutdown_deadline) {
+            dprintf(STDERR_FILENO,
+                    "[%lld] BFU_DEBIAN_WARNING compat_sshd_stop_timeout_killing\n",
+                    (long long) realtime_seconds());
+            signal_compat_service(service_pid, SIGKILL);
+            shutdown_deadline = INT64_MAX;
+        }
+        usleep(200000);
+    }
+
+    if (host_usb_policy == HOST_USB_EXCLUSIVE) {
+        restore_exclusive_usb(exclusive_usb_state);
+    }
+    if (network_manager_pid > 0) {
+        (void) kill(network_manager_pid, SIGTERM);
+        while (waitpid(network_manager_pid, NULL, 0) < 0 && errno == EINTR) {}
+    }
+    cleanup_delegated_cgroups(root, control_dir);
+    snprintf(state->state, sizeof(state->state), "stopped");
+    state->wait_status = wait_status;
+    (void) write_state(control_dir, state);
+    dprintf(STDERR_FILENO,
+            "[%lld] BFU_DEBIAN_COMPAT_EXITED wait_status=%d\n",
+            (long long) realtime_seconds(), wait_status);
+    close(lock_fd);
+    return 0;
+}
+
 static int supervisor_loop(const char *root, const char *control_dir,
                            const char *log_path, int lock_fd, int ready_fd,
                            CgroupPolicy cgroup_policy,
+                           bool allow_fallback,
                            HostUsbPolicy host_usb_policy,
                            const UsbDeviceFilter *usb_device_filter) {
     if (setsid() < 0) {
@@ -2912,8 +3456,10 @@ static int supervisor_loop(const char *root, const char *control_dir,
     }
 
     CgroupMode cgroup_mode = CGROUP_MODE_UNKNOWN;
+    LaunchMode launch_mode = LAUNCH_MODE_SYSTEMD;
     int result = set_systemd_parent_namespaces(control_dir, network_ready_fd,
                                                cgroup_policy, host_usb_policy,
+                                               allow_fallback, &launch_mode,
                                                &cgroup_mode);
     if (result != 0) {
         cleanup_delegated_cgroups(root, control_dir);
@@ -2923,11 +3469,20 @@ static int supervisor_loop(const char *root, const char *control_dir,
     }
     snprintf(state.cgroup_mode, sizeof(state.cgroup_mode), "%s",
              cgroup_mode_name(cgroup_mode));
+    snprintf(state.launch_mode, sizeof(state.launch_mode), "%s",
+             launch_mode_name(launch_mode));
     if (write_state(control_dir, &state) != 0) {
         dprintf(STDERR_FILENO,
                 "[%lld] BFU_DEBIAN_WARNING cgroup_mode_state_write_failed "
                 "mode=%s errno=%d\n",
                 (long long) realtime_seconds(), cgroup_mode_name(cgroup_mode), errno);
+    }
+
+    if (launch_mode == LAUNCH_MODE_COMPAT) {
+        return supervisor_compat_loop(root, control_dir, lock_fd, ready_fd,
+                                      network_manager_pid, host_usb_policy,
+                                      usb_device_filter, &exclusive_usb_state,
+                                      &state);
     }
 
     int exec_pipe[2];
@@ -2988,14 +3543,24 @@ static int supervisor_loop(const char *root, const char *control_dir,
         return 80;
     }
 
-    if (wait_for_start_grace(init_pid) != 0) {
-        (void) kill(init_pid, SIGKILL);
-        while (waitpid(init_pid, NULL, 0) < 0 && errno == EINTR) {}
+    int early_wait_status = -1;
+    int grace_result = wait_for_start_grace(init_pid, &early_wait_status);
+    if (grace_result != 0) {
+        int probe_errno = errno;
+        if (grace_result < 0) {
+            (void) kill(init_pid, SIGKILL);
+            while (waitpid(init_pid, &early_wait_status, 0) < 0) {
+                if (errno == EINTR) continue;
+                early_wait_status = -1;
+                break;
+            }
+        }
         snprintf(state.state, sizeof(state.state), "failed");
         state.wait_status = 81;
         (void) write_state(control_dir, &state);
         cleanup_delegated_cgroups(root, control_dir);
-        dprintf(ready_fd, "BFU_DEBIAN_START_FAILED stage=systemd_early_exit\n");
+        report_start_grace_failure(ready_fd, "systemd_early_exit",
+                                   early_wait_status, probe_errno);
         return 81;
     }
 
@@ -3153,18 +3718,23 @@ static int run_status(const char *root, const char *control_dir) {
     if (flock(lock_fd, LOCK_EX | LOCK_NB) == 0) {
         LauncherState stale = {0};
         int has_state = read_state(control_dir, &stale) == 0;
-        bool orphaned_init = has_state && validate_init_identity(&stale);
+        bool compatibility = has_state && strcmp(stale.launch_mode, "compat") == 0;
+        bool orphaned_init = has_state && (compatibility
+                ? validate_compat_service_identity(&stale)
+                : validate_init_identity(&stale));
         flock(lock_fd, LOCK_UN);
         close(lock_fd);
         if (orphaned_init) {
-            printf("BFU_DEBIAN_ORPHANED_INIT init_host_pid=%d identity_valid=true "
-                   "updated_epoch=%lld\n", stale.init_host_pid,
+            printf("BFU_DEBIAN_ORPHANED_INIT mode=%s init_host_pid=%d "
+                   "identity_valid=true updated_epoch=%lld\n",
+                   stale.launch_mode, stale.init_host_pid,
                    (long long) stale.updated_epoch);
             return 1;
         }
-        printf("BFU_DEBIAN_STOPPED last_state=%s cgroup_mode=%s host_usb_mode=%s "
+        printf("BFU_DEBIAN_STOPPED last_state=%s mode=%s cgroup_mode=%s host_usb_mode=%s "
                "wait_status=%d updated_epoch=%lld\n",
                has_state ? stale.state : "none",
+               has_state ? stale.launch_mode : "systemd",
                has_state ? stale.cgroup_mode : "unknown",
                has_state ? stale.host_usb_mode : "unknown",
                has_state ? stale.wait_status : -1,
@@ -3179,11 +3749,15 @@ static int run_status(const char *root, const char *control_dir) {
     LauncherState state = {0};
     bool state_read = read_state(control_dir, &state) == 0;
     bool supervisor_valid = state_read && validate_supervisor_identity(&state);
-    bool init_valid = state_read && validate_init_identity(&state);
-    bool topology_valid = init_valid
-            && validate_init_namespace_topology(&state) == 0;
+    bool compatibility = state_read && strcmp(state.launch_mode, "compat") == 0;
+    bool init_valid = state_read && (compatibility
+            ? validate_compat_service_identity(&state)
+            : validate_init_identity(&state));
+    bool topology_valid = init_valid && (compatibility
+            ? validate_compat_namespace_topology(&state) == 0
+            : validate_init_namespace_topology(&state) == 0);
     close(lock_fd);
-    printf("BFU_DEBIAN_%s state=%s supervisor_pid=%d init_host_pid=%d "
+    printf("BFU_DEBIAN_%s state=%s mode=%s supervisor_pid=%d init_host_pid=%d "
            "supervisor_identity_valid=%s init_identity_valid=%s "
            "namespace_topology_valid=%s ipc_namespace=android-shared "
            "network_namespace=android-shared network_mode=shared-nic cgroup_mode=%s "
@@ -3192,7 +3766,7 @@ static int run_status(const char *root, const char *control_dir) {
            "net_ns=%llu updated_epoch=%lld\n",
            supervisor_valid && (topology_valid || strcmp(state.state, "starting") == 0)
                    ? "RUNNING" : "STARTING_OR_UNKNOWN",
-           state.state, state.supervisor_pid, state.init_host_pid,
+            state.state, state.launch_mode, state.supervisor_pid, state.init_host_pid,
            supervisor_valid ? "true" : "false", init_valid ? "true" : "false",
            topology_valid ? "true" : "false", state.cgroup_mode,
            state.host_usb_mode,
@@ -3289,11 +3863,49 @@ static int enter_debian_health(const char *root) {
     return fail_errno("health_exec_shell", 106);
 }
 
+static int enter_debian_compat_health(const char *root) {
+    static const char health_command[] =
+            "set -u; "
+            "listen_22=$(/usr/bin/ss -H -ltn 2>/dev/null | /usr/bin/mawk "
+            "'$4 ~ /:22$/ { found=1 } END { if (found) print \"true\"; "
+            "else print \"false\" }'); "
+            "if [ \"$listen_22\" = true ] && [ -x /usr/sbin/sshd ]; then "
+            "compat_ready=true; else compat_ready=false; fi; "
+            "printf 'BFU_DEBIAN_HEALTH mode=compat pid1=android-host "
+            "system_state=unavailable dbus_service=unavailable "
+            "dbus_bus=unavailable ssh_service=direct "
+            "boot_proof_service=unavailable boot_proof_marker=unavailable "
+            "default_target=unavailable target_state=unavailable "
+            "listen_22=%s compat_ready=%s cgroup_mode=none "
+            "cgroup_delegation=shared devices_cgroup=shared\\n' "
+            "\"$listen_22\" \"$compat_ready\"; "
+            "[ \"$compat_ready\" = true ]";
+
+    if (chdir(root) != 0) return fail_errno("compat_health_chdir_rootfs", 103);
+    if (chroot(".") != 0) return fail_errno("compat_health_chroot", 104);
+    if (chdir("/") != 0) return fail_errno("compat_health_chdir_chroot", 105);
+    clearenv();
+    setenv("HOME", "/root", 1);
+    setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
+    setenv("LANG", "C.UTF-8", 1);
+    setenv("container", "dawnshell-compat", 1);
+    setenv("DAWNSHELL_COMPAT_MODE", "1", 1);
+    char *const arguments[] = {"sh", "-c", (char *) health_command, NULL};
+    execv("/bin/sh", arguments);
+    return fail_errno("compat_health_exec_shell", 106);
+}
+
 typedef int (*NamespaceChildEntry)(const char *root, const char *argument);
 
 static int enter_debian_health_child(const char *root, const char *argument) {
     (void) argument;
     return enter_debian_health(root);
+}
+
+static int enter_debian_compat_health_child(const char *root,
+                                             const char *argument) {
+    (void) argument;
+    return enter_debian_compat_health(root);
 }
 
 static int enter_debian_systemctl_shutdown(const char *root, const char *mode) {
@@ -3395,8 +4007,17 @@ static int run_in_debian_namespaces(const char *root, const char *control_dir,
     }
 
     LauncherState state = {0};
-    if (read_state(control_dir, &state) != 0
-            || !validate_supervisor_identity(&state)
+    if (read_state(control_dir, &state) != 0) {
+        close(lock_fd);
+        return fail_message("namespace_command_state",
+                            "launcher_state_is_unreadable", 102);
+    }
+    if (strcmp(state.launch_mode, "compat") == 0) {
+        close(lock_fd);
+        return fail_message("namespace_command_mode",
+                            "operation_requires_systemd_mode", 102);
+    }
+    if (!validate_supervisor_identity(&state)
             || !validate_init_identity(&state)
             || validate_init_namespace_topology(&state) != 0) {
         close(lock_fd);
@@ -3522,7 +4143,134 @@ static int run_in_debian_namespaces(const char *root, const char *control_dir,
     return fail_message("namespace_command_wait_status", "unexpected_wait_status", 107);
 }
 
+static int run_in_debian_compat_mount_namespace(
+        const char *root, const char *control_dir, NamespaceChildEntry entry,
+        const char *argument, unsigned int timeout_seconds) {
+    int result = validate_rootfs(root, true);
+    if (result != 0) return result;
+    if (geteuid() != 0) {
+        return fail_message("not_root", "compat_command_requires_euid_0", 124);
+    }
+    result = validate_control_directory(control_dir);
+    if (result != 0) return result;
+
+    char lock_path[PATH_MAX];
+    int lock_fd = open_lock_file(control_dir, lock_path, sizeof(lock_path));
+    if (lock_fd < 0) return fail_errno("compat_command_open_lock", 124);
+    if (flock(lock_fd, LOCK_EX | LOCK_NB) == 0) {
+        flock(lock_fd, LOCK_UN);
+        close(lock_fd);
+        return fail_message("compat_command_not_running",
+                            "supervisor_lock_is_free", 125);
+    }
+    if (errno != EWOULDBLOCK && errno != EAGAIN) {
+        close(lock_fd);
+        return fail_errno("compat_command_lock", 125);
+    }
+
+    LauncherState state = {0};
+    if (read_state(control_dir, &state) != 0
+            || strcmp(state.launch_mode, "compat") != 0
+            || !validate_supervisor_identity(&state)
+            || !validate_compat_service_identity(&state)
+            || validate_compat_namespace_topology(&state) != 0) {
+        close(lock_fd);
+        return fail_message("compat_command_identity",
+                            "supervisor_service_or_namespace_identity_invalid", 126);
+    }
+
+    char namespace_path[96];
+    int count = snprintf(namespace_path, sizeof(namespace_path),
+                         "/proc/%d/ns/mnt", state.init_host_pid);
+    if (count < 0 || (size_t) count >= sizeof(namespace_path)) {
+        close(lock_fd);
+        errno = ENAMETOOLONG;
+        return fail_errno("compat_command_mount_path", 126);
+    }
+    int mount_namespace_fd = open(namespace_path, O_RDONLY | O_CLOEXEC);
+    if (mount_namespace_fd < 0) {
+        close(lock_fd);
+        return fail_errno("compat_command_open_mount", 126);
+    }
+    count = snprintf(namespace_path, sizeof(namespace_path),
+                     "/proc/%d/ns/uts", state.init_host_pid);
+    if (count < 0 || (size_t) count >= sizeof(namespace_path)) {
+        close(mount_namespace_fd);
+        close(lock_fd);
+        errno = ENAMETOOLONG;
+        return fail_errno("compat_command_uts_path", 126);
+    }
+    int uts_namespace_fd = open(namespace_path, O_RDONLY | O_CLOEXEC);
+    if (uts_namespace_fd < 0) {
+        close(mount_namespace_fd);
+        close(lock_fd);
+        return fail_errno("compat_command_open_uts", 126);
+    }
+
+    struct stat mount_namespace_stat;
+    struct stat uts_namespace_stat;
+    if (fstat(mount_namespace_fd, &mount_namespace_stat) != 0
+            || fstat(uts_namespace_fd, &uts_namespace_stat) != 0
+            || (uint64_t) mount_namespace_stat.st_ino
+                    != state.init_mnt_ns_ino
+            || (uint64_t) uts_namespace_stat.st_ino != state.init_uts_ns_ino
+            || !validate_compat_service_identity(&state)
+            || validate_compat_namespace_topology(&state) != 0) {
+        close(uts_namespace_fd);
+        close(mount_namespace_fd);
+        close(lock_fd);
+        return fail_message("compat_command_race",
+                            "service_identity_changed_before_setns", 126);
+    }
+    close(lock_fd);
+
+    if (setns(mount_namespace_fd, CLONE_NEWNS) != 0) {
+        close(uts_namespace_fd);
+        close(mount_namespace_fd);
+        return fail_errno("compat_command_setns_mount", 126);
+    }
+    close(mount_namespace_fd);
+    if (setns(uts_namespace_fd, CLONE_NEWUTS) != 0) {
+        close(uts_namespace_fd);
+        return fail_errno("compat_command_setns_uts", 126);
+    }
+    close(uts_namespace_fd);
+
+    pid_t child_pid = fork();
+    if (child_pid < 0) return fail_errno("compat_command_fork", 127);
+    if (child_pid == 0) _exit(entry(root, argument));
+    signal(SIGALRM, alarm_handler);
+    alarm_child_pid = child_pid;
+    alarm(timeout_seconds);
+    int wait_status;
+    while (waitpid(child_pid, &wait_status, 0) < 0) {
+        if (errno == EINTR) continue;
+        alarm_child_pid = -1;
+        alarm(0);
+        return fail_errno("compat_command_wait", 127);
+    }
+    alarm_child_pid = -1;
+    alarm(0);
+    if (WIFEXITED(wait_status)) return WEXITSTATUS(wait_status);
+    if (WIFSIGNALED(wait_status)) {
+        char message[64];
+        snprintf(message, sizeof(message), "compat_child_killed_by_signal_%d",
+                 WTERMSIG(wait_status));
+        return fail_message("compat_command_signal", message, 127);
+    }
+    return fail_message("compat_command_wait_status",
+                        "unexpected_wait_status", 127);
+}
+
 static int run_health(const char *root, const char *control_dir) {
+    int result = validate_control_directory(control_dir);
+    if (result != 0) return result;
+    LauncherState state = {0};
+    if (read_state(control_dir, &state) == 0
+            && strcmp(state.launch_mode, "compat") == 0) {
+        return run_in_debian_compat_mount_namespace(
+                root, control_dir, enter_debian_compat_health_child, NULL, 25);
+    }
     return run_in_debian_namespaces(root, control_dir,
                                     enter_debian_health_child, NULL, 25);
 }
@@ -3576,6 +4324,7 @@ static int run_codec_long_run(const char *root, const char *control_dir,
 
 static int run_start(const char *root, const char *control_dir,
                      const char *log_path, CgroupPolicy cgroup_policy,
+                     bool allow_fallback,
                      HostUsbPolicy host_usb_policy,
                      const UsbDeviceFilter *usb_device_filter) {
     int result = validate_rootfs(root, true);
@@ -3617,11 +4366,17 @@ static int run_start(const char *root, const char *control_dir,
     }
 
     LauncherState stale = {0};
-    if (read_state(control_dir, &stale) == 0 && validate_init_identity(&stale)) {
+    if (read_state(control_dir, &stale) == 0
+            && ((strcmp(stale.launch_mode, "compat") == 0
+                    && validate_compat_service_identity(&stale))
+                || (strcmp(stale.launch_mode, "compat") != 0
+                    && validate_init_identity(&stale)))) {
         flock(lock_fd, LOCK_UN);
         close(lock_fd);
         return fail_message("orphaned_init",
-                            "verified_systemd_pid1_exists_without_supervisor", 89);
+                            strcmp(stale.launch_mode, "compat") == 0
+                            ? "verified_compat_sshd_exists_without_supervisor"
+                            : "verified_systemd_pid1_exists_without_supervisor", 89);
     }
 
     int ready_pipe[2];
@@ -3643,6 +4398,7 @@ static int run_start(const char *root, const char *control_dir,
         close(ready_pipe[0]);
         int exit_code = supervisor_loop(root, control_dir, log_path,
                                         lock_fd, ready_pipe[1], cgroup_policy,
+                                        allow_fallback,
                                         host_usb_policy, usb_device_filter);
         close(ready_pipe[1]);
         close(lock_fd);
@@ -3656,7 +4412,11 @@ static int run_start(const char *root, const char *control_dir,
     close(ready_pipe[0]);
     if (result != 0) return fail_errno("start_readiness_timeout", 91);
     fputs(message, stdout);
-    return strncmp(message, "BFU_DEBIAN_STARTED ", 19) == 0 ? 0 : 92;
+    return strncmp(message, "BFU_DEBIAN_STARTED ",
+                   strlen("BFU_DEBIAN_STARTED ")) == 0
+            || strncmp(message, "BFU_DEBIAN_FALLBACK_STARTED ",
+                       strlen("BFU_DEBIAN_FALLBACK_STARTED ")) == 0
+            ? 0 : 92;
 }
 
 static int run_stop(const char *root, const char *control_dir) {
@@ -3671,25 +4431,37 @@ static int run_stop(const char *root, const char *control_dir) {
     if (lock_fd < 0) return fail_errno("open_lock", 94);
     if (flock(lock_fd, LOCK_EX | LOCK_NB) == 0) {
         LauncherState orphan = {0};
-        bool orphaned_init = read_state(control_dir, &orphan) == 0
-                && validate_init_identity(&orphan);
+        bool orphan_read = read_state(control_dir, &orphan) == 0;
+        bool compatibility = orphan_read && strcmp(orphan.launch_mode, "compat") == 0;
+        bool orphaned_init = orphan_read && (compatibility
+                ? validate_compat_service_identity(&orphan)
+                : validate_init_identity(&orphan));
         flock(lock_fd, LOCK_UN);
         close(lock_fd);
         if (orphaned_init) {
-            if (kill(orphan.init_host_pid, SIGRTMIN + 3) != 0) {
+            if (compatibility) signal_compat_service(orphan.init_host_pid, SIGTERM);
+            else if (kill(orphan.init_host_pid, SIGRTMIN + 3) != 0) {
                 return fail_errno("signal_orphaned_init", 95);
             }
             const int64_t deadline = monotonic_millis() + 20000;
             while (monotonic_millis() < deadline) {
-                if (!validate_init_identity(&orphan)) {
-                    printf("BFU_DEBIAN_ORPHANED_INIT_STOPPED init_host_pid=%d\n",
+                bool alive = compatibility
+                        ? validate_compat_service_identity(&orphan)
+                        : validate_init_identity(&orphan);
+                if (!alive) {
+                    printf("BFU_DEBIAN_ORPHANED_INIT_STOPPED mode=%s init_host_pid=%d\n",
+                           compatibility ? "compat" : "systemd",
                            orphan.init_host_pid);
                     return 0;
                 }
                 usleep(200000);
             }
-            if (validate_init_identity(&orphan)) {
-                (void) kill(orphan.init_host_pid, SIGKILL);
+            bool alive = compatibility
+                    ? validate_compat_service_identity(&orphan)
+                    : validate_init_identity(&orphan);
+            if (alive) {
+                if (compatibility) signal_compat_service(orphan.init_host_pid, SIGKILL);
+                else (void) kill(orphan.init_host_pid, SIGKILL);
             }
             return fail_message("orphaned_init_stop_timeout",
                                 "forced_SIGKILL_after_grace_period", 95);
@@ -3734,11 +4506,13 @@ static int run_stop(const char *root, const char *control_dir) {
 
 static int run_restart(const char *root, const char *control_dir,
                        const char *log_path, CgroupPolicy cgroup_policy,
+                       bool allow_fallback,
                        HostUsbPolicy host_usb_policy,
                        const UsbDeviceFilter *usb_device_filter) {
     int result = run_stop(root, control_dir);
     if (result != 0) return result;
     return run_start(root, control_dir, log_path, cgroup_policy,
+                     allow_fallback,
                      host_usb_policy, usb_device_filter);
 }
 
@@ -3746,36 +4520,55 @@ static void usage(const char *program) {
     fprintf(stderr,
             "usage:\n"
             "  %s probe /data/local/debian\n"
+            "  %s probe-compat /data/local/debian\n"
             "  %s start /data/local/debian CONTROL_DIR LIFECYCLE_LOG "
-            "[auto|v2|v1] [off|direct|exclusive] [VID:PID,...|-]\n"
+            "[auto|v2|v1] [strict|fallback] [off|direct|exclusive] [VID:PID,...|-]\n"
             "  %s status /data/local/debian CONTROL_DIR\n"
             "  %s health /data/local/debian CONTROL_DIR\n"
             "  %s stop /data/local/debian CONTROL_DIR\n"
             "  %s restart /data/local/debian CONTROL_DIR LIFECYCLE_LOG "
-            "[auto|v2|v1] [off|direct|exclusive] [VID:PID,...|-]\n"
+            "[auto|v2|v1] [strict|fallback] [off|direct|exclusive] [VID:PID,...|-]\n"
             "  %s codec-long-run /data/local/debian CONTROL_DIR "
             "start|stop|status|report\n"
             "  %s shutdown-test /data/local/debian CONTROL_DIR poweroff|reboot|shutdown\n",
-            program, program, program, program, program, program, program, program);
+            program, program, program, program, program, program, program, program,
+            program);
 }
 
 int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "probe") == 0) {
         return run_probe(argv[2]);
     }
-    if (argc >= 5 && argc <= 8 && strcmp(argv[1], "start") == 0) {
+    if (argc == 3 && strcmp(argv[1], "probe-compat") == 0) {
+        return run_compat_probe(argv[2]);
+    }
+    if (argc >= 5 && argc <= 9 && strcmp(argv[1], "start") == 0) {
         CgroupPolicy policy;
+        bool allow_fallback;
         HostUsbPolicy host_usb_policy;
         UsbDeviceFilter usb_device_filter;
         if (parse_cgroup_policy(argc >= 6 ? argv[5] : "auto", &policy) != 0) {
             return fail_message("cgroup_policy", "expected_auto_v2_or_v1", 2);
         }
-        if (parse_host_usb_policy(argc >= 7 ? argv[6] : "off",
+        bool has_launch_argument = argc >= 7
+                && is_explicit_launch_policy(argv[6]);
+        const char *launch_argument = has_launch_argument ? argv[6] : "strict";
+        const char *usb_argument = has_launch_argument
+                ? (argc >= 8 ? argv[7] : "off")
+                : (argc >= 7 ? argv[6] : "off");
+        const char *filter_argument = has_launch_argument
+                ? (argc >= 9 ? argv[8] : "-")
+                : (argc >= 8 ? argv[7] : "-");
+        if (parse_launch_policy(launch_argument,
+                                &allow_fallback) != 0) {
+            return fail_message("launch_policy", "expected_strict_or_fallback", 2);
+        }
+        if (parse_host_usb_policy(usb_argument,
                                   &host_usb_policy) != 0) {
             return fail_message("host_usb_policy",
                                 "expected_off_direct_or_exclusive", 2);
         }
-        if (parse_usb_device_filter(argc == 8 ? argv[7] : "-",
+        if (parse_usb_device_filter(filter_argument,
                                     &usb_device_filter) != 0) {
             return fail_message("host_usb_filter",
                                 "expected_comma_separated_VID:PID_values", 2);
@@ -3785,7 +4578,8 @@ int main(int argc, char **argv) {
             return fail_message("host_usb_filter",
                                 "exclusive_mode_requires_at_least_one_VID:PID", 2);
         }
-        return run_start(argv[2], argv[3], argv[4], policy, host_usb_policy,
+        return run_start(argv[2], argv[3], argv[4], policy, allow_fallback,
+                         host_usb_policy,
                          &usb_device_filter);
     }
     if (argc == 4 && strcmp(argv[1], "status") == 0) {
@@ -3797,19 +4591,33 @@ int main(int argc, char **argv) {
     if (argc == 4 && strcmp(argv[1], "stop") == 0) {
         return run_stop(argv[2], argv[3]);
     }
-    if (argc >= 5 && argc <= 8 && strcmp(argv[1], "restart") == 0) {
+    if (argc >= 5 && argc <= 9 && strcmp(argv[1], "restart") == 0) {
         CgroupPolicy policy;
+        bool allow_fallback;
         HostUsbPolicy host_usb_policy;
         UsbDeviceFilter usb_device_filter;
         if (parse_cgroup_policy(argc >= 6 ? argv[5] : "auto", &policy) != 0) {
             return fail_message("cgroup_policy", "expected_auto_v2_or_v1", 2);
         }
-        if (parse_host_usb_policy(argc >= 7 ? argv[6] : "off",
+        bool has_launch_argument = argc >= 7
+                && is_explicit_launch_policy(argv[6]);
+        const char *launch_argument = has_launch_argument ? argv[6] : "strict";
+        const char *usb_argument = has_launch_argument
+                ? (argc >= 8 ? argv[7] : "off")
+                : (argc >= 7 ? argv[6] : "off");
+        const char *filter_argument = has_launch_argument
+                ? (argc >= 9 ? argv[8] : "-")
+                : (argc >= 8 ? argv[7] : "-");
+        if (parse_launch_policy(launch_argument,
+                                &allow_fallback) != 0) {
+            return fail_message("launch_policy", "expected_strict_or_fallback", 2);
+        }
+        if (parse_host_usb_policy(usb_argument,
                                   &host_usb_policy) != 0) {
             return fail_message("host_usb_policy",
                                 "expected_off_direct_or_exclusive", 2);
         }
-        if (parse_usb_device_filter(argc == 8 ? argv[7] : "-",
+        if (parse_usb_device_filter(filter_argument,
                                     &usb_device_filter) != 0) {
             return fail_message("host_usb_filter",
                                 "expected_comma_separated_VID:PID_values", 2);
@@ -3819,7 +4627,7 @@ int main(int argc, char **argv) {
             return fail_message("host_usb_filter",
                                 "exclusive_mode_requires_at_least_one_VID:PID", 2);
         }
-        return run_restart(argv[2], argv[3], argv[4], policy,
+        return run_restart(argv[2], argv[3], argv[4], policy, allow_fallback,
                            host_usb_policy, &usb_device_filter);
     }
     if (argc == 5 && strcmp(argv[1], "shutdown-test") == 0) {

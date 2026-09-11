@@ -12,11 +12,13 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
-/** Proves namespace isolation, private /proc, and Debian chroot execution during BFU. */
+/** Proves the selected isolated or compatibility Debian chroot execution during BFU. */
 final class BfuDebianRuntimeProbe {
 
     private static final long PROBE_TIMEOUT_MS = 35_000L;
     private static final String SUCCESS_MARKER = "BFU_DEBIAN_NAMESPACE_OK";
+    private static final String COMPAT_SUCCESS_MARKER =
+            "BFU_DEBIAN_COMPATIBILITY_OK";
     private static final String LOG_FILE = "bfu-debian-runtime.log";
 
     static final class Result {
@@ -26,16 +28,19 @@ final class BfuDebianRuntimeProbe {
         final boolean timedOut;
         final boolean userUnlockedBefore;
         final boolean userUnlockedAfter;
+        final String mode;
         final String output;
 
         Result(boolean successful, String command, int exitCode, boolean timedOut,
-               boolean userUnlockedBefore, boolean userUnlockedAfter, String output) {
+               boolean userUnlockedBefore, boolean userUnlockedAfter, String mode,
+               String output) {
             this.successful = successful;
             this.command = command;
             this.exitCode = exitCode;
             this.timedOut = timedOut;
             this.userUnlockedBefore = userUnlockedBefore;
             this.userUnlockedAfter = userUnlockedAfter;
+            this.mode = mode;
             this.output = output;
         }
 
@@ -44,7 +49,8 @@ final class BfuDebianRuntimeProbe {
                     + " command=" + command
                     + " exit=" + exitCode
                     + " timeout=" + timedOut
-                    + " namespace_chroot=" + successful
+                    + " probe_mode=" + mode
+                    + " chroot=" + successful
                     + " user_unlocked_before=" + userUnlockedBefore
                     + " user_unlocked_after=" + userUnlockedAfter
                     + " output=" + output;
@@ -61,15 +67,20 @@ final class BfuDebianRuntimeProbe {
             throws IOException, InterruptedException {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
         boolean userUnlockedBefore = isUserUnlocked(context);
+        boolean fallbackAllowed = BfuPreferences.pidNamespaceFallback(context);
+        String operation = fallbackAllowed
+                ? "probe-compat" : "probe";
         String shellCommand = BfuSu.shellQuote(layout.namespaceProbeBinary.getAbsolutePath())
-                + " probe " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH);
+                + " " + operation + " " + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH);
         BfuSu.Result commandResult = BfuSu.run(shellCommand, PROBE_TIMEOUT_MS);
         boolean userUnlockedAfter = isUserUnlocked(context);
+        String marker = fallbackAllowed ? COMPAT_SUCCESS_MARKER : SUCCESS_MARKER;
         boolean successful = commandResult.exitedSuccessfully()
-                && commandResult.output.contains(SUCCESS_MARKER);
+                && commandResult.output.contains(marker);
         Result result = new Result(successful, commandResult.command,
                 commandResult.exitCode, commandResult.timedOut, userUnlockedBefore,
-                userUnlockedAfter, commandResult.output);
+                userUnlockedAfter, fallbackAllowed ? "compat" : "systemd",
+                commandResult.output);
         appendPersistentResult(deContext, result);
         return result;
     }

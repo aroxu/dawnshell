@@ -19,8 +19,8 @@ LOCKED_BOOT_COMPLETED
   → DE 저장소와 root 권한 확인
   → Debian rootfs 검증
   → 네임스페이스와 cgroup 준비
-  → systemd를 Debian PID 1로 시작
-  → OpenSSH 시작
+  → 전체 모드: systemd를 Debian PID 1로 시작 → ssh.service
+  → 선택형 미지원 커널 대체 모드: systemd 없이 sshd 직접 시작
 
 USER_UNLOCKED
   → 잠금 해제 이벤트 기록
@@ -99,8 +99,16 @@ root helper는 다음 원칙을 지킵니다.
 - cgroup namespace는 위임된 자원 관리 계층만 보여 줍니다.
 - network namespace는 분리하지 않고 Android 네트워크를 공유합니다.
 
-Debian 종료 시에는 systemd 종료를 기다린 뒤 자식 프로세스, 마운트, cgroup
-하위 트리를 정리합니다.
+전체 기능 모드를 종료할 때는 systemd 종료를 기다린 뒤 자식 프로세스, 마운트,
+cgroup 하위 트리를 정리합니다.
+
+전체 기능 모드는 기본값이며 필요한 PID/cgroup namespace를 만들 수 없으면 안전하게
+실패합니다. 별도의 호스트 PID 호환 옵션을 켠 경우에만 더 좁은 대체 경로를
+허용합니다. 이 경로는 mount와 UTS를 private로 유지하지만 PID, IPC, cgroup,
+network view를 Android와 공유하고 OpenSSH를 직접 시작합니다. 상태 파일에는
+`launch_mode=compat`를 기록하며, 상태 검사는 추적한 `sshd` 실행 파일과 프로세스
+시작 시각, private mount/UTS identity, TCP 22를 확인합니다. 이 모드에서는 systemd,
+D-Bus, 위임 cgroup, Docker와 활성화된 systemd unit이 실행되지 않습니다.
 
 ## cgroup 선택
 

@@ -62,6 +62,7 @@ public class BootActivity extends AppCompatActivity {
 
     private CompoundButton enableBfu;
     private CompoundButton allowCeReadableBfu;
+    private CompoundButton pidNamespaceFallback;
     private RadioGroup cgroupPolicyGroup;
     private RadioGroup dockerNetworkPolicyGroup;
     private CompoundButton dockerHostIpcCompatibility;
@@ -251,6 +252,7 @@ public class BootActivity extends AppCompatActivity {
 
         enableBfu = findViewById(R.id.switch_enable_bfu);
         allowCeReadableBfu = findViewById(R.id.switch_allow_ce_readable_bfu);
+        pidNamespaceFallback = findViewById(R.id.switch_pid_namespace_fallback);
         cgroupPolicyGroup = findViewById(R.id.cgroup_policy_group);
         dockerNetworkPolicyGroup = findViewById(R.id.docker_network_policy_group);
         dockerHostIpcCompatibility = findViewById(
@@ -369,6 +371,7 @@ public class BootActivity extends AppCompatActivity {
                 refreshSettingsDirtyState();
         enableBfu.setOnCheckedChangeListener(listener);
         allowCeReadableBfu.setOnCheckedChangeListener(listener);
+        pidNamespaceFallback.setOnCheckedChangeListener(listener);
         RadioGroup.OnCheckedChangeListener radioListener = (group, checkedId) ->
                 refreshSettingsDirtyState();
         cgroupPolicyGroup.setOnCheckedChangeListener(radioListener);
@@ -880,6 +883,7 @@ public class BootActivity extends AppCompatActivity {
     private void loadSettings() {
         enableBfu.setChecked(BfuPreferences.isEnabled(this));
         allowCeReadableBfu.setChecked(BfuPreferences.allowCeReadableBfu(this));
+        pidNamespaceFallback.setChecked(BfuPreferences.pidNamespaceFallback(this));
         selectCgroupPolicy(BfuPreferences.cgroupPolicy(this));
         selectDockerNetworkPolicy(BfuPreferences.dockerNetworkPolicy(this));
         dockerHostIpcCompatibility.setChecked(
@@ -1013,6 +1017,7 @@ public class BootActivity extends AppCompatActivity {
                                SettingsSnapshot requested) {
         recordOperation("SETTINGS_APPLY_STARTED enable_bfu=" + requested.enabled
                 + " allow_ce_readable_bfu=" + requested.allowCeReadableBfu
+                + " pid_namespace_fallback=" + requested.pidNamespaceFallback
                 + " usb_passthrough_mode=" + requested.usbMode
                 + " cgroup_policy=" + requested.cgroupPolicy
                 + " docker_network_policy=" + requested.dockerPolicy
@@ -1665,6 +1670,7 @@ public class BootActivity extends AppCompatActivity {
     private void savePreferences(SettingsSnapshot settings) {
         BfuPreferences.save(this, settings.enabled,
                 settings.allowCeReadableBfu, settings.cgroupPolicy,
+                settings.pidNamespaceFallback,
                 settings.dockerPolicy, settings.dockerHostIpc,
                 settings.usbMode, settings.usbDeviceIds,
                 settings.hardwareCodec);
@@ -1746,6 +1752,7 @@ public class BootActivity extends AppCompatActivity {
         final boolean enabled;
         final boolean allowCeReadableBfu;
         final String cgroupPolicy;
+        final boolean pidNamespaceFallback;
         final String dockerPolicy;
         final boolean dockerHostIpc;
         final String usbMode;
@@ -1753,12 +1760,14 @@ public class BootActivity extends AppCompatActivity {
         final boolean hardwareCodec;
 
         SettingsSnapshot(boolean enabled, boolean allowCeReadableBfu,
-                         String cgroupPolicy, String dockerPolicy,
+                         String cgroupPolicy, boolean pidNamespaceFallback,
+                         String dockerPolicy,
                          boolean dockerHostIpc, String usbMode,
                          String usbDeviceIds, boolean hardwareCodec) {
             this.enabled = enabled;
             this.allowCeReadableBfu = allowCeReadableBfu;
             this.cgroupPolicy = cgroupPolicy;
+            this.pidNamespaceFallback = pidNamespaceFallback;
             this.dockerPolicy = dockerPolicy;
             this.dockerHostIpc = dockerHostIpc;
             this.usbMode = usbMode;
@@ -1770,6 +1779,7 @@ public class BootActivity extends AppCompatActivity {
             return new SettingsSnapshot(BfuPreferences.isEnabled(context),
                     BfuPreferences.allowCeReadableBfu(context),
                     BfuPreferences.cgroupPolicy(context),
+                    BfuPreferences.pidNamespaceFallback(context),
                     BfuPreferences.dockerNetworkPolicy(context),
                     BfuPreferences.dockerHostIpcCompatibility(context),
                     BfuPreferences.usbPassthroughMode(context),
@@ -1804,6 +1814,7 @@ public class BootActivity extends AppCompatActivity {
             return new SettingsSnapshot(activity.enableBfu.isChecked(),
                     activity.allowCeReadableBfu.isChecked(),
                     activity.selectedCgroupPolicy(),
+                    activity.pidNamespaceFallback.isChecked(),
                     activity.selectedDockerNetworkPolicy(),
                     activity.dockerHostIpcCompatibility.isChecked(), mode,
                     normalizedIds, activity.hardwareCodecBridge.isChecked());
@@ -1814,6 +1825,7 @@ public class BootActivity extends AppCompatActivity {
                     && enabled == other.enabled
                     && allowCeReadableBfu == other.allowCeReadableBfu
                     && cgroupPolicy.equals(other.cgroupPolicy)
+                    && pidNamespaceFallback == other.pidNamespaceFallback
                     && dockerPolicy.equals(other.dockerPolicy)
                     && dockerHostIpc == other.dockerHostIpc
                     && usbMode.equals(other.usbMode)
@@ -1832,7 +1844,8 @@ public class BootActivity extends AppCompatActivity {
         }
 
         boolean cgroupChanged(SettingsSnapshot previous) {
-            return !cgroupPolicy.equals(previous.cgroupPolicy);
+            return !cgroupPolicy.equals(previous.cgroupPolicy)
+                    || pidNamespaceFallback != previous.pidNamespaceFallback;
         }
 
         boolean requiresRuntimeApply(SettingsSnapshot previous) {

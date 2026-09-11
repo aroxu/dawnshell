@@ -65,6 +65,34 @@ cgroup v1 `devices`와 `name=systemd` 방식으로 전환합니다.
 이 구조는 Debian과 Docker에 필요한 기능을 제공하면서 Android 전역 장치 정책을
 직접 노출하지 않기 위한 것입니다.
 
+## 호스트 PID 호환 대체 모드
+
+전체 기능 모드는 커널이 private PID 및 cgroup namespace를 만들 수 있어야 합니다.
+`/proc/self/ns/pid`가 없다면 보통 커널의 `CONFIG_PID_NS`가 꺼져 있으며, 이 상태에서
+systemd를 Debian PID 1로 실행할 수 없습니다. cgroup 종류를 바꿔도 빠진 커널 기능이
+생기지는 않습니다.
+
+**호스트 PID 호환 대체 모드 허용**은 기본값이 꺼진 별도 설정입니다. 이 옵션을
+켜도 DawnShell은 전체 기능 경로를 먼저 검사합니다. 필수 PID/cgroup namespace를
+준비할 수 없을 때만 `mode=compat`를 기록하고, private mount/UTS namespace 안에서
+`/usr/sbin/sshd -D`를 직접 시작합니다. SSH listener는 부팅 시 IP 주소가 아직
+없어도 계속 대기하므로 Wi-Fi나 USB Ethernet이 늦게 연결되어도 다시 시작할 필요가
+없습니다.
+
+| 기능 | 전체 기능 모드 | 호스트 PID 대체 모드 |
+| --- | --- | --- |
+| TCP 22 OpenSSH | `ssh.service` | `sshd -D` 직접 실행 |
+| mount와 호스트 이름 | private | private |
+| 프로세스 목록 | private PID namespace | Android와 공유 |
+| systemd PID 1과 D-Bus | 사용 가능 | 사용 불가 |
+| 위임 cgroup과 Docker | 선택한 backend 검사 성공 시 사용 | 사용 불가 |
+| 그 밖의 활성화된 systemd 서비스 | 정상 시작 | 시작하지 않음 |
+
+이 기능은 격리가 조금 약한 systemd 모드가 아니라 비상 SSH용 호환 모드입니다.
+Debian 프로세스가 Android 호스트 PID 목록을 볼 수 있으므로, 커널을 재빌드하기
+어렵고 rootfs를 신뢰할 수 있을 때만 사용하세요. 설정을 저장하면 실행 중인 Debian을
+한 번 재시작해 선택한 정책을 적용합니다.
+
 ## SSH 정책
 
 OpenSSH는 다음 정책으로 구성합니다.
@@ -82,24 +110,26 @@ SSH 개인 키는 앱 CE(Credential Encrypted) 저장소에 남고 공개 키만
 
 ## 종료와 재시작
 
-**중지**는 systemd에 정상 종료를 요청하고, 제한 시간까지 기다린 뒤 남은 자식
-프로세스와 마운트, cgroup 하위 트리를 정리합니다. **재시작**은 이 종료 절차를
-마친 뒤 새 systemd PID 1을 시작합니다.
+전체 기능 모드에서 **중지**는 systemd에 정상 종료를 요청하고, 제한 시간까지
+기다린 뒤 남은 자식 프로세스와 마운트, cgroup 하위 트리를 정리합니다. 호환 대체
+모드에서는 추적 중인 OpenSSH master를 종료하고 private mount/UTS 실행 공간을
+해제합니다. 이 모드에는 systemd 서비스 종료 단계가 없습니다. **재시작**은 현재
+모드에 맞는 정리를 마친 뒤 커널 기능을 다시 검사해 모드를 선택합니다.
 
 `USER_UNLOCKED`는 종료 신호가 아닙니다. 사용자가 잠금을 풀어도 Debian과 SSH는
 계속 실행됩니다.
 
 ## 상태 확인
 
-앱의 **상태**는 다음 항목을 확인합니다.
+앱의 **상태**는 두 모드 모두 supervisor, 프로세스 실행 파일, TCP 22, mount 및
+namespace identity를 확인합니다. 전체 기능 모드에서는 다음 항목도 확인합니다.
 
-- supervisor 프로세스와 boot ID
 - systemd가 Debian PID 1인지 여부
 - D-Bus와 기본 target
 - `ssh.service`
-- TCP 22 listen 상태
 - cgroup health
-- 마운트와 namespace identity
+
+호환 대체 모드의 health 결과에는 `mode=compat`, `compat_ready=true`가 명시됩니다.
 
 오류가 있으면 **서버 수명 주기**와 **시스템 구성** 로그를 함께 확인합니다.
 
@@ -115,3 +145,5 @@ reboot now
 ```
 
 `reboot now`는 즉시 기기를 재부팅하므로 저장 중인 작업을 먼저 끝내 주세요.
+이 관리형 Android 재부팅 bridge는 전체 systemd 모드에서만 동작하며 SSH 전용 호환
+대체 모드에서는 사용할 수 없습니다.

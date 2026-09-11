@@ -15,6 +15,8 @@ final class BfuPreferences {
     private static final String KEY_ALLOW_CE_READABLE_BFU =
             "allow_ce_readable_bfu";
     private static final String KEY_CGROUP_POLICY = "cgroup_policy";
+    private static final String KEY_PID_NAMESPACE_FALLBACK =
+            "pid_namespace_fallback";
     private static final String KEY_DOCKER_NETWORK_POLICY = "docker_network_policy";
     private static final String KEY_DOCKER_HOST_IPC_COMPATIBILITY =
             "docker_host_ipc_compatibility";
@@ -66,6 +68,10 @@ final class BfuPreferences {
                 KEY_CGROUP_POLICY, CGROUP_AUTO));
     }
 
+    static boolean pidNamespaceFallback(Context context) {
+        return get(context).getBoolean(KEY_PID_NAMESPACE_FALLBACK, false);
+    }
+
     static String dockerNetworkPolicy(Context context) {
         return validatedDockerNetworkPolicy(get(context).getString(
                 KEY_DOCKER_NETWORK_POLICY, DOCKER_HOST_ONLY));
@@ -100,7 +106,8 @@ final class BfuPreferences {
     }
 
     static void save(Context context, boolean enabled, boolean allowCeReadableBfu,
-                     String cgroupPolicy, String dockerNetworkPolicy,
+                     String cgroupPolicy, boolean pidNamespaceFallback,
+                     String dockerNetworkPolicy,
                      boolean dockerHostIpcCompatibility,
                      String usbPassthroughMode, String usbExclusiveDeviceIds,
                      boolean hardwareCodecBridge) {
@@ -116,6 +123,7 @@ final class BfuPreferences {
                 .putBoolean(KEY_ENABLED, enabled)
                 .putBoolean(KEY_ALLOW_CE_READABLE_BFU, allowCeReadableBfu)
                 .putString(KEY_CGROUP_POLICY, validatedCgroupPolicy(cgroupPolicy))
+                .putBoolean(KEY_PID_NAMESPACE_FALLBACK, pidNamespaceFallback)
                 .putString(KEY_DOCKER_NETWORK_POLICY,
                         validatedDockerNetworkPolicy(dockerNetworkPolicy))
                 .putBoolean(KEY_DOCKER_HOST_IPC_COMPATIBILITY,

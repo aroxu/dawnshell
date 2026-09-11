@@ -104,7 +104,7 @@
     <string name="bfu_system_config_status_none">요청된 Debian 시스템 구성이 없습니다.</string>
     <string name="bfu_system_config_status_failed">시스템 구성 상태를 읽지 못했습니다: %1$s</string>
     <string name="bfu_system_config_log_title">Debian 시스템 구성 로그(실시간, 최신 48 KiB):</string>
-    <string name="bfu_lifecycle_explanation">모든 BFU 단계를 통과하면 LOCKED_BOOT_COMPLETED 중 Debian이 자동으로 시작됩니다. USER_UNLOCKED는 Debian을 중지하거나 재시작하지 않습니다. 시작, 재시작 및 상태 확인은 systemd PID 1, D-Bus, ssh.service 및 TCP 22도 검증하며 결과는 DE 로그에 저장됩니다.</string>
+    <string name="bfu_lifecycle_explanation">모든 BFU 단계를 통과하면 LOCKED_BOOT_COMPLETED 중 Debian이 자동으로 시작됩니다. USER_UNLOCKED는 Debian을 중지하거나 재시작하지 않습니다. 전체 기능 모드는 systemd PID 1, D-Bus, ssh.service와 TCP 22를 검증하고, 선택형 호환 fallback은 직접 관리하는 OpenSSH 프로세스와 TCP 22를 대신 검증합니다. 결과는 DE 로그에 저장됩니다.</string>
     <string name="bfu_start_debian_short">시작</string>
     <string name="bfu_restart_debian_short">재시작</string>
     <string name="bfu_status_debian_short">상태</string>
@@ -164,11 +164,11 @@
     <string name="dawnshell_unsaved_settings">아직 적용하지 않은 변경사항이 있습니다</string>
     <string name="dawnshell_apply_changes">적용</string>
     <string name="dawnshell_apply_changes_confirm_title">설정을 적용할까요?</string>
-    <string name="dawnshell_apply_changes_confirm_message">USB, cgroup 또는 Docker 설정을 바꾸면 실행 중인 Debian 서버가 잠시 재시작되고 SSH 연결이 끊길 수 있습니다. DawnShell은 모든 변경사항을 합쳐 서버를 최대 한 번만 재시작합니다.</string>
+    <string name="dawnshell_apply_changes_confirm_message">네임스페이스 호환성, USB, cgroup 또는 Docker 설정을 바꾸면 실행 중인 Debian 서버가 잠시 재시작되고 SSH 연결이 끊길 수 있습니다. DawnShell은 모든 변경사항을 합쳐 서버를 최대 한 번만 재시작합니다.</string>
     <string name="dawnshell_apply_changes_applied">설정을 적용했습니다. 필요한 런타임 변경을 백그라운드에서 처리하고 있습니다.</string>
     <string name="dawnshell_apply_changes_saved_for_next_start">설정을 저장했습니다. 런타임 변경은 다음 Debian 시작 때 적용됩니다.</string>
     <string name="dawnshell_apply_changes_none">적용할 설정 변경사항이 없습니다.</string>
-    <string name="dawnshell_apply_changes_requires_unlock">USB, cgroup 또는 Docker 설정을 적용하려면 Android 잠금을 먼저 해제하세요.</string>
+    <string name="dawnshell_apply_changes_requires_unlock">네임스페이스 호환성, USB, cgroup 또는 Docker 설정을 적용하려면 Android 잠금을 먼저 해제하세요.</string>
     <string name="dawnshell_navigation_home">홈</string>
     <string name="dawnshell_navigation_access">접속</string>
     <string name="dawnshell_navigation_advanced">고급</string>
@@ -197,7 +197,7 @@
     <string name="dawnshell_log_copied">로그를 클립보드에 복사했습니다.</string>
     <string name="dawnshell_log_copy_empty">복사할 로그 내용이 없습니다.</string>
     <string name="dawnshell_log_summary_none">아직 상태 없음</string>
-    <string name="dawnshell_diagnostics_settings">다이렉트 부트 활성화: %1$s\nCE를 읽을 수 있는 BFU 허용: %2$s\nCgroup 정책: %3$s\nDocker 네트워크 정책: %4$s\nDocker 호스트 IPC 호환 모드: %5$s\nUSB 패스스루 모드: %6$s\n독점 USB VID:PID 필터: %7$s\n하드웨어 코덱 브리지: %8$s</string>
+    <string name="dawnshell_diagnostics_settings">다이렉트 부트 활성화: %1$s\nCE를 읽을 수 있는 BFU 허용: %2$s\nCgroup 정책: %3$s\nPID namespace fallback: %4$s\nDocker 네트워크 정책: %5$s\nDocker 호스트 IPC 호환 모드: %6$s\nUSB 패스스루 모드: %7$s\n독점 USB VID:PID 필터: %8$s\n하드웨어 코덱 브리지: %9$s</string>
     <string name="dawnshell_log_section_format">===== %1$s =====\n%2$s</string>
     <string name="dawnshell_log_section_status">상태</string>
     <string name="dawnshell_log_section_output">출력</string>
@@ -214,6 +214,8 @@
     <string name="dawnshell_cgroup_policy_v2">cgroup v2만 강제 사용(실험적)</string>
     <string name="dawnshell_cgroup_policy_v1">cgroup v1 레거시 모드 강제 사용</string>
     <string name="dawnshell_cgroup_policy_warning">선택한 설정은 다음 Debian 시작 또는 재시작부터 적용됩니다. 자동 모드는 전용 cgroup2 하위 트리를 비공개 마운트 뷰에 만들고 cgroup-device BPF 연결까지 성공한 경우에만 v2를 사용합니다. v2 강제 모드는 검증된 v1 전환을 비활성화하므로 Debian이 부팅되지 않을 수 있습니다. v1 강제 모드는 최신 격리를 건너뛰고 레거시 devices 컨트롤러를 계층에 연결합니다. Android 작업은 DawnShell의 위임된 하위 그룹 외부에 남지만, 여전히 커널 전역 컨트롤러 연결입니다.</string>
+    <string name="dawnshell_pid_namespace_fallback">호스트 PID 호환 fallback 허용(고급·선택)</string>
+    <string name="dawnshell_pid_namespace_fallback_warning">위험·기능 축소: 전체 기능 모드에 필요한 PID 또는 cgroup namespace 구성을 사용할 수 없을 때 private mount/UTS만 유지하고 OpenSSH를 직접 실행합니다. Debian은 systemd를 PID 1로 갖지 않으며 D-Bus, 비공개 프로세스 목록, cgroup 격리, Docker/컨테이너, systemctl 기반 서비스가 동작하지 않습니다. Debian 프로세스가 Android 호스트 PID 목록을 공유하므로 신뢰할 수 있는 구성에서만 사용하세요. 기본값은 끔이며 커널을 재빌드할 수 없을 때만 켜는 옵션입니다.</string>
     <string name="dawnshell_host_usb_title">USB 공유 및 패스스루</string>
     <string name="dawnshell_host_usb_description">raw USBFS 접근과 선택적인 드라이버 분리를 제어합니다. Debian과 Android가 동일한 커널, sysfs, 네트워크 namespace를 공유하므로 USB 장치 전체를 격리하는 기능은 아닙니다.</string>
     <string name="dawnshell_host_usb_scope_explanation">정책 범위\n\n• 끄기는 /dev/bus/usb와 USB 문자 장치 major 189를 차단하여 일반적인 libusb/raw USBFS 접근을 막습니다.\n• 끄기도 Android의 USB 하드웨어 감지는 중단하지 않습니다. 공유된 /sys를 통해 USB 토폴로지가 계속 보일 수 있습니다.\n• Android 커널 드라이버가 이미 연결한 장치는 /dev/block/sd* 저장장치, USB Ethernet interface, ttyUSB/ttyACM serial, input, video, audio 같은 파생 자원을 Debian에 노출할 수 있습니다. 이 자원들은 raw USBFS 정책으로 차단되지 않습니다.\n• 공유는 Android 드라이버를 유지하면서 raw USBFS를 노출합니다. 독점 패스스루는 VID:PID가 일치하는 interface만 추가로 unbind하며 USB 가상화 기능은 아닙니다.</string>

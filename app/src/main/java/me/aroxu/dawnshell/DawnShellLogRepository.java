@@ -167,6 +167,7 @@ final class DawnShellLogRepository {
                 Boolean.toString(BfuPreferences.isEnabled(context)),
                 Boolean.toString(BfuPreferences.allowCeReadableBfu(context)),
                 BfuPreferences.cgroupPolicy(context),
+                Boolean.toString(BfuPreferences.pidNamespaceFallback(context)),
                 BfuPreferences.dockerNetworkPolicy(context),
                 Boolean.toString(BfuPreferences.dockerHostIpcCompatibility(context)),
                 BfuPreferences.usbPassthroughMode(context),
