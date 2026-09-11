@@ -97,6 +97,77 @@ ss -ltnp | grep ':22 '
 After rotating the client key, run configuration again to install the new
 public key into `authorized_keys`.
 
+## apt network permission errors on LineageOS
+
+Some LineageOS-derived kernels retain Android's paranoid-network permission
+model: a process must belong to Android GID `3003` (`AID_INET`) to create
+network sockets. Debian's unprivileged package downloader, `_apt`, may not have
+that group. The phone can therefore be online while `apt` fails during
+**Configure Debian 13 systemd + SSH**.
+
+Use this workaround only when root commands inside Debian have network access
+but `_apt` reports `Permission denied`, `Operation not permitted`, or a socket
+permission error. A missing default route or broken DNS needs a different fix.
+
+Connect to Debian, become root, and inspect the existing account and group:
+
+```sh
+su root
+id _apt
+getent passwd _apt
+getent group 3003 || true
+```
+
+If SSH configuration has not completed, unlock Android and enter the Debian
+rootfs through ADB instead:
+
+```sh
+adb shell
+su
+/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/busybox \
+  chroot /data/local/debian /bin/bash
+```
+
+Approve Magisk on the phone if prompted. `0` is Android's primary-user number;
+for a secondary-user installation, replace it with the result of
+`adb shell am get-current-user`. Run `exit` twice when finished to leave the
+Debian root shell and then the ADB shell.
+
+Run the following block from the **DawnShell Debian root shell**, not from the
+Android shell. It creates `aid_inet` only when GID 3003 is unused and otherwise
+reuses the existing group name.
+
+```sh
+if ! getent group 3003 >/dev/null; then
+    groupadd --gid 3003 aid_inet
+fi
+
+INET_GROUP="$(getent group 3003 | cut -d: -f1)"
+test -n "$INET_GROUP" || {
+    echo "ERROR: GID 3003 group was not found."
+    exit 1
+}
+
+usermod --append --groups "$INET_GROUP" _apt
+usermod --gid "$INET_GROUP" _apt
+id _apt
+apt-get update
+```
+
+The final `id` output should contain GID 3003. When `apt-get update` succeeds,
+return to the app and run **Configure Debian 13 systemd + SSH** again. The
+change is stored in the Debian rootfs and survives reboot.
+
+If `_apt` does not exist, diagnose the incomplete rootfs instead of creating
+the account manually. If `groupadd` says GID 3003 already exists, reuse the
+name shown by `getent group 3003`. If the result remains `Network is
+unreachable`, collect `ip -brief address`, `ip route`, `/etc/resolv.conf`, and
+the first failure in the app's **System configuration** log.
+
+This grants network access to `_apt`; it does not enable SSH passwords or grant
+root privileges. Do not apply it on a standard kernel where `apt-get update`
+already works.
+
 ## SSH is refused or rejects the key
 
 `Connection refused` means the address responded but nothing is listening on

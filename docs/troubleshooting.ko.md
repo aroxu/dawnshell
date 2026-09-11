@@ -120,6 +120,123 @@ ss -ltnp | grep ':22 '
 SSH 키를 새로 생성했다면 **Debian 13 systemd + SSH 구성**을 다시 실행해야 새
 공개 키가 `authorized_keys`에 반영됩니다.
 
+## LineageOS에서 apt 네트워크 권한 오류가 발생합니다
+
+일부 LineageOS 계열 커널은 Android의 인터넷 접근 그룹인 GID `3003`
+(`AID_INET`)에 속한 프로세스만 네트워크 소켓을 만들 수 있게 제한합니다. Debian의
+패키지 다운로드 전용 계정인 `_apt`가 이 그룹에 없으면, 휴대전화의 인터넷은
+정상인데도 **Debian 13 systemd + SSH 구성** 중 `apt` 다운로드가 네트워크 권한
+오류로 실패할 수 있습니다.
+
+이 조치는 다음 조건에 맞을 때만 사용하세요.
+
+- LineageOS 또는 유사한 Android 커널을 사용합니다.
+- Debian의 root 명령은 인터넷에 연결되지만 `apt`의 `_apt` 다운로드만 실패합니다.
+- 로그에 `_apt`, `Permission denied`, `Operation not permitted` 또는 소켓 권한
+  오류가 보입니다.
+
+`ip route`에 기본 경로가 없거나 DNS 자체가 동작하지 않는 경우에는 이 방법으로
+해결되지 않습니다.
+
+### 1. Debian root 셸 열기
+
+SSH로 `debian` 계정에 접속한 뒤 앱에서 설정한 root 암호로 전환합니다.
+
+```sh
+su root
+```
+
+프롬프트가 `root@dawnshell`로 바뀌었는지 확인합니다. 아래 명령은 Android 셸이
+아니라 **DawnShell의 Debian root 셸**에서 실행해야 합니다.
+
+SSH 구성이 아직 끝나지 않아 접속할 수 없다면, Android 잠금을 해제하고 PC에서
+ADB로 Debian 셸을 열 수 있습니다.
+
+```sh
+adb shell
+su
+/data/user_de/0/me.aroxu.dawnshell/files/bfu/bin/busybox \
+  chroot /data/local/debian /bin/bash
+```
+
+Magisk 요청이 휴대전화에 표시되면 허용합니다. 마지막 명령 뒤 프롬프트가 Debian
+root 셸로 바뀝니다. 위 경로의 `0`은 Android 기본 사용자 번호입니다. DawnShell을
+보조 사용자에 설치했다면 `adb shell am get-current-user` 결과로 바꾸세요. 수정이
+끝나면 `exit`를 두 번 실행해 Debian root 셸과 ADB 셸에서 나옵니다.
+
+### 2. 현재 상태 확인하기
+
+```sh
+id _apt
+getent passwd _apt
+getent group 3003 || true
+```
+
+마지막 명령이 `aid_inet:x:3003:` 또는 `inet:x:3003:`처럼 출력되면 GID 3003
+그룹이 이미 존재하는 것입니다. 이름이 다르더라도 새 그룹을 중복 생성하면 안
+됩니다.
+
+### 3. GID 3003을 `_apt`에 적용하기
+
+다음 블록을 통째로 붙여 넣습니다. GID 3003 그룹이 없을 때만 `aid_inet`을 만들고,
+이미 있으면 기존 그룹 이름을 자동으로 사용합니다.
+
+```sh
+if ! getent group 3003 >/dev/null; then
+    groupadd --gid 3003 aid_inet
+fi
+
+INET_GROUP="$(getent group 3003 | cut -d: -f1)"
+test -n "$INET_GROUP" || {
+    echo "오류: GID 3003 그룹을 찾지 못했습니다."
+    exit 1
+}
+
+usermod --append --groups "$INET_GROUP" _apt
+usermod --gid "$INET_GROUP" _apt
+id _apt
+```
+
+성공하면 마지막 출력에 `3003(aid_inet)` 또는 같은 GID를 사용하는 기존 그룹이
+표시됩니다. `--append --groups`는 보조 그룹에 추가하고, `--gid`는 이 호환성
+문제가 있는 환경에서 `_apt`의 기본 그룹도 같은 값으로 맞춥니다.
+
+### 4. 다운로드와 앱 구성 다시 시도하기
+
+먼저 Debian에서 확인합니다.
+
+```sh
+apt-get update
+```
+
+정상적으로 패키지 목록을 내려받으면 앱으로 돌아가 **Debian 13 systemd + SSH
+구성**을 다시 실행합니다. 변경 내용은 `/data/local/debian/etc/passwd`와
+`/data/local/debian/etc/group`에 저장되므로 재부팅 뒤에도 유지됩니다.
+
+### 여전히 실패할 때
+
+다음 결과와 앱의 **시스템 구성** 로그에서 처음 실패한 부분을 함께 수집합니다.
+
+```sh
+id _apt
+getent group 3003
+ip -brief address
+ip route
+cat /etc/resolv.conf
+apt-get update
+```
+
+- `usermod: user '_apt' does not exist`: Debian 설치가 완전하지 않습니다. `_apt`를
+  임의로 만들지 말고 rootfs 설치 상태부터 확인하세요.
+- `groupadd: GID '3003' already exists`: 위의 조건식 없이 `groupadd`만 따로 실행한
+  경우입니다. 기존 GID 3003 그룹을 사용하세요.
+- 계속 `Network is unreachable`: 그룹 권한보다 Android 공유 NIC·기본 경로 문제일
+  가능성이 큽니다. 아래 네트워크 문제 해결 절을 확인하세요.
+
+이 설정은 `_apt`에 네트워크 접근 권한만 추가합니다. SSH 암호 인증을 켜거나 root
+권한을 부여하지는 않습니다. 표준 커널에서 `apt-get update`가 이미 정상이라면
+적용할 필요가 없습니다.
+
 ## SSH 연결이 거부됩니다
 
 `Connection refused`는 IP 주소까지는 도달했지만 TCP 22에서 서버가 듣고 있지

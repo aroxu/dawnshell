@@ -54,6 +54,10 @@ overwriting a valid installation. **Configure Debian 13 systemd + SSH** prepares
 systemd, D-Bus, OpenSSH, the `debian` account, the current public key, and boot
 proof services. Both operations run only after Android is unlocked.
 
+If only `_apt` encounters a network permission error on a LineageOS device,
+follow the [LineageOS apt network-permission guide](troubleshooting.md#apt-network-permission-errors-on-lineageos).
+This is distinct from a missing route or broken DNS.
+
 - **Start:** validate and start Debian systemd.
 - **Restart:** gracefully stop and start a new instance.
 - **Status:** check systemd, D-Bus, SSH, TCP 22, and cgroups.

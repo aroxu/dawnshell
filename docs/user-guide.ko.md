@@ -67,6 +67,10 @@ FBE(File-Based Encryption) 기기에서는 꺼 둡니다. 이 옵션은 암호�
 두 작업은 Android 잠금을 해제한 상태에서만 시작할 수 있습니다. 진행 상황은
 각각 **Debian 설치**와 **시스템 구성** 로그에서 확인합니다.
 
+일부 LineageOS 기기에서 `_apt`만 네트워크 권한 오류를 내면
+[LineageOS apt 네트워크 권한 해결 가이드](troubleshooting.ko.md#lineageos에서-apt-네트워크-권한-오류가-발생합니다)를
+따르세요. 인터넷 연결이나 DNS가 없는 경우와는 원인이 다릅니다.
+
 ## 3. 서버 제어
 
 - **시작**은 설치 상태를 확인한 뒤 Debian systemd를 시작합니다.
