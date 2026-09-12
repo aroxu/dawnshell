@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
-import android.os.UserManager;
 import android.util.Log;
 
 import java.io.File;
@@ -36,8 +35,11 @@ public class BootReceiver extends BroadcastReceiver {
 
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
             Log.i(TAG, "BOOT_COMPLETED received");
-            boolean unlocked = isUserUnlocked(context);
-            if (BfuPreferences.isEnabled(context) && !unlocked) {
+            if (BfuPreferences.isEnabled(context)) {
+                // Some ROMs deliver both boot broadcasts after the user has
+                // already become unlocked. BfuBootService handles that path
+                // with a normal Debian lifecycle start; do not limit this
+                // request to the BFU-only branch.
                 startBfuEnvironment(context);
                 return;
             }
@@ -91,12 +93,6 @@ public class BootReceiver extends BroadcastReceiver {
         } catch (RuntimeException e) {
             Log.e(TAG, "Failed to start BFU service", e);
         }
-    }
-
-    private static boolean isUserUnlocked(Context context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return true;
-        UserManager userManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
-        return userManager != null && userManager.isUserUnlocked();
     }
 
     private static void recordPersistentEvent(Context context, String message) {

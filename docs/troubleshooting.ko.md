@@ -57,6 +57,12 @@ ADB는 BFU 성공에 필요한 권한이 아닙니다. 일부 ROM은 첫 잠금 
 
 ## 재부팅 뒤 BFU에서 Debian이 시작하지 않습니다
 
+일부 ROM은 사용자가 이미 잠금 해제된 상태가 된 뒤 부팅 완료를 전달합니다. 이
+경우 DawnShell은 BFU 검사를 다시 수행하지 않고, 이미 구성된 Debian rootfs를
+`BOOT_COMPLETED`에서 시작합니다. 자격 증명으로 보호된 부팅에서는
+`LOCKED_BOOT_COMPLETED`를 사용하고 BFU root·CE 격리·rootfs·namespace 검사를
+통과한 뒤 Debian을 시작합니다.
+
 다음 순서로 **Direct Boot 진단** 로그를 확인합니다.
 
 1. `LOCKED_BOOT_COMPLETED received`
