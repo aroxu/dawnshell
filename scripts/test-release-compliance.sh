@@ -72,6 +72,20 @@ grep -Fq "stat -c '%u:%g' \"\$TOOLBOX\"" \
 bash -n "$repo_dir/scripts/build-bootstrap-runtime.sh"
 bash -n "$repo_dir/scripts/package-release.sh"
 
+release_workflow="$repo_dir/.github/workflows/build.yml"
+# Literal GitHub Actions shell variables are required in the workflow source.
+# shellcheck disable=SC2016
+grep -Fq 'release_tag="continuous-${VERSION}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA::7}"' \
+    "$release_workflow" || {
+    echo "Main builds must use a unique tag for every GitHub Release." >&2
+    exit 12
+}
+if grep -Eq 'gh release upload continuous|--clobber|refs/tags/continuous' \
+    "$release_workflow"; then
+    echo "Release workflow must not overwrite the legacy continuous release." >&2
+    exit 12
+fi
+
 if [[ -n "$apk_path" ]]; then
     [[ -f "$apk_path" ]] || {
         echo "APK does not exist: $apk_path" >&2

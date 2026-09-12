@@ -251,7 +251,7 @@ jobs:
           cd release-assets
           sha256sum -c SHA256SUMS
 
-      - name: Publish stable or continuous release
+      - name: Publish a new GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -266,25 +266,11 @@ jobs:
               --title "DawnShell $VERSION" \
               --notes-file release-assets/RELEASE_NOTES.md
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest
-          elif gh release view continuous >/dev/null 2>&1; then
-            gh api --method PATCH \
-              "repos/$GH_REPO/git/refs/tags/continuous" \
-              -f sha="$GITHUB_SHA" -F force=true >/dev/null
-            gh release upload continuous release-assets/* --clobber
-            while IFS= read -r asset; do
-              if [[ ! -e "release-assets/$asset" ]]; then
-                gh release delete-asset continuous "$asset" --yes
-              fi
-            done < <(gh release view continuous --json assets --jq '.assets[].name')
-            gh release edit continuous \
-              --title "DawnShell Continuous" \
-              --notes-file release-assets/RELEASE_NOTES.md \
-              --prerelease=false \
-              --latest
           else
-            gh release create continuous release-assets/* \
+            release_tag="continuous-${VERSION}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA::7}"
+            gh release create "$release_tag" release-assets/* \
               --target "$GITHUB_SHA" \
-              --title "DawnShell Continuous" \
+              --title "DawnShell $VERSION build $GITHUB_RUN_NUMBER" \
               --notes-file release-assets/RELEASE_NOTES.md \
               --latest
           fi
