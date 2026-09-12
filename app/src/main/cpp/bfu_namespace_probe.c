@@ -89,6 +89,12 @@ static int failure_report_fd = -1;
 typedef enum CgroupMode {
     CGROUP_MODE_UNKNOWN = 0,
     CGROUP_MODE_V1,
+    /* Legacy hierarchy without a device gate. Kernels older than 4.15 have no
+       BPF_PROG_TYPE_CGROUP_DEVICE, and kernels built without
+       CONFIG_CGROUP_DEVICE have no v1 `devices` controller either, so neither
+       device policy backend exists. Only the fully blocked USB policy may run
+       in this mode. */
+    CGROUP_MODE_V1_NO_DEVICES,
     CGROUP_MODE_V2,
 } CgroupMode;
 
@@ -135,7 +141,7 @@ typedef struct ExclusiveUsbState {
 
 typedef struct LauncherState {
     char state[24];
-    char cgroup_mode[8];
+    char cgroup_mode[16];
     char host_usb_mode[16];
     char launch_mode[16];
     pid_t supervisor_pid;
@@ -238,6 +244,7 @@ static int parse_usb_device_filter(const char *value, UsbDeviceFilter *filter) {
 static const char *cgroup_mode_name(CgroupMode mode) {
     if (mode == CGROUP_MODE_V2) return "v2";
     if (mode == CGROUP_MODE_V1) return "v1";
+    if (mode == CGROUP_MODE_V1_NO_DEVICES) return "v1-nodev";
     return "unknown";
 }
 
@@ -269,7 +276,14 @@ static bool is_explicit_launch_policy(const char *value) {
 static CgroupMode parse_cgroup_mode(const char *value) {
     if (value != NULL && strcmp(value, "v2") == 0) return CGROUP_MODE_V2;
     if (value != NULL && strcmp(value, "v1") == 0) return CGROUP_MODE_V1;
+    if (value != NULL && strcmp(value, "v1-nodev") == 0) {
+        return CGROUP_MODE_V1_NO_DEVICES;
+    }
     return CGROUP_MODE_UNKNOWN;
+}
+
+static bool cgroup_mode_is_legacy(CgroupMode mode) {
+    return mode == CGROUP_MODE_V1 || mode == CGROUP_MODE_V1_NO_DEVICES;
 }
 
 static int parse_cgroup_policy(const char *value, CgroupPolicy *policy) {
@@ -1432,6 +1446,38 @@ static int prepare_systemd_cgroup_mount(const char *control_dir) {
     return 0;
 }
 
+/* /proc/cgroups holds one row per compiled-in cgroup v1 controller. A kernel
+   built without CONFIG_CGROUP_DEVICE has no `devices` row, and mounting that
+   controller then fails with ENOENT because cgroup v1 option parsing rejects
+   unknown subsystem names. Probing the table keeps a known kernel limit out of
+   the mount(2) error path, where it is indistinguishable from a real fault. */
+static bool devices_controller_available(void) {
+    /* /proc/cgroups holds one short row per controller and stays far below
+       this buffer on every supported kernel. */
+    char contents[4096];
+    int fd = open("/proc/cgroups", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return false;
+    ssize_t count = read(fd, contents, sizeof(contents) - 1);
+    close(fd);
+    if (count <= 0) return false;
+    contents[count] = '\0';
+    char *cursor = NULL;
+    for (char *line = strtok_r(contents, "\n", &cursor); line != NULL;
+         line = strtok_r(NULL, "\n", &cursor)) {
+        char name[64];
+        int hierarchy = 0;
+        int cgroups = 0;
+        int enabled = 0;
+        if (sscanf(line, "%63s %d %d %d", name, &hierarchy, &cgroups,
+                   &enabled) != 4) {
+            continue;
+        }
+        if (strcmp(name, "devices") != 0) continue;
+        return enabled != 0;
+    }
+    return false;
+}
+
 static int prepare_devices_cgroup_mount(const char *control_dir,
                                         HostUsbPolicy host_usb_policy) {
     char mount_path[PATH_MAX];
@@ -1516,23 +1562,28 @@ static int move_self_to_cgroup(const char *child_path, const char *open_stage,
 }
 
 static int move_self_to_delegated_subtrees(const char *control_dir,
+                                           bool devices_delegated,
                                            char *systemd_child,
                                            size_t systemd_child_size,
                                            char *devices_child,
                                            size_t devices_child_size) {
     char systemd_mount[PATH_MAX];
     char devices_mount[PATH_MAX];
+    if (devices_child_size > 0) devices_child[0] = '\0';
     if (delegated_cgroup_paths(control_dir, kSystemdCgroupMountName,
                                systemd_mount, sizeof(systemd_mount),
-                               systemd_child, systemd_child_size) != 0
-            || delegated_cgroup_paths(control_dir, kDevicesCgroupMountName,
-                                      devices_mount, sizeof(devices_mount),
-                                      devices_child, devices_child_size) != 0) {
+                               systemd_child, systemd_child_size) != 0) {
         return fail_errno("cgroup_procs_path", 47);
     }
     int result = move_self_to_cgroup(systemd_child, "cgroup_procs_open",
                                      "cgroup_move_pid1", 49);
     if (result != 0) return result;
+    if (!devices_delegated) return 0;
+    if (delegated_cgroup_paths(control_dir, kDevicesCgroupMountName,
+                               devices_mount, sizeof(devices_mount),
+                               devices_child, devices_child_size) != 0) {
+        return fail_errno("cgroup_procs_path", 47);
+    }
     result = move_self_to_cgroup(devices_child, "devices_cgroup_procs_open",
                                  "devices_cgroup_move_pid1", 94);
     if (result != 0) return result;
@@ -1561,18 +1612,20 @@ static int move_self_to_delegated_mode(const char *control_dir,
                 (long long) realtime_seconds(), payload_path);
         return 0;
     }
-    if (mode != CGROUP_MODE_V1) {
+    if (!cgroup_mode_is_legacy(mode)) {
         return fail_message("cgroup_mode", "unknown_cgroup_mode", 115);
     }
+    bool devices_delegated = mode == CGROUP_MODE_V1;
     char systemd_child[PATH_MAX];
     char devices_child[PATH_MAX];
     int result = move_self_to_delegated_subtrees(
-            control_dir, systemd_child, sizeof(systemd_child),
-            devices_child, sizeof(devices_child));
+            control_dir, devices_delegated, systemd_child,
+            sizeof(systemd_child), devices_child, sizeof(devices_child));
     if (result != 0) return result;
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_STAGE init_moved_to_systemd_cgroup path=%s\n",
             (long long) realtime_seconds(), systemd_child);
+    if (!devices_delegated) return 0;
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_STAGE init_moved_to_devices_cgroup path=%s\n",
             (long long) realtime_seconds(), devices_child);
@@ -1679,7 +1732,7 @@ static int mount_delegated_cgroup_views(const char *root,
         }
         return 0;
     }
-    if (mode != CGROUP_MODE_V1) {
+    if (!cgroup_mode_is_legacy(mode)) {
         return fail_message("cgroup_view_mode", "unknown_cgroup_mode", 116);
     }
     if (mount("tmpfs", cgroup_root, "tmpfs",
@@ -1690,6 +1743,7 @@ static int mount_delegated_cgroup_views(const char *root,
             control_dir, kSystemdCgroupMountName, cgroup_root, "systemd",
             "cgroup_view_systemd_dir", "cgroup_view_systemd_bind", 53);
     if (result != 0) return result;
+    if (mode == CGROUP_MODE_V1_NO_DEVICES) return 0;
     result = bind_delegated_cgroup_view(
             control_dir, kDevicesCgroupMountName, cgroup_root, "devices",
             "cgroup_view_devices_dir", "cgroup_view_devices_bind", 95);
@@ -1863,7 +1917,8 @@ static int count_host_usb_nodes(const char *usb_path) {
 }
 
 static int configure_host_usb_mount(const char *root,
-                                    HostUsbPolicy host_usb_policy) {
+                                    HostUsbPolicy host_usb_policy,
+                                    bool device_gate_active) {
     char usb_path[PATH_MAX];
     if (joined_path(usb_path, sizeof(usb_path), root, "dev/bus/usb") != 0) {
         return fail_errno("host_usb_path", 119);
@@ -1873,9 +1928,10 @@ static int configure_host_usb_mount(const char *root,
         if (errno != ENOENT) return fail_errno("host_usb_lstat", 119);
         dprintf(STDERR_FILENO,
                 "[%lld] BFU_DEBIAN_USB policy=%s usbfs_present=false "
-                "future_hotplug_cgroup_enforced=true\n",
+                "future_hotplug_cgroup_enforced=%s\n",
                 (long long) realtime_seconds(),
-                host_usb_policy_name(host_usb_policy));
+                host_usb_policy_name(host_usb_policy),
+                device_gate_active ? "true" : "false");
         return 0;
     }
     if (!S_ISDIR(value.st_mode)) {
@@ -1898,8 +1954,9 @@ static int configure_host_usb_mount(const char *root,
     }
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_USB policy=off usbfs_hidden=true "
-            "cgroup_major_189_denied=true path=/dev/bus/usb\n",
-            (long long) realtime_seconds());
+            "cgroup_major_189_denied=%s path=/dev/bus/usb\n",
+            (long long) realtime_seconds(),
+            device_gate_active ? "true" : "false");
     return 0;
 }
 
@@ -2273,7 +2330,9 @@ static int prepare_child_mounts(const char *root, const char *control_dir,
     if (result != 0) return result;
     dprintf(STDERR_FILENO, "[%lld] BFU_DEBIAN_STAGE dev_rbind_slave\n",
             (long long) realtime_seconds());
-    result = configure_host_usb_mount(root, host_usb_policy);
+    result = configure_host_usb_mount(
+            root, host_usb_policy,
+            cgroup_mode == CGROUP_MODE_V1 || cgroup_mode == CGROUP_MODE_V2);
     if (result != 0) return result;
 
     /* A static Debian-facing client starts one private bionic NDK worker per
@@ -2664,11 +2723,35 @@ static int set_private_namespaces(void) {
 }
 
 static int prepare_legacy_cgroup_mounts(const char *control_dir,
-                                        HostUsbPolicy host_usb_policy) {
+                                        HostUsbPolicy host_usb_policy,
+                                        CgroupMode *resolved_mode) {
+    if (!devices_controller_available()) {
+        /* No device gate exists on this kernel. Direct and exclusive USB
+           passthrough keep Android's parent policy, which the gate never
+           narrowed, but the blocked policy loses its major 189 deny rule and
+           keeps only the empty read-only overmount on /dev/bus/usb. Refuse the
+           passthrough policies so a requested device policy is never reported
+           as enforced. */
+        if (host_usb_policy != HOST_USB_OFF) {
+            return fail_message(
+                    "cgroup_devices_controller",
+                    "device_gate_unavailable_for_usb_passthrough", 120);
+        }
+        int result = prepare_systemd_cgroup_mount(control_dir);
+        if (result != 0) return result;
+        *resolved_mode = CGROUP_MODE_V1_NO_DEVICES;
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_COMPAT devices_controller=unavailable "
+                "cgroup_device_bpf=unavailable usb_policy=off "
+                "usbfs_hidden=true cgroup_major_189_denied=false\n",
+                (long long) realtime_seconds());
+        return 0;
+    }
     int result = prepare_devices_cgroup_mount(control_dir, host_usb_policy);
     if (result != 0) return result;
     result = prepare_systemd_cgroup_mount(control_dir);
     if (result != 0) return result;
+    *resolved_mode = CGROUP_MODE_V1;
     return 0;
 }
 
@@ -2700,7 +2783,8 @@ static int negotiate_cgroup_mode(const char *control_dir,
                 (long long) realtime_seconds(), v2_errno);
     }
 
-    int result = prepare_legacy_cgroup_mounts(control_dir, host_usb_policy);
+    int result = prepare_legacy_cgroup_mounts(control_dir, host_usb_policy,
+                                              resolved_mode);
     if (result != 0) {
         cleanup_cgroup_hierarchy(control_dir, kDevicesCgroupMountName,
                                  "devices_probe");
@@ -2708,12 +2792,12 @@ static int negotiate_cgroup_mode(const char *control_dir,
                                  "systemd_probe");
         return result;
     }
-    *resolved_mode = CGROUP_MODE_V1;
     dprintf(STDERR_FILENO,
             "[%lld] BFU_DEBIAN_COMPAT cgroup_requested=%s "
-            "cgroup_resolved=v1 fallback=%s\n",
+            "cgroup_resolved=%s fallback=%s\n",
             (long long) realtime_seconds(),
             policy == CGROUP_POLICY_FORCE_V1 ? "v1" : "auto",
+            cgroup_mode_name(*resolved_mode),
             policy == CGROUP_POLICY_FORCE_V1 ? "false" : "true");
     return 0;
 }
@@ -3006,7 +3090,7 @@ static int enter_debian_systemd(const char *root, const char *control_dir,
     setenv("SYSTEMD_LOG_TARGET", "console", 1);
     setenv("SYSTEMD_LOG_LEVEL", "info", 1);
     setenv("SYSTEMD_LOG_TIME", "1", 1);
-    if (cgroup_mode == CGROUP_MODE_V1) {
+    if (cgroup_mode_is_legacy(cgroup_mode)) {
         /* v257 requires both flags to retain legacy/hybrid cgroup support. */
         setenv("SYSTEMD_PROC_CMDLINE",
                "systemd.unified_cgroup_hierarchy=0 "
@@ -3809,6 +3893,8 @@ static int enter_debian_health(const char *root) {
             "/proc/cgroups 2>/dev/null || true); "
             "devices_path=$(/usr/bin/mawk -F: '$2 == \"devices\" { print $3 }' "
             "/proc/self/cgroup 2>/dev/null || true); "
+            "systemd_path=$(/usr/bin/mawk -F: '$2 == \"name=systemd\" "
+            "{ print $3 }' /proc/self/cgroup 2>/dev/null || true); "
             "unified_path=$(/usr/bin/mawk -F: '$1 == \"0\" && $2 == \"\" "
             "{ print $3 }' /proc/self/cgroup 2>/dev/null || true); "
             "if [ -r /sys/fs/cgroup/cgroup.controllers ] "
@@ -3821,21 +3907,26 @@ static int enter_debian_health(const char *root) {
             "&& [ \"${devices_hierarchy:-0}\" -gt 0 ] "
             "&& [ \"$devices_path\" = / ]; then "
             "cgroup_mode=v1; cgroup_delegation=delegated; "
-            "devices_cgroup=delegated; else cgroup_mode=unknown; "
+            "devices_cgroup=delegated; "
+            "elif [ -w /sys/fs/cgroup/systemd/cgroup.procs ] "
+            "&& [ \"$systemd_path\" = / ]; then "
+            "cgroup_mode=v1-nodev; cgroup_delegation=delegated; "
+            "devices_cgroup=unavailable; else cgroup_mode=unknown; "
             "cgroup_delegation=missing; devices_cgroup=missing; fi; "
             "printf 'BFU_DEBIAN_HEALTH pid1=%s pid1_start_ticks=%s "
             "system_state=%s dbus_service=%s dbus_bus=%s ssh_service=%s "
             "boot_proof_service=%s boot_proof_marker=%s "
             "default_target=%s target_state=%s listen_22=%s "
             "cgroup_mode=%s cgroup_delegation=%s devices_cgroup=%s "
-            "devices_hierarchy=%s devices_path=%s unified_path=%s\\n' "
+            "devices_hierarchy=%s devices_path=%s systemd_path=%s "
+            "unified_path=%s\\n' "
             "\"$pid1\" \"$pid1_start_ticks\" "
             "\"$system_state\" \"$dbus_service\" \"$dbus_bus\" "
             "\"$ssh_service\" \"$boot_proof_service\" \"$boot_proof_marker\" "
             "\"$default_target\" \"$target_state\" \"$listen_22\" "
             "\"$cgroup_mode\" \"$cgroup_delegation\" \"$devices_cgroup\" "
             "\"${devices_hierarchy:-0}\" \"${devices_path:-missing}\" "
-            "\"${unified_path:-missing}\"; "
+            "\"${systemd_path:-missing}\" \"${unified_path:-missing}\"; "
             "if [ \"$pid1\" = systemd ] && [ \"$system_state\" = running ] "
             "&& [ \"$dbus_service\" = active ] "
             "&& [ \"$dbus_bus\" = ok ] && [ \"$ssh_service\" = active ] "

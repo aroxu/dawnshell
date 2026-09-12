@@ -75,6 +75,15 @@ attach fails, it cleans every probe resource and falls back to isolated cgroup v
 `devices` and `name=systemd` views. Android's global hierarchy is never exposed
 for Debian to modify.
 
+Kernels that carry neither device policy backend fall back once more to a
+`name=systemd`-only view, reported as `cgroup_mode=v1-nodev`. Linux added
+`BPF_PROG_TYPE_CGROUP_DEVICE` in 4.15, and a kernel built without
+`CONFIG_CGROUP_DEVICE` has no v1 `devices` controller, so both device gates can
+be missing at once. That tier starts only while USB passthrough is off, because
+no device policy can be enforced there; `/dev/bus/usb` keeps its empty
+read-only overmount and the launcher logs
+`cgroup_major_189_denied=false`.
+
 USB passthrough is a DE-backed, default-off launch policy. Off mode overmounts
 Debian's `/dev/bus/usb` with an empty read-only filesystem and denies character
 major 189 using cgroup-device BPF on v2 or `devices.deny` on v1. Direct mode
