@@ -150,7 +150,7 @@ v4l2-ctl --list-formats-ext -d /dev/video0
 Print the route selected by `dawnshell-ffmpeg` without processing media:
 
 ```sh
-/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl plan-ffmpeg \
   -hide_banner -y -i input.mp4 -map 0:v:0 -an \
   -c:v libx264 -b:v 4M output.mp4
 ```
@@ -214,16 +214,16 @@ integer_rate="$(printf '%s\n' "$frame_rate" | mawk -F/ \
   -show_entries packet=pos,size -of json \
   "$annex_b" > "$raw_packets"
 
-/usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl pack \
   "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
 /usr/local/bin/dawnshell-codec transcode \
   avc avc "$width" "$height" "$integer_rate" "$bit_rate" \
   < "$framed_input" > "$framed_output" 2> "$client_log"
 
 cat "$client_log" >&2
-frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
+frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.pl unpack-annexb \
   "$framed_output" "$encoded" --require-keyframe)"
-/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-stats \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl validate-stats \
   "$client_log" "$frames"
 /usr/bin/ffmpeg -hide_banner -loglevel error -y \
   -r "$frame_rate" -f h264 -i "$encoded" \
@@ -242,6 +242,11 @@ and exits with its parent. There is no listening endpoint and no descriptor is
 sent to another process. Plain glibc FFmpeg cannot call `MediaCodec` directly.
 The managed native/chroot execution path is root-only, so bridge commands need
 `sudo` from a regular Debian account.
+
+`/usr/local/libexec/dawnshell-codec-ffmpeg.pl` is the packet-framing adapter
+that sits between FFmpeg and that client. It is written for `perl-base`, which
+Debian marks Essential, so a minimal Debian installation runs the hardware
+bridge without installing any additional interpreter.
 
 ## Make existing `ffmpeg` calls use the wrapper
 

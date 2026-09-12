@@ -99,6 +99,21 @@ ABI(Application Binary Interface)의 의미는
   software CPU 기준선과 hardware encode PSNR/SSIM 검사를 구현했습니다.
 - [x] malformed H.264/HEVC, EOS, 동시 private worker, parent 종료 후 정리 및
   5개 workload 장시간 CPU/RSS/thermal 계측 경로를 구현했습니다.
+- [x] packet framing과 FFmpeg 계획 어댑터를 Debian이 Essential로 지정한
+  `perl-base` 기준으로 다시 작성했습니다. 하드웨어 브리지를 위해 인터프리터를
+  따로 설치하지 않으므로, Python 설치로 Debian 구성 때마다 몇 분씩 걸리던
+  지연이 사라집니다.
+- [x] 패키지 설정 중 수 분씩 멈추던 문제의 원인을 규명하고 수정했습니다. 기기
+  커널의 close_range(2) 백포트가 요청 범위 전체를 순회해, closefrom(3) 한 번에
+  약 2분의 중단 불가능한 커널 시간이 들었습니다. 커널을 측정한 뒤 해당 호출에
+  ENOSYS를 돌려주는 seccomp 필터를 적용해, 실기기에서
+  `dpkg-reconfigure openssh-server`가 10분 이상에서 3.3초로 줄었습니다.
+- [x] 패키지를 바꾼 뒤 systemd가 영구히 degraded로 남던 문제를 수정했습니다.
+  /data가 fscrypt 버전 1을 쓰므로 암호화 키를 호출 프로세스의 키링에서 찾는데,
+  systemd가 기동 시 새 세션 키링에 합류하면서 그 키를 잃어 모든 서비스가 파일을
+  만들지 못했습니다(ENOKEY). 측정 기반 seccomp 필터로
+  KEYCTL_JOIN_SESSION_KEYRING에 ENOSYS를 돌려주도록 했고, 실기기에서 실패 유닛
+  0개와 `system_state=running`을 확인했습니다.
 - [ ] BFU 실기기에서 vendor AVC hardware instance 생성을 확인합니다.
 - [ ] 최초 잠금 해제 전후에 고정 vector decode, encode, inherited memfd/eventfd 전송과
   Surface transcode를 검증합니다.

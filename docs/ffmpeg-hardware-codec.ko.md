@@ -190,7 +190,7 @@ v4l2-ctl --list-formats-ext -d /dev/video0
 다음 명령은 미디어를 실행하지 않고 `dawnshell-ffmpeg`가 선택할 경로만 출력합니다.
 
 ```sh
-/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl plan-ffmpeg \
   -hide_banner -y -i input.mp4 -map 0:v:0 -an \
   -c:v libx264 -b:v 4M output.mp4
 ```
@@ -262,7 +262,7 @@ integer_rate="$(printf '%s\n' "$frame_rate" | mawk -F/ \
   -show_entries packet=pos,size -of json \
   "$annex_b" > "$raw_packets"
 
-/usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl pack \
   "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
 
 /usr/local/bin/dawnshell-codec transcode \
@@ -270,9 +270,9 @@ integer_rate="$(printf '%s\n' "$frame_rate" | mawk -F/ \
   < "$framed_input" > "$framed_output" 2> "$client_log"
 
 cat "$client_log" >&2
-frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
+frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.pl unpack-annexb \
   "$framed_output" "$encoded" --require-keyframe)"
-/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-stats \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl validate-stats \
   "$client_log" "$frames"
 
 /usr/bin/ffmpeg -hide_banner -loglevel error -y \
@@ -291,6 +291,11 @@ bionic worker는 NDK `AMediaCodec`을 호출하고 상한이 있는 record를 �
 부모와 함께 종료합니다. listening endpoint와 descriptor 전달은 없습니다. 일반
 glibc FFmpeg만으로 `MediaCodec`을 직접 호출할 수 없습니다. 관리되는 native/chroot
 실행 경로가 root 전용이므로 일반 Debian 계정에서는 `sudo`가 필요합니다.
+
+FFmpeg와 이 client 사이에서 패킷을 프레이밍하는 도구가
+`/usr/local/libexec/dawnshell-codec-ffmpeg.pl`입니다. 이 도구는 Debian이
+Essential로 지정한 `perl-base`만 사용하므로, 최소 구성 Debian에서도 별도
+인터프리터를 설치하지 않고 하드웨어 브리지가 동작합니다.
 
 ## 기존 `ffmpeg` 호출에 자동 적용
 

@@ -54,11 +54,12 @@ final class DebianPasswordManager {
         requireConfiguredRootfs();
 
         // A root shell starts with a minimal PATH, so `chroot` must be the
-        // provisioned toolbox applet rather than a bare command name.
-        final String chrootTool;
+        // provisioned toolbox applet rather than a bare command name. The
+        // guard prefix keeps chpasswd from spending minutes inside
+        // closefrom(3) on kernels that walk the whole close_range(2) range.
+        final String chrootCommand;
         try {
-            chrootTool = BfuRuntime.provision(context).toolboxBinary
-                    .getAbsolutePath();
+            chrootCommand = BfuRuntime.guardedChroot(BfuRuntime.provision(context));
         } catch (IOException | IllegalStateException e) {
             throw new IllegalStateException(
                     "Could not provision the DawnShell toolbox: "
@@ -73,8 +74,8 @@ final class DebianPasswordManager {
             for (int i = 0; i < line.length(); i++) line.setCharAt(i, '\0');
 
             BfuSu.Result result = BfuSu.runWithInput(
-                    BfuSu.shellQuote(chrootTool) + " chroot "
-                            + BfuSu.shellQuote(ROOTFS) + " /usr/sbin/chpasswd",
+                    chrootCommand + " " + BfuSu.shellQuote(ROOTFS)
+                            + " /usr/sbin/chpasswd",
                     input, TIMEOUT_MS);
             input = null; // BfuSu wiped the array in its finally block.
             return new Result(account, result);

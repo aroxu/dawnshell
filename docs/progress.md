@@ -90,6 +90,22 @@ and the [AOSP FBE guide](https://source.android.com/docs/security/features/encry
 - [x] Verified the current inherited-FD private NDK worker after unlock by
   encoding a 10-second, 1920x1080 HEVC stream (300 frames at approximately
   8 Mbit/s) on an Android 16 ARM64 device.
+- [x] Rewrote the packet-framing and FFmpeg planning adapter for `perl-base`,
+  which Debian marks Essential, so provisioning installs no interpreter for
+  the hardware bridge. Installing Python previously added several slow
+  minutes to every Debian setup run.
+- [x] Diagnosed and fixed multi-minute stalls during package configuration.
+  The device kernel carries a close_range(2) backport that walks the whole
+  requested descriptor range, so each closefrom(3) call cost about two minutes
+  of uninterruptible kernel time. A measured seccomp filter now reports ENOSYS
+  for that call, and `dpkg-reconfigure openssh-server` went from over ten
+  minutes to 3.3 seconds on the affected device.
+- [x] Fixed systemd staying permanently degraded after any package change.
+  /data uses fscrypt version 1, so the encryption key is resolved through the
+  calling process keyring; systemd joins a fresh session keyring at startup and
+  loses it, leaving every service unable to create files (ENOKEY). A measured
+  seccomp filter now reports ENOSYS for KEYCTL_JOIN_SESSION_KEYRING. On the
+  device the manager returned to `system_state=running` with zero failed units.
 - [ ] Verify vendor AVC hardware instance creation on a locked real device.
 - [ ] Verify fixed-vector decode, encode, inherited memfd/eventfd transport, and Surface
   transcode before and after first unlock.

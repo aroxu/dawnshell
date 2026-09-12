@@ -1,3 +1,6 @@
 *.sh text eol=lf
+# The codec adapter is executed inside Debian, so a CRLF checkout on Windows
+# would ship a broken shebang in the APK.
+*.pl text eol=lf
 bfu-runtime/sources/*.dsc binary
 LICENSES/*.txt binary

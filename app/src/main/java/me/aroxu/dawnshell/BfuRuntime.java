@@ -33,6 +33,7 @@ final class BfuRuntime {
         final File testScript;
         final File rootfsProbeScript;
         final File namespaceProbeBinary;
+        final File fdGuardBinary;
         final File toolboxBinary;
         final File gpgvBinary;
         final File pkgdetailsBinary;
@@ -79,6 +80,7 @@ final class BfuRuntime {
             testScript = new File(scripts, "test.sh");
             rootfsProbeScript = new File(scripts, "probe-rootfs.sh");
             namespaceProbeBinary = new File(bin, "bfu-namespace-probe");
+            fdGuardBinary = new File(bin, "dawnshell-fdguard");
             // BusyBox dispatches subcommands only when argv[0] begins with
             // "busybox". Keep the APK artifact descriptive but provision it
             // with the canonical runtime basename.
@@ -97,7 +99,7 @@ final class BfuRuntime {
             crocCompatibilityScript = new File(scripts,
                     "dawnshell-croc.sh");
             codecFfmpegAdapterScript = new File(scripts,
-                    "dawnshell-codec-ffmpeg.py");
+                    "dawnshell-codec-ffmpeg.pl");
             codecLiveEncodeScript = new File(scripts,
                     "dawnshell-live-encode.sh");
             gpuStatusScript = new File(scripts, "gsmi.sh");
@@ -144,6 +146,23 @@ final class BfuRuntime {
                 BfuArchitecture.detect());
     }
 
+    /**
+     * Returns a {@code chroot} invocation that first installs the kernel quirk
+     * guards. Debian tools such as chpasswd call closefrom(3), which costs
+     * minutes on kernels that walk the entire close_range(2) range, so an
+     * unguarded chroot command can exceed its timeout and appear to fail.
+     * Falls back to a plain chroot when the guard has not been provisioned.
+     */
+    static String guardedChroot(Layout layout) {
+        String chroot = BfuSu.shellQuote(layout.toolboxBinary.getAbsolutePath())
+                + " chroot";
+        if (layout.fdGuardBinary.isFile()) {
+            return BfuSu.shellQuote(layout.fdGuardBinary.getAbsolutePath())
+                    + " " + chroot;
+        }
+        return chroot;
+    }
+
     static Layout provision(Context context) throws IOException {
         Context deContext = BfuPreferences.deviceProtectedContext(context);
         Layout layout = layout(deContext);
@@ -161,6 +180,8 @@ final class BfuRuntime {
         String abiAssets = layout.architecture.assetDirectory();
         copyPrivateAsset(deContext, abiAssets + "/bfu-namespace-probe",
                 layout.namespaceProbeBinary, true);
+        copyPrivateAsset(deContext, abiAssets + "/dawnshell-fdguard",
+                layout.fdGuardBinary, true);
         copyPrivateAsset(deContext, abiAssets + "/dawnshell-toolbox",
                 layout.toolboxBinary, true);
         copyPrivateAsset(deContext, abiAssets + "/gpgv",
@@ -224,7 +245,7 @@ final class BfuRuntime {
                 layout.hostUsbConfiguratorScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-croc.sh",
                 layout.crocCompatibilityScript, true);
-        copyPrivateAsset(deContext, "bfu/dawnshell-codec-ffmpeg.py",
+        copyPrivateAsset(deContext, "bfu/dawnshell-codec-ffmpeg.pl",
                 layout.codecFfmpegAdapterScript, true);
         copyPrivateAsset(deContext, "bfu/dawnshell-live-encode.sh",
                 layout.codecLiveEncodeScript, true);

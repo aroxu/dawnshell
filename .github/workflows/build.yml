@@ -145,6 +145,7 @@ jobs:
             scripts/build-bootstrap-runtime.sh \
             scripts/test-hardware-codec-bridge.sh \
             scripts/test-ffmpeg-bridge-plan.sh \
+            scripts/test-kernel-quirk-guards.sh \
             scripts/test-gpu-status-tool.sh \
             scripts/test-live-codec-pipeline.sh \
             scripts/test-host-reboot-isolation.sh \

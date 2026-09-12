@@ -120,6 +120,119 @@ ss -ltnp | grep ':22 '
 SSH 키를 새로 생성했다면 **Debian 13 systemd + SSH 구성**을 다시 실행해야 새
 공개 키가 `authorized_keys`에 반영됩니다.
 
+## "Setting up openssh-server" 또는 machine ID에서 멈춥니다
+
+일부 Android 커널(4.4 기반 LineageOS 빌드 다수 포함)은 close_range(2) 백포트가
+프로세스의 디스크립터 테이블에서 멈추지 않고 **요청한 범위 전체를 순회**합니다.
+glibc는 closefrom(3)을 close_range(lowfd, ~0U, 0)으로 구현하므로, 호출 한 번이
+약 21억 개의 디스크립터를 훑게 됩니다. 영향을 받는 기기에서 측정하면 디스크립터당
+약 50ns가 들어, closefrom(3) 한 번이 약 2분의 중단 불가능한 커널 시간이 됩니다.
+
+sshd, systemd, D-Bus는 모두 패키지 설정 중 closefrom(3)을 호출하므로, 증상은
+다음 줄에서 멈춘 것처럼 보입니다.
+
+    Setting up openssh-server (...) ...
+    Creating config file /etc/ssh/sshd_config with new version
+    Initializing machine ID from D-Bus machine ID.
+
+제한 시간이 짧은 작업도 같은 이유로 실패합니다. Debian/root 암호 변경은
+chpasswd를 실행하는데 이 역시 closefrom(3)을 호출하므로 앱이 다음을 보고합니다.
+
+    account=root command=su exit=-2 timeout=true
+    output=read interrupted by close() on another thread
+
+영향을 받는 기기에서 측정하면 이 명령 하나가 가드 없이는 60초를 넘겼고, 가드를
+적용하면 1초에 끝났습니다.
+
+closefrom(3)을 호출하지 않는 도구(예: ssh-keygen)는 즉시 끝나기 때문에, 느려지는
+대상이 선택적으로 보입니다.
+
+DawnShell은 Debian 진입 지점마다 커널을 한 번 측정하고, 해당 커널이면
+close_range(2)에 ENOSYS를 돌려주는 seccomp 필터를 설치합니다. 그러면 glibc가
+/proc/self/fd를 훑는 빠른 경로로 폴백해 같은 디스크립터를 마이크로초 단위로
+닫습니다. 필터는 자식 프로세스에 상속되므로 apt, dpkg, sshd, systemd가 모두
+적용됩니다. 설치에 성공하면 다음이 기록됩니다.
+
+    dawnshell-fdguard: this kernel walks the whole close_range(2) range;
+    reporting ENOSYS so closefrom(3) uses /proc/self/fd
+
+실제 영향을 받는 기기에서 `dpkg-reconfigure openssh-server`가 10분 이상에서
+약 3초로 줄었습니다.
+
+커널 동작은 root 셸에서 직접 확인할 수 있습니다. 범위를 키워도 시간이 거의
+일정해야 정상이며, 비례해서 늘어나면 영향을 받는 커널입니다.
+
+```sh
+for last in 1000 100000 10000000; do
+  printf 'last_fd=%s ' "$last"
+  TIMEFORMAT=%R
+  time perl -e "syscall(436, 3, $last, 0)"
+done
+```
+
+자동 판정은 진단 목적으로만 변경하세요.
+
+```sh
+DAWNSHELL_CLOSE_RANGE_GUARD=off    # 필터를 설치하지 않음
+DAWNSHELL_CLOSE_RANGE_GUARD=force  # 측정 없이 바로 설치
+```
+
+## systemd가 `degraded`로 남고 서비스가 `Required key not available`을 냅니다
+
+SSH는 응답하는데도 앱이 시작을 실패로 보고할 수 있습니다. 헬스 줄에
+`system_state=degraded`가 찍히고 다음 유닛이 실패 상태가 됩니다.
+
+    ldconfig.service                       Rebuild Dynamic Linker Cache
+    systemd-journal-catalog-update.service Rebuild Journal Catalog
+    systemd-update-done.service            Update is Completed
+
+세 유닛의 저널은 모두 같은 메시지로 끝납니다.
+
+    Failed to write "/etc/.updated": Required key not available
+
+/data는 fscrypt로 보호됩니다. 이 세대 커널은 버전 1 정책을 사용하므로, 새 파일을
+만들 때마다 **호출한 프로세스 자신의 키링**에서 암호화 키를 찾습니다. Android는
+모든 프로세스가 상속하는 세션 키링에 그 키를 넣어 둡니다.
+
+그런데 systemd 시스템 관리자는 서비스에 깨끗한 키링을 주기 위해 기동 중에 **새
+세션 키링에 합류**합니다. 새 키링에는 Android의 키가 없으므로, systemd가 띄운
+모든 서비스가 파일 생성 능력을 잃고 ENOKEY로 실패합니다. 기존 파일 읽기는 계속
+되기 때문에 피해가 선택적으로 보입니다. 이 세 유닛은 패키지가 바뀐 뒤에만
+실행되므로, 무언가를 설치하거나 재구성한 직후에 증상이 나타납니다. 또한
+systemd-update-done이 완료 기록을 남기지 못하므로 이후 모든 시작에서 같은 세
+유닛이 다시 실패하고 관리자는 영구히 degraded로 남습니다. pam_keyinit도 SSH
+로그인에 같은 일을 합니다.
+
+DawnShell은 systemd를 실행하기 직전 rootfs 안에서 이 동작을 측정하고, 해당
+파일시스템이면 KEYCTL_JOIN_SESSION_KEYRING에 ENOSYS를 돌려주는 seccomp 필터를
+설치합니다. 그러면 systemd는 상속한 키링을 유지하고, 거부를 디버그 수준으로만
+기록한 뒤 계속 진행합니다. pam_keyinit은 optional로 설정돼 있어 영향이 없습니다.
+런처는 다음을 남깁니다.
+
+    BFU_DEBIAN_STAGE session_keyring_join_blocked
+    reason=fscrypt_key_lost_in_new_session_keyring
+
+Debian 셸에서 직접 확인할 수 있습니다. 영향을 받는 파일시스템에서만 두 번째
+쓰기가 실패합니다.
+
+```sh
+perl -e '
+  open(my $a, ">", "/etc/dawnshell-key-a") or die "before: $!";
+  close($a); unlink "/etc/dawnshell-key-a";
+  syscall(219, 1, 0, 0, 0, 0);            # keyctl(KEYCTL_JOIN_SESSION_KEYRING)
+  open(my $b, ">", "/etc/dawnshell-key-b") or die "after: $!";
+  close($b); unlink "/etc/dawnshell-key-b";
+  print "both writes succeeded\n";
+'
+```
+
+자동 판정은 진단 목적으로만 변경하세요.
+
+```sh
+DAWNSHELL_SESSION_KEYRING_GUARD=off    # 필터를 설치하지 않음
+DAWNSHELL_SESSION_KEYRING_GUARD=force  # 측정 없이 바로 설치
+```
+
 ## LineageOS에서 apt 네트워크 권한 오류가 발생합니다
 
 일부 LineageOS 계열 커널은 Android의 인터넷 접근 그룹인 GID `3003`
@@ -456,7 +569,7 @@ dawnshell-ffmpeg-integration status
 | BFU에서만 실패 | Android media service가 아직 준비되지 않은 플랫폼일 수 있습니다. 잠금 해제 뒤 같은 명령을 비교합니다. Debian과 SSH는 계속 살아 있어야 합니다. |
 
 ```sh
-/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl plan-ffmpeg \
   -i input.mp4 -c:v h264_mediacodec output.mp4
 ```
 

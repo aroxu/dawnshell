@@ -1401,7 +1401,7 @@ public class BootActivity extends AppCompatActivity {
                         + BfuSu.shellQuote(HardwareCodecFileSelfTest.TEST_URL);
                 String toolbox = BfuSu.shellQuote(layout.toolboxBinary.getAbsolutePath());
                 String staged = destination.getAbsolutePath() + ".new";
-                String command = toolbox + " chroot "
+                String command = BfuRuntime.guardedChroot(layout) + " "
                         + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
                         + " /bin/sh -c " + BfuSu.shellQuote(debianScript)
                         + " && " + toolbox + " cp " + BfuSu.shellQuote(rootTemporary)
@@ -1545,10 +1545,10 @@ public class BootActivity extends AppCompatActivity {
             return;
         }
         final BfuRuntime.Layout codecLayout;
-        final String chrootTool;
+        final String chrootCommand;
         try {
             codecLayout = BfuRuntime.provision(this);
-            chrootTool = codecLayout.toolboxBinary.getAbsolutePath();
+            chrootCommand = BfuRuntime.guardedChroot(codecLayout);
         } catch (IOException | IllegalStateException e) {
             String detail = BfuSu.sanitize(e.getMessage());
             HardwareCodecProbe.recordRuntimeEvent(this,
@@ -1576,7 +1576,7 @@ public class BootActivity extends AppCompatActivity {
             boolean missingTools = false;
             try {
                 Thread.sleep(500L);
-                String command = BfuSu.shellQuote(chrootTool) + " chroot "
+                String command = chrootCommand + " "
                         + BfuSu.shellQuote(BfuRootfsProbe.ROOTFS_PATH)
                         + (performance
                         ? " /usr/local/bin/dawnshell-codec-performance-test"

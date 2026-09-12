@@ -4,12 +4,12 @@
 set -euo pipefail
 
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-adapter="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-ffmpeg.py"
+adapter="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-ffmpeg.pl"
 wrapper_source="$repo_dir/app/src/main/assets/bfu/configure-debian-systemd.sh"
 test -f "$adapter"
 
 plan() {
-    python3 "$adapter" plan-ffmpeg "$@"
+    perl "$adapter" plan-ffmpeg "$@"
 }
 
 expect_plan() {
@@ -176,9 +176,9 @@ done
 runnable="$wrapper_dir/runnable"
 # The generated wrapper pins a minimal PATH, so the stub harness must reach
 # its interpreter and the adapter by absolute path.
-python_binary="$(command -v python3)"
+perl_binary="$(command -v perl)"
 sed -e "s#^real_ffmpeg=.*#real_ffmpeg=$stub_dir/ffmpeg#" \
-    -e "s#/usr/local/libexec/dawnshell-codec-ffmpeg.py#$python_binary $adapter#g" \
+    -e "s#/usr/local/libexec/dawnshell-codec-ffmpeg.pl#$perl_binary $adapter#g" \
     -e "s#/usr/local/bin/dawnshell-hwdecode#$stub_dir/dawnshell-hwdecode#g" \
     -e "s#/usr/local/bin/dawnshell-hwencode#$stub_dir/dawnshell-hwencode#g" \
     -e "s#/usr/local/bin/dawnshell-hwtranscode#$stub_dir/dawnshell-hwtranscode#g" \

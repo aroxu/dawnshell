@@ -473,6 +473,22 @@ build_namespace_probe() {
     chmod 700 "$stage/bfu-namespace-probe"
 }
 
+# Installs a seccomp filter that reports ENOSYS for a pathological
+# close_range(2) backport, then executes the requested command. Shell scripts
+# cannot install a filter themselves, so the Debian chroot is entered through
+# this wrapper.
+build_fdguard() {
+    local stage="$1"
+    "$clang" "--target=$clang_target" \
+        -std=c17 -Os -fPIE -fstack-protector-strong \
+        -Wall -Wextra -Werror -Wformat=2 \
+        -Wl,-pie -Wl,-z,relro,-z,now -Wl,--gc-sections \
+        "$repo_dir/app/src/main/cpp/dawnshell_fdguard.c" \
+        -o "$stage/dawnshell-fdguard"
+    "$llvm_strip" --strip-unneeded "$stage/dawnshell-fdguard"
+    chmod 700 "$stage/dawnshell-fdguard"
+}
+
 build_codec_client() {
     local stage="$1"
     "$clang" "--target=$clang_target" \
@@ -516,11 +532,13 @@ build_architecture() {
     build_pkgdetails "$work" "$stage"
     build_gpgv "$work" "$stage"
     build_namespace_probe "$stage"
+    build_fdguard "$stage"
     build_codec_client "$stage"
     build_codec_worker "$stage"
 
     local binary
-    for binary in dawnshell-toolbox pkgdetails gpgv bfu-namespace-probe; do
+    for binary in dawnshell-toolbox pkgdetails gpgv bfu-namespace-probe \
+            dawnshell-fdguard; do
         validate_elf "$stage/$binary" "$machine_pattern" "$interpreter"
     done
     validate_static_elf "$stage/dawnshell-codec" "$machine_pattern"
@@ -534,6 +552,8 @@ build_architecture() {
     install -m 700 "$stage/gpgv" "$output_dir/$abi/gpgv"
     install -m 700 "$stage/bfu-namespace-probe" \
         "$output_dir/$abi/bfu-namespace-probe"
+    install -m 700 "$stage/dawnshell-fdguard" \
+        "$output_dir/$abi/dawnshell-fdguard"
     install -m 700 "$stage/dawnshell-codec" \
         "$output_dir/$abi/dawnshell-codec"
     install -m 700 "$stage/dawnshell-codec-worker" \
@@ -551,7 +571,7 @@ build_architecture() {
         "dawnshell_codec_worker=ndk_mediacodec" \
         > "$output_dir/$abi/runtime.properties"
 
-    sha256sum "$output_dir/$abi/"{dawnshell-toolbox,pkgdetails,gpgv,bfu-namespace-probe,dawnshell-codec,dawnshell-codec-worker}
+    sha256sum "$output_dir/$abi/"{dawnshell-toolbox,pkgdetails,gpgv,bfu-namespace-probe,dawnshell-fdguard,dawnshell-codec,dawnshell-codec-worker}
 }
 
 mkdir -p "$output_dir" "$bootstrap_assets_dir"

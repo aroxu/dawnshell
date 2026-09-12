@@ -25,6 +25,7 @@ EXPECTED_ARCH="$4"
 MODE="${5-}"
 BIN="$BFU_ROOT/bin"
 TOOLBOX="$BIN/busybox"
+FDGUARD="$BIN/dawnshell-fdguard"
 
 [ "$REQUESTED_ROOT" = "$ROOT" ] || fail 3 "only $ROOT is allowed"
 case "$BFU_ROOT" in
@@ -89,9 +90,9 @@ esac
 [ -x "$BIN/dawnshell-codec" ] || fail 16 "source-built hardware codec client is missing"
 [ -x "$BIN/dawnshell-codec-worker" ] || \
     fail 16 "source-built NDK MediaCodec worker is missing"
-[ -f "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
+[ -f "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.pl" ] || \
     fail 16 "hardware codec FFmpeg adapter is missing"
-[ ! -L "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" ] || \
+[ ! -L "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.pl" ] || \
     fail 16 "hardware codec FFmpeg adapter symlinks are forbidden"
 [ -f "$BFU_ROOT/scripts/dawnshell-croc.sh" ] || \
     fail 16 "croc compatibility wrapper is missing"
@@ -308,12 +309,12 @@ chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-worker.new"
 chmod 0755 "$ROOT/usr/local/libexec/dawnshell-codec-worker.new"
 mv "$ROOT/usr/local/libexec/dawnshell-codec-worker.new" \
     "$ROOT/usr/local/libexec/dawnshell-codec-worker"
-cp "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.py" \
-    "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
-chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
-chmod 0755 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new"
-mv "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py.new" \
-    "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.py"
+cp "$BFU_ROOT/scripts/dawnshell-codec-ffmpeg.pl" \
+    "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.pl.new"
+chown 0:0 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.pl.new"
+chmod 0755 "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.pl.new"
+mv "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.pl.new" \
+    "$ROOT/usr/local/libexec/dawnshell-codec-ffmpeg.pl"
 cp "$BFU_ROOT/scripts/dawnshell-live-encode.sh" \
     "$ROOT/usr/local/bin/dawnshell-live-encode.new"
 chown 0:0 "$ROOT/usr/local/bin/dawnshell-live-encode.new"
@@ -382,8 +383,22 @@ chmod 0644 "$ROOT/etc/resolv.conf"
 chown 0:0 "$ROOT/etc/resolv.conf"
 
 echo "Entering Debian 13 Trixie for systemd, D-Bus, and OpenSSH setup"
+# Some Android kernels walk the entire requested close_range(2) range instead
+# of stopping at the descriptor table, so one closefrom(3) call costs minutes
+# of kernel time. sshd, systemd, and dbus all call it while their packages are
+# configured, which used to look like a hang at "Setting up openssh-server".
+# The guard measures the kernel once and, when it is affected, reports ENOSYS
+# so glibc falls back to scanning /proc/self/fd. The seccomp filter is
+# inherited by apt, dpkg, and every maintainer script started below.
+if [ -x "$FDGUARD" ]; then
+    CHROOT_GUARD="$FDGUARD"
+else
+    echo "WARNING: dawnshell-fdguard is missing; a slow close_range(2) kernel"
+    echo "WARNING: will make package configuration take several extra minutes"
+    CHROOT_GUARD=""
+fi
 container=dawnshell DEBIAN_FRONTEND=noninteractive \
-    chroot "$ROOT" /usr/bin/env -i \
+    $CHROOT_GUARD chroot "$ROOT" /usr/bin/env -i \
     HOME=/root \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 \
@@ -485,7 +500,7 @@ apt-get -o Acquire::Retries=3 update
 echo "STAGE: Installing Debian systemd, D-Bus, OpenSSH, and diagnostics"
 apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     systemd systemd-sysv dbus openssh-server iproute2 procps ca-certificates \
-    bash passwd mawk time util-linux usbutils v4l-utils ffmpeg python3
+    bash passwd mawk time util-linux usbutils v4l-utils ffmpeg
 
 cat > /etc/apt/sources.list <<'EOF_APT_HTTPS'
 deb https://deb.debian.org/debian trixie main
@@ -497,21 +512,25 @@ apt-get -o Acquire::Retries=3 update
 for tool in /sbin/init /usr/bin/systemctl /usr/bin/journalctl /usr/bin/busctl \
     /usr/bin/timeout /usr/bin/ss /usr/bin/mawk /usr/bin/touch \
     /usr/bin/mktemp /usr/bin/sha256sum /usr/bin/sleep /usr/bin/time /usr/bin/flock \
-    /usr/bin/lsusb /usr/bin/v4l2-ctl /usr/bin/ffmpeg /usr/bin/ffprobe /usr/bin/python3 \
+    /usr/bin/lsusb /usr/bin/v4l2-ctl /usr/bin/ffmpeg /usr/bin/ffprobe \
     /usr/sbin/shutdown; do
     [ -x "$tool" ] || {
         echo "ERROR: required BFU health tool is missing: $tool"
         exit 35
     }
 done
-# python3-minimal omits decimal, so the codec adapter cannot even start with
-# it. Verify the modules the adapter imports instead of trusting the package.
-for module in decimal json struct pathlib argparse; do
-    python3 -c "import $module" 2>/dev/null || {
-        echo "ERROR: Python is missing the $module module required by the codec adapter"
-        exit 35
-    }
-done
+
+# The codec planner is written for perl-base, which Debian marks Essential, so
+# nothing extra is installed for the hardware FFmpeg bridge. Installing Python
+# for this used to add several slow minutes to every provisioning run.
+[ -x /usr/bin/perl ] || {
+    echo "ERROR: perl-base is missing; the hardware codec planner cannot run"
+    exit 35
+}
+/usr/bin/perl -c /usr/local/libexec/dawnshell-codec-ffmpeg.pl >/dev/null 2>&1 || {
+    echo "ERROR: the hardware codec planner failed its Perl syntax check"
+    exit 35
+}
 [ -x /usr/local/bin/dawnshell-codec ] || {
     echo "ERROR: DawnShell hardware codec client is missing"
     exit 35
@@ -586,7 +605,7 @@ if [ "${DAWNSHELL_CODEC_TEST_LOCK_HELD:-0}" != 1 ]; then
     export DAWNSHELL_CODEC_TEST_LOCK_HELD=1
 fi
 
-adapter=/usr/local/libexec/dawnshell-codec-ffmpeg.py
+adapter=/usr/local/libexec/dawnshell-codec-ffmpeg.pl
 vector_720=/usr/local/share/dawnshell/avc-baseline-1280x720-30fps-30f.h264
 vector_1080=/usr/local/share/dawnshell/avc-high-1920x1080-30fps-60f.h264
 vector_bframes=/usr/local/share/dawnshell/avc-high-1280x720-30fps-30f-b2.mp4
@@ -788,7 +807,7 @@ EOF_CODEC_PERFORMANCE_TEST
 chmod 0755 /usr/local/bin/dawnshell-codec-performance-test
 chown 0:0 /usr/local/bin/dawnshell-codec-performance-test
 
-[ -x /usr/local/libexec/dawnshell-codec-ffmpeg.py ] || {
+[ -x /usr/local/libexec/dawnshell-codec-ffmpeg.pl ] || {
     echo "ERROR: DawnShell FFmpeg packet adapter is missing"
     exit 35
 }
@@ -890,14 +909,14 @@ ffmpeg -hide_banner -loglevel error -y -i "$input" -map 0:v:0 -an \
     -c:v copy -bsf:v "$bitstream_filter" -f "$elementary_format" "$annex_b"
 ffprobe -v error -f "$elementary_format" -show_packets -show_entries packet=pos,size \
     -of json "$annex_b" > "$raw_packets"
-/usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl pack \
     "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
 
 case "$output" in
     *.i420|*.I420|*.yuv|*.YUV)
         if /usr/local/bin/dawnshell-codec pipe decode "$input_codec" "$width" "$height" \
             "$integer_rate" "$bit_rate" < "$framed_input" 2> "$client_log" \
-            | /usr/local/libexec/dawnshell-codec-ffmpeg.py unpack \
+            | /usr/local/libexec/dawnshell-codec-ffmpeg.pl unpack \
                 - "$output" "$width" "$height" > "$frame_count"; then
             :
         else
@@ -910,7 +929,7 @@ case "$output" in
     *)
         if /usr/local/bin/dawnshell-codec pipe decode "$input_codec" "$width" "$height" \
             "$integer_rate" "$bit_rate" < "$framed_input" 2> "$client_log" \
-            | /usr/local/libexec/dawnshell-codec-ffmpeg.py unpack \
+            | /usr/local/libexec/dawnshell-codec-ffmpeg.pl unpack \
                 - - "$width" "$height" 2> "$unpack_log" \
             | ffmpeg -hide_banner -loglevel error -y -f rawvideo \
                 -pixel_format yuv420p -video_size "${width}x${height}" \
@@ -1042,7 +1061,7 @@ set +e
 ffmpeg -stats_period 0.5 -stats -i "$input" -map 0:v:0 -an \
     -pix_fmt yuv420p -f rawvideo pipe:1 \
         2> >(tee "$ffmpeg_log" >&2) \
-    | /usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 \
+    | /usr/local/libexec/dawnshell-codec-ffmpeg.pl pack-i420 \
         - "$width" "$height" "$frame_rate" - 2> "$pack_log" \
     | /usr/local/bin/dawnshell-codec pipe encode "$codec" "$width" "$height" \
         "$integer_rate" "$bit_rate" > "$framed_output" 2> "$client_log"
@@ -1083,13 +1102,13 @@ input_frames="$(sed -n 's/^packed_i420_frames=//p' "$pack_log" | tail -n 1)"
     echo "dawnshell-hwencode: input frame count was not reported" >&2
     exit 4
 }
-output_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
+output_frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.pl unpack-annexb \
     "$framed_output" "$annex_b" --require-keyframe)"
 [ "$input_frames" = "$output_frames" ] || {
     echo "dawnshell-hwencode: frame count mismatch: $input_frames != $output_frames" >&2
     exit 4
 }
-/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-encoder-stats \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl validate-encoder-stats \
     "$client_log" "$output_frames" "$integer_rate" "$bit_rate"
 case "$codec:$output" in
     avc:*.h264|avc:*.H264|avc:*.264|hevc:*.hevc|hevc:*.HEVC|hevc:*.h265|hevc:*.H265|hevc:*.265)
@@ -1216,7 +1235,7 @@ ffmpeg -hide_banner -loglevel error -y -i "$input" -map 0:v:0 -an \
     -c:v copy -bsf:v "$bitstream_filter" -f "$elementary_format" "$annex_b"
 ffprobe -v error -f "$elementary_format" -show_packets \
     -show_entries packet=pos,size -of json "$annex_b" > "$raw_packets"
-/usr/local/libexec/dawnshell-codec-ffmpeg.py pack \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl pack \
     "$input_packets" "$raw_packets" "$annex_b" "$frame_rate" "$framed_input"
 if /usr/local/bin/dawnshell-codec transcode "$input_codec" avc "$width" "$height" \
     "$integer_rate" "$bit_rate" < "$framed_input" > "$framed_output" \
@@ -1228,9 +1247,9 @@ else
     exit "$status"
 fi
 cat "$client_log" >&2
-frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb \
+frames="$(/usr/local/libexec/dawnshell-codec-ffmpeg.pl unpack-annexb \
     "$framed_output" "$encoded" --require-keyframe)"
-/usr/local/libexec/dawnshell-codec-ffmpeg.py validate-stats \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl validate-stats \
     "$client_log" "$frames"
 case "$output" in
     *.h264|*.H264|*.264)
@@ -1279,9 +1298,9 @@ if [ "${DAWNSHELL_FFMPEG_BRIDGE:-auto}" = off ]; then
 fi
 
 # Keep the adapter's own diagnostics. Discarding them once turned a broken
-# Python install into a confusing "Unknown encoder" error from plain FFmpeg.
+# planner into a confusing "Unknown encoder" error from plain FFmpeg.
 plan_errors="$(mktemp)"
-plan="$(/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg "$@" \
+plan="$(/usr/local/libexec/dawnshell-codec-ffmpeg.pl plan-ffmpeg "$@" \
     2>"$plan_errors" || true)"
 if [ -z "$plan" ]; then
     echo "dawnshell-ffmpeg: the codec planner produced no plan" >&2
@@ -1626,6 +1645,7 @@ systemctl --root=/ --no-reload set-default multi-user.target
 [ -x /usr/local/bin/gsmi ]
 [ -x /usr/local/bin/dawnshell-ffmpeg-integration ]
 [ "$(readlink /usr/local/bin/ffmpeg)" = /usr/local/bin/dawnshell-ffmpeg ]
+[ -x /usr/local/libexec/dawnshell-codec-ffmpeg.pl ]
 [ -x /usr/local/bin/dawnshell-codec-performance-test ]
 [ -x /usr/local/bin/dawnshell-codec-long-run ]
 [ -x /usr/local/bin/dawnshell-codec-concurrency-test ]

@@ -25,6 +25,7 @@ HOST_IPC_COMPATIBILITY="$5"
 MODE="${6-}"
 BIN="$BFU_ROOT/bin"
 TOOLBOX="$BIN/busybox"
+FDGUARD="$BIN/dawnshell-fdguard"
 
 [ "$REQUESTED_ROOT" = "$ROOT" ] || fail 3 "only $ROOT is allowed"
 case "$BFU_ROOT" in
@@ -122,9 +123,16 @@ mount -t tmpfs -o nosuid,nodev,mode=0755,size=32m tmpfs "$ROOT/run"
 mkdir -p "$ROOT/run/lock"
 
 echo "Entering Debian to negotiate Docker network compatibility"
+# See configure-debian-systemd.sh: the guard neutralises a close_range(2)
+# backport that walks the full descriptor range.
+if [ -x "$FDGUARD" ]; then
+    CHROOT_GUARD="$FDGUARD"
+else
+    CHROOT_GUARD=""
+fi
 DAWNSHELL_DOCKER_POLICY="$POLICY" \
 DAWNSHELL_DOCKER_HOST_IPC="$HOST_IPC_COMPATIBILITY" container=dawnshell \
-    chroot "$ROOT" /usr/bin/env -i \
+    $CHROOT_GUARD chroot "$ROOT" /usr/bin/env -i \
     HOME=/root \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 \

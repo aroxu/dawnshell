@@ -130,9 +130,9 @@ esac
 [ -z "$duration" ] || capture+=(-t "$duration")
 capture+=(-map 0:v:0 -an -vf "scale=${width}:${height}:flags=fast_bilinear,format=yuv420p,fps=${fps}" -f rawvideo pipe:1)
 
-pack=(/usr/local/libexec/dawnshell-codec-ffmpeg.py pack-i420 - "$width" "$height" "$fps/1" -)
+pack=(/usr/local/libexec/dawnshell-codec-ffmpeg.pl pack-i420 - "$width" "$height" "$fps/1" -)
 encode=(/usr/local/bin/dawnshell-codec pipe encode avc "$width" "$height" "$fps" "$bit_rate")
-unpack=(/usr/local/libexec/dawnshell-codec-ffmpeg.py unpack-annexb - - --require-keyframe)
+unpack=(/usr/local/libexec/dawnshell-codec-ffmpeg.pl unpack-annexb - - --require-keyframe)
 mux=(/usr/bin/ffmpeg -hide_banner -loglevel warning -y -r "$fps" -f h264 -i pipe:0 -map 0:v:0 -an -c:v copy)
 
 if [ "$output_mode" = hls ]; then
@@ -176,7 +176,7 @@ fi
 
 [ "$(id -u)" = 0 ] || fail "UID 0 is required; run with sudo"
 for required in /usr/bin/ffmpeg /usr/local/bin/dawnshell-codec \
-        /usr/local/libexec/dawnshell-codec-ffmpeg.py; do
+        /usr/local/libexec/dawnshell-codec-ffmpeg.pl; do
     [ -x "$required" ] || fail "missing executable: $required"
 done
 if [ "$input_format" = v4l2 ]; then

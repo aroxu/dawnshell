@@ -233,7 +233,7 @@ listener to authenticate.
 Print the selected route without touching media:
 
 ```sh
-/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl plan-ffmpeg \
   -hwaccel mediacodec -i input.mp4 -map 0:v:0 -an \
   -c:v h264_mediacodec -b:v 6M output.mp4
 ```

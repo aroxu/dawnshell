@@ -11,7 +11,7 @@ if [ "${DAWNSHELL_CODEC_TEST_LOCK_HELD:-0}" != 1 ]; then
     export DAWNSHELL_CODEC_TEST_LOCK_HELD=1
 fi
 
-adapter=/usr/local/libexec/dawnshell-codec-ffmpeg.py
+adapter=/usr/local/libexec/dawnshell-codec-ffmpeg.pl
 vector=/usr/local/share/dawnshell/avc-baseline-1280x720-30fps-30f.h264
 hevc_vector=/usr/local/share/dawnshell/hevc-main-1920x1080-30fps-60f.mp4
 result_root="${DAWNSHELL_CODEC_RESULT_DIR:-/var/log/dawnshell/codec-tests}"
@@ -39,135 +39,203 @@ ffprobe -v error -f hevc -show_packets -show_entries packet=pos,size \
     "$temporary/hevc-raw-packets.json" "$temporary/input.hevc" 30/1 \
     "$temporary/hevc.records" > "$temporary/hevc-pack.log"
 
-python3 - "$vector" "$temporary" "$temporary/hevc.records" <<'PY_ERROR_VECTORS'
-import pathlib
-import struct
-import sys
+perl - "$vector" "$temporary" "$temporary/hevc.records" <<'PL_ERROR_VECTORS'
+use strict;
+use warnings;
 
-source = pathlib.Path(sys.argv[1]).read_bytes()
-target = pathlib.Path(sys.argv[2])
-hevc_records = pathlib.Path(sys.argv[3])
-record = struct.Struct(">QII")
+# perl-base is Essential in Debian, so this test needs no extra interpreter.
 
-def aud_positions(data):
-    result = []
-    index = 0
-    while index + 5 < len(data):
-        prefix = 0
-        if data[index:index + 3] == b"\x00\x00\x01":
-            prefix = 3
-        elif data[index:index + 4] == b"\x00\x00\x00\x01":
-            prefix = 4
-        if prefix and data[index + prefix] & 0x1f == 9:
-            result.append(index)
-        index += prefix + 1 if prefix else 1
-    return result
+sub slurp {
+    my ($path) = @_;
+    open(my $handle, "<:raw", $path) or die "cannot read $path: $!\n";
+    local $/ = undef;
+    my $data = <$handle>;
+    close($handle);
+    return defined $data ? $data : "";
+}
 
-positions = aud_positions(source)
-if len(positions) != 30:
-    raise SystemExit(f"expected 30 AVC access units, got {len(positions)}")
-positions.append(len(source))
-units = [source[positions[i]:positions[i + 1]] for i in range(30)]
+sub spew {
+    my ($path, $data) = @_;
+    open(my $handle, ">:raw", $path) or die "cannot write $path: $!\n";
+    print {$handle} $data;
+    close($handle) or die "cannot write $path: $!\n";
+}
 
-def write_records(name, values):
-    with (target / name).open("wb") as output:
-        for index, value in enumerate(values):
-            output.write(record.pack(index * 1_000_000 // 30, 0, len(value)))
-            output.write(value)
+# The protocol header is a big-endian 64-bit PTS plus two 32-bit fields.
+sub record {
+    my ($pts, $flags, $size) = @_;
+    my $high = int($pts / 4294967296);
+    return pack("N4", $high, $pts - $high * 4294967296, $flags, $size);
+}
 
-write_records("missing-config.records", units[1:])
-write_records("truncated-bitstream.records", [units[0][:max(8, len(units[0]) // 3)]])
-damaged = list(units)
-middle = bytearray(damaged[10])
-for index in range(len(middle) // 3, min(len(middle), len(middle) // 3 + 32)):
-    middle[index] ^= 0x5a
-damaged[10] = bytes(middle)
-write_records("damaged.records", damaged)
+my $source = slurp($ARGV[0]);
+my $target = $ARGV[1];
+my $hevc_records = $ARGV[2];
 
-unsupported_profile = bytearray(units[0])
-index = 0
-profile_mutated = False
-while index + 8 < len(unsupported_profile):
-    prefix = 0
-    if unsupported_profile[index:index + 3] == b"\x00\x00\x01":
-        prefix = 3
-    elif unsupported_profile[index:index + 4] == b"\x00\x00\x00\x01":
-        prefix = 4
-    if prefix:
-        nal = index + prefix
-        if unsupported_profile[nal] & 0x1f == 7 and nal + 3 < len(unsupported_profile):
-            unsupported_profile[nal + 1] = 244
-            unsupported_profile[nal + 3] = 255
-            profile_mutated = True
-            break
-        index += prefix + 1
-    else:
-        index += 1
-if not profile_mutated:
-    raise SystemExit("could not locate AVC SPS for unsupported-profile vector")
-write_records("unsupported-profile.records", [bytes(unsupported_profile)] + units[1:])
-(target / "empty.records").write_bytes(b"")
-(target / "truncated-header.records").write_bytes(b"\x00" * 8)
-(target / "length-mismatch.records").write_bytes(record.pack(0, 0, 100) + b"x")
+# Access-unit delimiters mark the frame boundaries of the public AVC vector.
+my @positions;
+my $index = 0;
+while ($index + 5 < length($source)) {
+    my $prefix = 0;
+    if (substr($source, $index, 3) eq "\x00\x00\x01") {
+        $prefix = 3;
+    } elsif (substr($source, $index, 4) eq "\x00\x00\x00\x01") {
+        $prefix = 4;
+    }
+    if ($prefix && (ord(substr($source, $index + $prefix, 1)) & 0x1f) == 9) {
+        push @positions, $index;
+    }
+    $index += $prefix ? $prefix + 1 : 1;
+}
+die "expected 30 AVC access units, got " . scalar(@positions) . "\n"
+    if @positions != 30;
+push @positions, length($source);
+my @units = map { substr($source, $positions[$_], $positions[$_ + 1] - $positions[$_]) }
+    0 .. 29;
 
-def read_records(path):
-    result = []
-    data = path.read_bytes()
-    offset = 0
-    while offset < len(data):
-        if len(data) - offset < record.size:
-            raise SystemExit("truncated generated HEVC record header")
-        pts, flags, size = record.unpack_from(data, offset)
-        offset += record.size
-        if size > len(data) - offset:
-            raise SystemExit("truncated generated HEVC record payload")
-        result.append([pts, flags, data[offset:offset + size]])
-        offset += size
-    return result
+sub write_records {
+    my ($name, $values) = @_;
+    my $payload = "";
+    my $frame = 0;
+    for my $value (@$values) {
+        $payload .= record(int($frame * 1000000 / 30), 0, length($value)) . $value;
+        $frame += 1;
+    }
+    spew("$target/$name", $payload);
+}
 
-def hevc_nal_units(data):
-    starts = []
-    index = 0
-    while index + 5 < len(data):
-        if data[index:index + 3] == b"\x00\x00\x01":
-            starts.append((index, 3))
-            index += 3
-        elif data[index:index + 4] == b"\x00\x00\x00\x01":
-            starts.append((index, 4))
-            index += 4
-        else:
-            index += 1
-    result = []
-    for unit_index, (start, prefix) in enumerate(starts):
-        end = starts[unit_index + 1][0] if unit_index + 1 < len(starts) else len(data)
-        if start + prefix + 1 < end:
-            nal_type = (data[start + prefix] >> 1) & 0x3f
-            result.append((nal_type, data[start:end]))
-    return result
+write_records("missing-config.records", [@units[1 .. 29]]);
+my $truncated_length = int(length($units[0]) / 3);
+$truncated_length = 8 if $truncated_length < 8;
+write_records("truncated-bitstream.records",
+    [substr($units[0], 0, $truncated_length)]);
 
-hevc = read_records(hevc_records)
-removed = set()
-for value in hevc:
-    units = hevc_nal_units(value[2])
-    present = {nal_type for nal_type, _ in units}
-    if present & {32, 33, 34}:
-        value[2] = b"".join(
-            payload for nal_type, payload in units if nal_type not in {32, 33, 34}
-        )
-        removed.update(present & {32, 33, 34})
-        break
-if removed != {32, 33, 34}:
-    raise SystemExit(f"could not remove HEVC VPS/SPS/PPS; removed={sorted(removed)}")
-with (target / "missing-hevc-config.records").open("wb") as output:
-    for pts, flags, payload in hevc:
-        output.write(record.pack(pts, flags, len(payload)))
-        output.write(payload)
-first_pts, first_flags, first_payload = hevc[0]
-truncated = first_payload[:max(8, len(first_payload) // 4)]
-with (target / "truncated-hevc.records").open("wb") as output:
-    output.write(record.pack(first_pts, first_flags, len(truncated)))
-    output.write(truncated)
-PY_ERROR_VECTORS
+my @damaged = @units;
+my $middle = $damaged[10];
+my $damage_start = int(length($middle) / 3);
+my $damage_end = $damage_start + 32;
+$damage_end = length($middle) if $damage_end > length($middle);
+for my $offset ($damage_start .. $damage_end - 1) {
+    substr($middle, $offset, 1) = chr(ord(substr($middle, $offset, 1)) ^ 0x5a);
+}
+$damaged[10] = $middle;
+write_records("damaged.records", \@damaged);
+
+my $profile = $units[0];
+my $profile_mutated = 0;
+$index = 0;
+while ($index + 8 < length($profile)) {
+    my $prefix = 0;
+    if (substr($profile, $index, 3) eq "\x00\x00\x01") {
+        $prefix = 3;
+    } elsif (substr($profile, $index, 4) eq "\x00\x00\x00\x01") {
+        $prefix = 4;
+    }
+    if ($prefix) {
+        my $nal = $index + $prefix;
+        if ((ord(substr($profile, $nal, 1)) & 0x1f) == 7
+                && $nal + 3 < length($profile)) {
+            substr($profile, $nal + 1, 1) = chr(244);
+            substr($profile, $nal + 3, 1) = chr(255);
+            $profile_mutated = 1;
+            last;
+        }
+        $index += $prefix + 1;
+    } else {
+        $index += 1;
+    }
+}
+die "could not locate AVC SPS for unsupported-profile vector\n"
+    unless $profile_mutated;
+write_records("unsupported-profile.records", [$profile, @units[1 .. 29]]);
+spew("$target/empty.records", "");
+spew("$target/truncated-header.records", "\x00" x 8);
+spew("$target/length-mismatch.records", record(0, 0, 100) . "x");
+
+sub read_records {
+    my ($path) = @_;
+    my $data = slurp($path);
+    my @result;
+    my $offset = 0;
+    while ($offset < length($data)) {
+        die "truncated generated HEVC record header\n"
+            if length($data) - $offset < 16;
+        my ($high, $low, $flags, $size) = unpack("N4", substr($data, $offset, 16));
+        $offset += 16;
+        die "truncated generated HEVC record payload\n"
+            if $size > length($data) - $offset;
+        push @result, [$high * 4294967296 + $low, $flags,
+            substr($data, $offset, $size)];
+        $offset += $size;
+    }
+    return \@result;
+}
+
+sub hevc_nal_units {
+    my ($data) = @_;
+    my @starts;
+    my $cursor = 0;
+    while ($cursor + 5 < length($data)) {
+        if (substr($data, $cursor, 3) eq "\x00\x00\x01") {
+            push @starts, [$cursor, 3];
+            $cursor += 3;
+        } elsif (substr($data, $cursor, 4) eq "\x00\x00\x00\x01") {
+            push @starts, [$cursor, 4];
+            $cursor += 4;
+        } else {
+            $cursor += 1;
+        }
+    }
+    my @result;
+    for my $unit (0 .. $#starts) {
+        my $start = $starts[$unit]->[0];
+        my $prefix = $starts[$unit]->[1];
+        my $end = $unit < $#starts ? $starts[$unit + 1]->[0] : length($data);
+        next unless $start + $prefix + 1 < $end;
+        my $nal_type = (ord(substr($data, $start + $prefix, 1)) >> 1) & 0x3f;
+        push @result, [$nal_type, substr($data, $start, $end - $start)];
+    }
+    return \@result;
+}
+
+my $hevc = read_records($hevc_records);
+my %removed;
+for my $value (@$hevc) {
+    my $units = hevc_nal_units($value->[2]);
+    my $has_config = 0;
+    for my $unit (@$units) {
+        $has_config = 1 if $unit->[0] >= 32 && $unit->[0] <= 34;
+    }
+    next unless $has_config;
+    my $stripped = "";
+    for my $unit (@$units) {
+        if ($unit->[0] >= 32 && $unit->[0] <= 34) {
+            $removed{$unit->[0]} = 1;
+            next;
+        }
+        $stripped .= $unit->[1];
+    }
+    $value->[2] = $stripped;
+    last;
+}
+die "could not remove HEVC VPS/SPS/PPS; removed="
+    . join(",", sort { $a <=> $b } keys %removed) . "\n"
+    unless $removed{32} && $removed{33} && $removed{34};
+
+my $config_payload = "";
+for my $value (@$hevc) {
+    $config_payload .= record($value->[0], $value->[1], length($value->[2]))
+        . $value->[2];
+}
+spew("$target/missing-hevc-config.records", $config_payload);
+
+my $first = $hevc->[0];
+my $keep = int(length($first->[2]) / 4);
+$keep = 8 if $keep < 8;
+my $truncated_hevc = substr($first->[2], 0, $keep);
+spew("$target/truncated-hevc.records",
+    record($first->[0], $first->[1], length($truncated_hevc)) . $truncated_hevc);
+PL_ERROR_VECTORS
 
 expect_pipe_failure() {
     name="$1"

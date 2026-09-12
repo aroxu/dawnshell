@@ -28,6 +28,7 @@ fi
 "$root_dir/scripts/test-host-usb-policy.sh"
 "$root_dir/scripts/test-hardware-codec-bridge.sh"
 "$root_dir/scripts/test-ffmpeg-bridge-plan.sh"
+"$root_dir/scripts/test-kernel-quirk-guards.sh"
 "$root_dir/scripts/test-live-codec-pipeline.sh"
 "$root_dir/scripts/test-gpu-status-tool.sh"
 "$root_dir/scripts/test-host-reboot-isolation.sh"

@@ -43,6 +43,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "dawnshell_close_range_guard.h"
+#include "dawnshell_keyring_guard.h"
+
 #if defined(__aarch64__)
 #define DAWNSHELL_DEBIAN_ARCH "arm64"
 #elif defined(__arm__)
@@ -2676,6 +2679,25 @@ static int block_ipc_namespace_creation(void) {
 #endif
 }
 
+/* A pathological close_range(2) backport makes every closefrom(3) call cost
+   minutes of uninterruptible kernel time, which stalls systemd, D-Bus, and
+   sshd during startup. Reporting ENOSYS restores the fast /proc/self/fd
+   fallback. See dawnshell_close_range_guard.h for the measurement. */
+static int install_close_range_guard(void) {
+    int guarded = dawnshell_install_close_range_guard();
+    if (guarded > 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_STAGE close_range_guard_installed "
+                "reason=kernel_walks_full_descriptor_range\n",
+                (long long) realtime_seconds());
+    } else if (guarded < 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_WARNING close_range_guard_unavailable\n",
+                (long long) realtime_seconds());
+    }
+    return 0;
+}
+
 static int set_base_private_namespaces(void) {
     /* Some kernels do not confine a container reboot request to the private
        PID namespace; reboot(2) reaches the Android kernel path and restarts
@@ -2711,7 +2733,11 @@ static int set_base_private_namespaces(void) {
             "[%lld] BFU_DEBIAN_STAGE ipc_namespace_android_shared "
             "legacy_kernel_compat=true\n",
             (long long) realtime_seconds());
-    return block_ipc_namespace_creation();
+    int ipc_result = block_ipc_namespace_creation();
+    if (ipc_result != 0) {
+        return ipc_result;
+    }
+    return install_close_range_guard();
 }
 
 static int set_private_namespaces(void) {
@@ -3102,6 +3128,20 @@ static int enter_debian_systemd(const char *root, const char *control_dir,
                "systemd.unified_cgroup_hierarchy=1 "
                "systemd.unit=multi-user.target",
                1);
+    }
+    /* systemd joins a fresh session keyring for its services. On an fscrypt
+       v1 filesystem that loses Android's encryption key, so every service
+       fails to create files with ENOKEY and the manager stays degraded. */
+    int keyring_guard = dawnshell_install_keyring_guard("/");
+    if (keyring_guard > 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_STAGE session_keyring_join_blocked "
+                "reason=fscrypt_key_lost_in_new_session_keyring\n",
+                (long long) realtime_seconds());
+    } else if (keyring_guard < 0) {
+        dprintf(STDERR_FILENO,
+                "[%lld] BFU_DEBIAN_WARNING session_keyring_guard_unavailable\n",
+                (long long) realtime_seconds());
     }
     reset_init_signals();
 

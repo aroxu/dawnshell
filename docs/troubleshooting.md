@@ -97,6 +97,123 @@ ss -ltnp | grep ':22 '
 After rotating the client key, run configuration again to install the new
 public key into `authorized_keys`.
 
+## Configuration stalls at "Setting up openssh-server" or the machine ID
+
+Some Android kernels, including several LineageOS builds on a 4.4 base, carry a
+close_range(2) backport that walks every descriptor number in the requested
+range instead of stopping at the end of the process descriptor table. glibc
+implements closefrom(3) as close_range(lowfd, ~0U, 0), so one call asks the
+kernel to walk 2^31-1 descriptors. Measured on an affected device this costs
+about 50 ns per descriptor, which turns a single closefrom(3) call into roughly
+two minutes of uninterruptible kernel time.
+
+sshd, systemd, and D-Bus all call closefrom(3) while their packages are
+configured, so the symptom looks like a hang at one of these lines:
+
+    Setting up openssh-server (...) ...
+    Creating config file /etc/ssh/sshd_config with new version
+    Initializing machine ID from D-Bus machine ID.
+
+The same quirk breaks short-timeout actions. Changing the Debian or root
+password runs chpasswd, which also calls closefrom(3), so the app reports:
+
+    account=root command=su exit=-2 timeout=true
+    output=read interrupted by close() on another thread
+
+Measured on an affected device, that one command took over 60 seconds without
+the guard and one second with it.
+
+Tools that never call closefrom(3), such as ssh-keygen, stay instant, which is
+why the slowness looks selective.
+
+DawnShell measures the kernel once per Debian entry point and, when it is
+affected, installs a seccomp filter that reports ENOSYS for close_range(2).
+glibc then falls back to scanning /proc/self/fd, which closes the same
+descriptors in microseconds. The filter is inherited, so apt, dpkg, sshd, and
+systemd are all covered. A successful installation logs:
+
+    dawnshell-fdguard: this kernel walks the whole close_range(2) range;
+    reporting ENOSYS so closefrom(3) uses /proc/self/fd
+
+On an affected device this changed `dpkg-reconfigure openssh-server` from over
+ten minutes to about three seconds.
+
+Confirm the kernel behaviour yourself from a root shell. The cost should stay
+flat as the range grows; a rising number means the kernel is affected:
+
+```sh
+for last in 1000 100000 10000000; do
+  printf 'last_fd=%s ' "$last"
+  TIMEFORMAT=%R
+  time perl -e "syscall(436, 3, $last, 0)"
+done
+```
+
+Override the automatic decision only for diagnosis:
+
+```sh
+DAWNSHELL_CLOSE_RANGE_GUARD=off    # never install the filter
+DAWNSHELL_CLOSE_RANGE_GUARD=force  # install without measuring
+```
+
+## systemd stays "degraded" and services report "Required key not available"
+
+The app can report the start as failed even though SSH answers. The health line
+then shows `system_state=degraded`, and these units are failed:
+
+    ldconfig.service                       Rebuild Dynamic Linker Cache
+    systemd-journal-catalog-update.service Rebuild Journal Catalog
+    systemd-update-done.service            Update is Completed
+
+Their journal entries all end the same way:
+
+    Failed to write "/etc/.updated": Required key not available
+
+/data is protected by fscrypt. On this kernel generation the policies are
+version 1, which means the encryption key is looked up in the calling process's
+own keyrings every time a new file is created. Android installs that key in the
+session keyring every process inherits.
+
+systemd's system manager joins a brand new session keyring while it starts so
+that services get a clean one. The new keyring does not contain Android's key,
+so every service loses the ability to create files and fails with ENOKEY.
+Reading existing files keeps working, which is why the damage looks selective.
+These three units run only after a package change, so the failure appears right
+after installing or reconfiguring something. Since systemd-update-done can never
+record completion, the same three units fail again on every later start and the
+manager stays degraded permanently. pam_keyinit does the same thing to SSH
+logins.
+
+DawnShell measures this inside the rootfs immediately before executing systemd
+and, when the filesystem is affected, installs a seccomp filter that reports
+ENOSYS for KEYCTL_JOIN_SESSION_KEYRING. systemd keeps the inherited keyring,
+logs the refusal at debug level, and continues; pam_keyinit is configured as
+optional. The launcher records:
+
+    BFU_DEBIAN_STAGE session_keyring_join_blocked
+    reason=fscrypt_key_lost_in_new_session_keyring
+
+Confirm the behaviour yourself from a shell inside Debian. The second write
+fails only on an affected filesystem:
+
+```sh
+perl -e '
+  open(my $a, ">", "/etc/dawnshell-key-a") or die "before: $!";
+  close($a); unlink "/etc/dawnshell-key-a";
+  syscall(219, 1, 0, 0, 0, 0);            # keyctl(KEYCTL_JOIN_SESSION_KEYRING)
+  open(my $b, ">", "/etc/dawnshell-key-b") or die "after: $!";
+  close($b); unlink "/etc/dawnshell-key-b";
+  print "both writes succeeded\n";
+'
+```
+
+Override the automatic decision only for diagnosis:
+
+```sh
+DAWNSHELL_SESSION_KEYRING_GUARD=off    # never install the filter
+DAWNSHELL_SESSION_KEYRING_GUARD=force  # install without measuring
+```
+
 ## apt network permission errors on LineageOS
 
 Some LineageOS-derived kernels retain Android's paranoid-network permission
@@ -347,7 +464,7 @@ A healthy worker reports `worker_state=ready`,
 | BFU-only failure | Android media services may not be ready. Compare after unlock; Debian and SSH must remain healthy. |
 
 ```sh
-/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl plan-ffmpeg \
   -i input.mp4 -c:v h264_mediacodec output.mp4
 ```
 

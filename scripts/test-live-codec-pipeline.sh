@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-adapter="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-ffmpeg.py"
+adapter="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-ffmpeg.pl"
 live_encoder="$repo_dir/app/src/main/assets/bfu/dawnshell-live-encode.sh"
 temporary="$(mktemp -d)"
 trap 'rm -rf "$temporary"' EXIT
@@ -14,7 +14,7 @@ import sys
 pathlib.Path(sys.argv[1]).write_bytes(bytes(range(256)) * 3)
 PYTHON_RAW
 
-python3 "$adapter" pack-i420 - 16 16 30/1 - \
+perl "$adapter" pack-i420 - 16 16 30/1 - \
     < "$temporary/i420.raw" \
     > "$temporary/i420.records" 2> "$temporary/pack.log"
 grep -Fq 'packed_i420_frames=2' "$temporary/pack.log"
@@ -52,7 +52,7 @@ payload = (
 pathlib.Path(sys.argv[1]).write_bytes(payload)
 PYTHON_ENCODED
 
-python3 "$adapter" unpack-annexb - - --require-keyframe \
+perl "$adapter" unpack-annexb - - --require-keyframe \
     < "$temporary/encoded.records" \
     > "$temporary/output.h264" 2> "$temporary/unpack.log"
 grep -Fq 'unpacked_annexb_frames=1' "$temporary/unpack.log"

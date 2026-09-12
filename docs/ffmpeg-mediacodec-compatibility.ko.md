@@ -235,7 +235,7 @@ root 전용이기 때문입니다. peer credential을 검사하는 listener는 �
 미디어를 건드리지 않고 선택 경로만 확인합니다.
 
 ```sh
-/usr/local/libexec/dawnshell-codec-ffmpeg.py plan-ffmpeg \
+/usr/local/libexec/dawnshell-codec-ffmpeg.pl plan-ffmpeg \
   -hwaccel mediacodec -i input.mp4 -map 0:v:0 -an \
   -c:v h264_mediacodec -b:v 6M output.mp4
 ```

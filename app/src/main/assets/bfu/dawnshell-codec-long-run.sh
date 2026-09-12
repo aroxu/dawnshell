@@ -38,7 +38,7 @@ if [ "$mode" = all ]; then
 fi
 
 vector_dir=/usr/local/share/dawnshell
-adapter=/usr/local/libexec/dawnshell-codec-ffmpeg.py
+adapter=/usr/local/libexec/dawnshell-codec-ffmpeg.pl
 case "$mode" in
     decode-avc-720)
         vector="$vector_dir/avc-baseline-1280x720-30fps-30f.h264"

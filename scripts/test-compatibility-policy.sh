@@ -83,7 +83,11 @@ fi
 # A root shell has a minimal PATH, so every chroot call must name the
 # provisioned toolbox applet instead of relying on command lookup.
 password_manager="$repo_dir/app/src/main/java/me/aroxu/dawnshell/DebianPasswordManager.java"
-grep -Fq 'toolboxBinary' "$password_manager"
+# The shared helper resolves the provisioned toolbox and prefixes the kernel
+# quirk guard, without which chpasswd exceeds its timeout on affected kernels.
+grep -Fq 'BfuRuntime.guardedChroot(' "$password_manager"
+grep -Fq 'toolboxBinary' \
+    "$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuRuntime.java"
 if grep -Eq '"chroot ' "$password_manager"; then
     echo "chroot must be invoked through the provisioned toolbox path" >&2
     exit 1
@@ -131,7 +135,10 @@ grep -Fq 'move_self_to_delegated_command(control_dir, cgroup_mode)' "$native_lau
 grep -Fq 'command_moved_to_cgroup_v2_leaf' "$native_launcher"
 grep -Fq '/dawnshell-command' "$native_launcher"
 grep -Fq 'host_usb_mode=%s' "$native_launcher"
-grep -Fq 'future_hotplug_cgroup_enforced=true' "$native_launcher"
+# The launcher reports the gate through a format string, so assert both the
+# field and the value it can carry.
+grep -Fq 'future_hotplug_cgroup_enforced=%s' "$native_launcher"
+grep -Fq 'device_gate_active ? "true" : "false"' "$native_launcher"
 grep -Fq 'exclusive_mode_requires_at_least_one_VID:PID' "$native_launcher"
 grep -Fq 'action=unbind' "$native_launcher"
 grep -Fq 'action=restore' "$native_launcher"

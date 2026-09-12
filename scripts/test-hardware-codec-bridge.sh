@@ -10,7 +10,7 @@ namespace_launcher="$repo_dir/app/src/main/cpp/bfu_namespace_probe.c"
 runtime="$repo_dir/app/src/main/java/me/aroxu/dawnshell/BfuRuntime.java"
 service="$repo_dir/app/src/main/java/me/aroxu/dawnshell/HardwareCodecService.java"
 configurator="$repo_dir/app/src/main/assets/bfu/configure-debian-systemd.sh"
-ffmpeg_adapter="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-ffmpeg.py"
+ffmpeg_adapter="$repo_dir/app/src/main/assets/bfu/dawnshell-codec-ffmpeg.pl"
 live_encode="$repo_dir/app/src/main/assets/bfu/dawnshell-live-encode.sh"
 temporary_client=""
 wrapper_dir=""
@@ -87,11 +87,9 @@ grep -Fq 'dawnshell-codec-worker.new' "$configurator"
 grep -Fq '/usr/local/libexec/dawnshell-codec-worker' "$configurator"
 
 bash -n "$configurator" "$live_encode"
-python3 - "$ffmpeg_adapter" <<'PYTHON_SYNTAX_CHECK'
-import pathlib
-import sys
-compile(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"), sys.argv[1], "exec")
-PYTHON_SYNTAX_CHECK
+# The adapter targets perl-base so a Debian rootfs needs no extra interpreter.
+perl -c "$ffmpeg_adapter"
+head -n 1 "$ffmpeg_adapter" | grep -Fqx '#!/usr/bin/perl'
 
 # The parser remains host-testable without starting an Android worker.
 vector="$repo_dir/app/src/main/assets/bfu/codec-test/avc-baseline-128x96-10fps.h264"

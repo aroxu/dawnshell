@@ -237,7 +237,14 @@ chmod 700 "$RUNNER"
 # shellcheck disable=SC2016
 grep -Fq 'CHROOT_CMD="$DAWNSHELL_HOST_CHROOT \"$TARGET\""' "$RUNNER" || \
     fail 27 "the Android host-chroot portability patch was not applied"
-export DAWNSHELL_HOST_CHROOT="$BIN/chroot"
+# Enter the target through the descriptor guard when it is available. Some
+# Android kernels walk the entire close_range(2) range, which turns each
+# closefrom(3) call in a maintainer script into minutes of kernel time.
+if [ -x "$BIN/dawnshell-fdguard" ]; then
+    export DAWNSHELL_HOST_CHROOT="$BIN/dawnshell-fdguard $BIN/chroot"
+else
+    export DAWNSHELL_HOST_CHROOT="$BIN/chroot"
+fi
 
 # Upstream temporarily assigns the target PATH to the special shell builtin
 # `eval` in in_target(). A POSIX shell may retain that assignment in the parent,
