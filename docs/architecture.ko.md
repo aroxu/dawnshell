@@ -120,6 +120,13 @@ cgroup(control group)은 프로세스 자원과 장치 접근을 관리합니다
 3. 성공하면 v2를 사용합니다.
 4. 실패하면 시험 자원을 모두 정리합니다.
 5. 격리된 cgroup v1 `devices`와 `name=systemd` 방식으로 전환합니다.
+6. `devices` 컨트롤러도 없으면 `name=systemd`만 사용합니다(`cgroup_mode=v1-nodev`).
+
+`BPF_PROG_TYPE_CGROUP_DEVICE`는 Linux 4.15에서 추가됐고, `CONFIG_CGROUP_DEVICE`를
+끄고 빌드한 커널에는 cgroup v1 `devices` 컨트롤러가 없습니다. 두 장치 정책 수단이
+모두 없는 커널에서는 6단계로 내려가며, 이때는 장치 정책을 적용할 수 없으므로 USB
+패스스루가 꺼져 있을 때만 시작합니다. `/dev/bus/usb`에는 비어 있는 읽기 전용
+마운트가 그대로 유지되고, 로그에는 `cgroup_major_189_denied=false`가 남습니다.
 
 Android 전역 cgroup을 Debian에 그대로 공개하지 않습니다. Docker가 Android
 프로세스의 장치 정책까지 바꾸는 위험을 줄이기 위해 전용 하위 트리만 제공합니다.
