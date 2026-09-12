@@ -42,6 +42,12 @@ at the next locked boot because BFU cannot display Magisk's prompt.
 
 ## Debian does not start during BFU
 
+Some ROMs deliver boot completion after the user is already unlocked. In that
+case DawnShell starts an already-provisioned Debian rootfs from
+`BOOT_COMPLETED`, without repeating the BFU probes. A credential-protected boot
+uses `LOCKED_BOOT_COMPLETED` and starts Debian after the BFU root, CE-isolation,
+rootfs, and namespace checks pass.
+
 Read **Direct Boot diagnostics** in this order:
 
 1. `LOCKED_BOOT_COMPLETED received`

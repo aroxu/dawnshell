@@ -133,7 +133,14 @@ public class BfuBootService extends Service {
                 && startupChecksStarted.compareAndSet(false, true)) {
             executor.execute(this::runBfuStartupChecks);
         } else if (ACTION_START.equals(action) && userUnlocked) {
-            Log.i(TAG, "BFU startup checks skipped because Android is already unlocked");
+            // A few ROMs finish boot in the unlocked state, or deliver the
+            // locked-boot broadcast only after USER_UNLOCKED. BFU probes are
+            // intentionally skipped in that case, but Debian must still be
+            // started from the already-provisioned rootfs.
+            Log.i(TAG, "BFU startup checks skipped because Android is already unlocked; "
+                    + "requesting normal Debian start");
+            requestLifecycleOperation(DebianLauncher.Operation.START,
+                    "boot_completed_unlocked");
         }
 
         if (ACTION_APPLY_RUNTIME_SETTINGS.equals(action)) {
